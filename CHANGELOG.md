@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-02-25
+
+### Fixed
+- Tailscale DNS (MagicDNS) no longer overwrites router's resolv.conf on first activation — `CorpDNS` is now set to `false` by default in all activation paths (interactive login, auth key)
+
+### Added
+- "Tailscale DNS" toggle in Settings → Advanced with a warning about consequences of enabling DNS takeover on a router
+
 ## [1.0.0] - 2026-02-25
 
 ### Added
@@ -21,5 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/eds-ch/vpn-pack/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/eds-ch/vpn-pack/releases/tag/v1.0.0

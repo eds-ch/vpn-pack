@@ -19,6 +19,7 @@ import (
 
 type settingsResponse struct {
 	Hostname             string  `json:"hostname"`
+	AcceptDNS            bool    `json:"acceptDNS"`
 	AcceptRoutes         bool    `json:"acceptRoutes"`
 	ShieldsUp            bool    `json:"shieldsUp"`
 	RunSSH               bool    `json:"runSSH"`
@@ -31,6 +32,7 @@ type settingsResponse struct {
 
 type settingsRequest struct {
 	Hostname             *string `json:"hostname,omitempty"`
+	AcceptDNS            *bool   `json:"acceptDNS,omitempty"`
 	AcceptRoutes         *bool   `json:"acceptRoutes,omitempty"`
 	ShieldsUp            *bool   `json:"shieldsUp,omitempty"`
 	RunSSH               *bool   `json:"runSSH,omitempty"`
@@ -50,6 +52,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Hostname:             prefs.Hostname,
+		AcceptDNS:            prefs.CorpDNS,
 		AcceptRoutes:         prefs.RouteAll,
 		ShieldsUp:            prefs.ShieldsUp,
 		RunSSH:               prefs.RunSSH,
@@ -118,6 +121,7 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Hostname:             updated.Hostname,
+		AcceptDNS:            updated.CorpDNS,
 		AcceptRoutes:         updated.RouteAll,
 		ShieldsUp:            updated.ShieldsUp,
 		RunSSH:               updated.RunSSH,
@@ -180,6 +184,10 @@ func buildMaskedPrefs(req *settingsRequest, relayEndpoints []netip.AddrPort) *ip
 	if req.Hostname != nil {
 		mp.Hostname = *req.Hostname
 		mp.HostnameSet = true
+	}
+	if req.AcceptDNS != nil {
+		mp.CorpDNS = *req.AcceptDNS
+		mp.CorpDNSSet = true
 	}
 	if req.AcceptRoutes != nil {
 		mp.RouteAll = *req.AcceptRoutes

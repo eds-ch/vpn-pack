@@ -99,6 +99,7 @@ func TestBuildMaskedPrefs(t *testing.T) {
 		req := &settingsRequest{}
 		mp := buildMaskedPrefs(req, nil)
 		assert.False(t, mp.HostnameSet)
+		assert.False(t, mp.CorpDNSSet)
 		assert.False(t, mp.RouteAllSet)
 		assert.False(t, mp.ShieldsUpSet)
 		assert.False(t, mp.RunSSHSet)
@@ -118,5 +119,19 @@ func TestBuildMaskedPrefs(t *testing.T) {
 		mp := buildMaskedPrefs(req, nil)
 		assert.True(t, mp.ShieldsUpSet)
 		assert.True(t, mp.ShieldsUp)
+	})
+
+	t.Run("acceptDNS enabled", func(t *testing.T) {
+		req := &settingsRequest{AcceptDNS: ptr(true)}
+		mp := buildMaskedPrefs(req, nil)
+		assert.True(t, mp.CorpDNSSet)
+		assert.True(t, mp.CorpDNS)
+	})
+
+	t.Run("acceptDNS disabled", func(t *testing.T) {
+		req := &settingsRequest{AcceptDNS: ptr(false)}
+		mp := buildMaskedPrefs(req, nil)
+		assert.True(t, mp.CorpDNSSet)
+		assert.False(t, mp.CorpDNS)
 	})
 }

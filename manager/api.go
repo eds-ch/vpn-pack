@@ -25,6 +25,10 @@ func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if st.BackendState == "NeedsLogin" {
+		s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
+			Prefs:      ipn.Prefs{CorpDNS: false},
+			CorpDNSSet: true,
+		})
 		err = s.lc.StartLoginInteractive(r.Context())
 	} else {
 		_, err = s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
@@ -58,6 +62,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
+		Prefs:      ipn.Prefs{CorpDNS: false},
+		CorpDNSSet: true,
+	})
 	if err := s.lc.StartLoginInteractive(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return

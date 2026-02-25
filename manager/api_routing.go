@@ -163,6 +163,10 @@ func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
+		Prefs:      ipn.Prefs{CorpDNS: false},
+		CorpDNSSet: true,
+	})
 	err := s.lc.Start(r.Context(), ipn.Options{AuthKey: req.AuthKey})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
