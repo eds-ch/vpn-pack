@@ -41,7 +41,26 @@
         return '';
     });
 
-    let hasErrors = $derived(!!hostnameError || !!udpPortError || !!relayPortError || !!relayEndpointsError);
+    let tagsDisplay = $derived((staged.advertiseTags ?? []).join(', '));
+
+    let tagsError = $derived.by(() => {
+        const tags = staged.advertiseTags;
+        if (!tags || tags.length === 0) return '';
+        for (const t of tags) {
+            if (!t.startsWith('tag:')) return `"${t}" must start with tag:`;
+            const name = t.slice(4);
+            if (!name) return `Tag name must not be empty`;
+            if (!/^[a-zA-Z][a-zA-Z0-9-]*$/.test(name)) return `"${t}" — only letters, numbers, dashes; must start with a letter`;
+        }
+        return '';
+    });
+
+    function handleTagsInput(value) {
+        const tags = value.split(',').map(s => s.trim()).filter(Boolean);
+        stageChange('advertiseTags', tags);
+    }
+
+    let hasErrors = $derived(!!hostnameError || !!udpPortError || !!relayPortError || !!relayEndpointsError || !!tagsError);
 
     $effect(() => { onValidation(hasErrors); });
 
@@ -175,6 +194,34 @@
                         class="w-full sm:w-64 px-3 py-1.5 text-body rounded-lg border bg-input text-text placeholder-text-secondary focus:outline-none
                             {relayEndpointsError ? 'border-error' : 'border-border focus:border-blue'}"
                     />
+                </div>
+
+                <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                    <div>
+                        <label for="advertiseTags" class="text-body text-text">Device Tags</label>
+                        <p class="text-caption text-text-tertiary mt-0.5">ACL tags for this device. Required for relay grants (e.g. <code class="px-1 py-0.5 rounded bg-surface text-text font-mono text-caption">tag:relay</code>).</p>
+                        {#if tagsError}
+                            <p class="text-caption text-error mt-0.5">{tagsError}</p>
+                        {/if}
+                    </div>
+                    <input
+                        id="advertiseTags"
+                        type="text"
+                        value={tagsDisplay}
+                        placeholder="tag:relay"
+                        oninput={(e) => handleTagsInput(e.target.value)}
+                        class="w-full sm:w-64 px-3 py-1.5 text-body rounded-lg border bg-input text-text placeholder-text-secondary focus:outline-none
+                            {tagsError ? 'border-error' : 'border-border focus:border-blue'}"
+                    />
+                </div>
+
+                <div class="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-caption text-text-secondary">
+                    <div class="flex gap-2">
+                        <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                        </svg>
+                        <p>Adding tags transfers device ownership from your user to ACL-managed. Ensure your ACL has SSH and access rules for tagged devices.</p>
+                    </div>
                 </div>
 
                 <div class="rounded-lg border border-blue/20 bg-blue/5 px-4 py-3 text-caption text-text-secondary">

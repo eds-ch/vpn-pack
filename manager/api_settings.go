@@ -18,29 +18,31 @@ import (
 )
 
 type settingsResponse struct {
-	Hostname             string  `json:"hostname"`
-	AcceptDNS            bool    `json:"acceptDNS"`
-	AcceptRoutes         bool    `json:"acceptRoutes"`
-	ShieldsUp            bool    `json:"shieldsUp"`
-	RunSSH               bool    `json:"runSSH"`
-	ControlURL           string  `json:"controlURL"`
-	NoSNAT               bool    `json:"noSNAT"`
-	UDPPort              int     `json:"udpPort"`
-	RelayServerPort      *uint16 `json:"relayServerPort"`
-	RelayServerEndpoints string  `json:"relayServerEndpoints"`
+	Hostname             string   `json:"hostname"`
+	AcceptDNS            bool     `json:"acceptDNS"`
+	AcceptRoutes         bool     `json:"acceptRoutes"`
+	ShieldsUp            bool     `json:"shieldsUp"`
+	RunSSH               bool     `json:"runSSH"`
+	ControlURL           string   `json:"controlURL"`
+	NoSNAT               bool     `json:"noSNAT"`
+	UDPPort              int      `json:"udpPort"`
+	RelayServerPort      *uint16  `json:"relayServerPort"`
+	RelayServerEndpoints string   `json:"relayServerEndpoints"`
+	AdvertiseTags        []string `json:"advertiseTags"`
 }
 
 type settingsRequest struct {
-	Hostname             *string `json:"hostname,omitempty"`
-	AcceptDNS            *bool   `json:"acceptDNS,omitempty"`
-	AcceptRoutes         *bool   `json:"acceptRoutes,omitempty"`
-	ShieldsUp            *bool   `json:"shieldsUp,omitempty"`
-	RunSSH               *bool   `json:"runSSH,omitempty"`
-	ControlURL           *string `json:"controlURL,omitempty"`
-	NoSNAT               *bool   `json:"noSNAT,omitempty"`
-	UDPPort              *int    `json:"udpPort,omitempty"`
-	RelayServerPort      *int    `json:"relayServerPort"`
-	RelayServerEndpoints *string `json:"relayServerEndpoints,omitempty"`
+	Hostname             *string    `json:"hostname,omitempty"`
+	AcceptDNS            *bool      `json:"acceptDNS,omitempty"`
+	AcceptRoutes         *bool      `json:"acceptRoutes,omitempty"`
+	ShieldsUp            *bool      `json:"shieldsUp,omitempty"`
+	RunSSH               *bool      `json:"runSSH,omitempty"`
+	ControlURL           *string    `json:"controlURL,omitempty"`
+	NoSNAT               *bool      `json:"noSNAT,omitempty"`
+	UDPPort              *int       `json:"udpPort,omitempty"`
+	RelayServerPort      *int       `json:"relayServerPort"`
+	RelayServerEndpoints *string    `json:"relayServerEndpoints,omitempty"`
+	AdvertiseTags        *[]string  `json:"advertiseTags,omitempty"`
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +63,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		UDPPort:              readTailscaledPort(),
 		RelayServerPort:      prefs.RelayServerPort,
 		RelayServerEndpoints: formatAddrPorts(prefs.RelayServerStaticEndpoints),
+		AdvertiseTags:        prefs.AdvertiseTags,
 	})
 }
 
@@ -138,6 +141,7 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		UDPPort:              readTailscaledPort(),
 		RelayServerPort:      updated.RelayServerPort,
 		RelayServerEndpoints: formatAddrPorts(updated.RelayServerStaticEndpoints),
+		AdvertiseTags:        updated.AdvertiseTags,
 	})
 }
 
@@ -175,6 +179,14 @@ func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsReque
 		}
 	}
 
+	if req.AdvertiseTags != nil {
+		for _, tag := range *req.AdvertiseTags {
+			if err := validateTag(tag); err != nil {
+				return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("Invalid tag %q: %v", tag, err)}
+			}
+		}
+	}
+
 	var relayEndpoints []netip.AddrPort
 	if req.RelayServerEndpoints != nil && *req.RelayServerEndpoints != "" {
 		var err error
@@ -186,6 +198,28 @@ func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsReque
 
 	return relayEndpoints, nil
 }
+
+func validateTag(tag string) error {
+	name, ok := strings.CutPrefix(tag, "tag:")
+	if !ok {
+		return fmt.Errorf("must start with 'tag:'")
+	}
+	if name == "" {
+		return fmt.Errorf("name must not be empty")
+	}
+	if !isAlpha(name[0]) {
+		return fmt.Errorf("name must start with a letter")
+	}
+	for _, b := range []byte(name) {
+		if !isAlpha(b) && !isNum(b) && b != '-' {
+			return fmt.Errorf("name can only contain letters, numbers, or dashes")
+		}
+	}
+	return nil
+}
+
+func isAlpha(b byte) bool { return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') }
+func isNum(b byte) bool   { return b >= '0' && b <= '9' }
 
 func buildMaskedPrefs(req *settingsRequest, relayEndpoints []netip.AddrPort) *ipn.MaskedPrefs {
 	mp := &ipn.MaskedPrefs{}
@@ -230,6 +264,10 @@ func buildMaskedPrefs(req *settingsRequest, relayEndpoints []netip.AddrPort) *ip
 	if req.RelayServerEndpoints != nil {
 		mp.RelayServerStaticEndpoints = relayEndpoints
 		mp.RelayServerStaticEndpointsSet = true
+	}
+	if req.AdvertiseTags != nil {
+		mp.AdvertiseTags = *req.AdvertiseTags
+		mp.AdvertiseTagsSet = true
 	}
 	return mp
 }

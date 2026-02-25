@@ -365,6 +365,7 @@ const mockSettings = {
     noSNAT: false,
     relayServerPort: null,
     relayServerEndpoints: '',
+    advertiseTags: [],
 };
 
 const mockFirewall = {
