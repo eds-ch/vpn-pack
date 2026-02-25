@@ -25,19 +25,13 @@ Requirements: UniFi OS with controller (unifi-core), aarch64, systemd, `/dev/net
 
 ## Install
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/eds-ch/vpn-pack/main/install.sh | sh
-```
-
-The installer validates your system, downloads the latest release from GitHub, verifies checksums, and sets everything up. It works for both fresh installs and upgrades (auth state is preserved).
-
-Pin a specific version:
+[Enable SSH](https://help.ui.com/hc/en-us/articles/204909374-Connecting-to-UniFi-with-Debug-Tools-SSH) on your gateway (Settings → Control Plane → Console → SSH), then run:
 
 ```bash
-VERSION_PIN=v1.0.0 curl -fsSL https://raw.githubusercontent.com/eds-ch/vpn-pack/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/eds-ch/vpn-pack/main/get.sh | bash
 ```
 
-Before installing, [enable SSH](https://help.ui.com/hc/en-us/articles/204909374-Connecting-to-UniFi-with-Debug-Tools-SSH) on your gateway (Settings → Control Plane → Console → SSH). You can disable it after installation.
+The script checks for an existing installation, downloads the latest release from GitHub, verifies the SHA256 checksum, and runs the installer. On upgrade, auth state and config are preserved.
 
 After installation:
 
