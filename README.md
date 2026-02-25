@@ -1,6 +1,6 @@
-# vpn-pack
+# VPN-pack
 
-Tailscale for UniFi Cloud Gateway devices. Installs as a persistent service with a built-in web management UI.
+Tailscale and WireGuard Site-to-Site VPN for UniFi Cloud Gateway devices (UDM SE, UDM Pro, UCG Ultra, UDR SE). Survives firmware updates, integrates with UniFi firewall zones, and ships with a web UI for management.
 
 ## Features
 
