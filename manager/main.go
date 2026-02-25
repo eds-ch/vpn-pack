@@ -48,10 +48,6 @@ func main() {
 
 	srv := NewServer(ctx, *listen, *socket, info)
 
-	if err := srv.nginx.EnsureConfig(); err != nil {
-		slog.Warn("nginx config setup failed", "err", err)
-	}
-
 	if err := srv.Run(ctx); err != nil {
 		slog.Error("server failed", "err", err)
 		os.Exit(1)

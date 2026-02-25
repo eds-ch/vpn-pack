@@ -49,7 +49,6 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 
 		case <-ticker.C:
 			s.checkAndRestoreRules()
-			s.checkNginxConfig()
 
 		case <-sighup:
 			slog.Info("SIGHUP received, forcing reapply")
@@ -90,13 +89,7 @@ func initFsWatcher() (*fsnotify.Watcher, error) {
 		return nil, err
 	}
 
-	if _, err := os.Stat(nginxConfigDir); err == nil {
-		if err := watcher.Add(nginxConfigDir); err != nil {
-			slog.Warn("nginx dir watch failed", "path", nginxConfigDir, "err", err)
-		}
-	}
-
-	slog.Info("inotify watching", "paths", []string{configDir, nginxConfigDir})
+	slog.Info("inotify watching", "path", configDir)
 	return watcher, nil
 }
 
@@ -147,17 +140,6 @@ func (s *Server) runInotifyLoop(ctx context.Context, watcher *fsnotify.Watcher, 
 
 func (s *Server) handleFsEvent(event fsnotify.Event) bool {
 	base := filepath.Base(event.Name)
-
-	if base == nginxConfigFile && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) {
-		slog.Info("nginx config removed, restoring", "file", event.Name)
-		if s.nginx != nil {
-			if err := s.nginx.EnsureConfig(); err != nil {
-				slog.Warn("nginx config restore failed", "err", err)
-			}
-		}
-		return false
-	}
-
 	return base == filepath.Base(udapiConfigPath) && event.Has(fsnotify.Write)
 }
 
@@ -261,18 +243,6 @@ func (s *Server) reconcileWanPortPolicies() {
 		s.manifest.RemoveWanPort(marker)
 		if err := s.fw.OpenWanPort(entry.Port, marker); err != nil {
 			slog.Warn("WAN port policy recreation failed", "marker", marker, "err", err)
-		}
-	}
-}
-
-func (s *Server) checkNginxConfig() {
-	if s.nginx == nil {
-		return
-	}
-	if _, err := os.Stat(s.nginx.configDest); os.IsNotExist(err) {
-		slog.Info("nginx config missing, restoring")
-		if err := s.nginx.EnsureConfig(); err != nil {
-			slog.Warn("nginx config restore failed", "err", err)
 		}
 	}
 }

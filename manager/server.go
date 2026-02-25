@@ -139,6 +139,8 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 
+	go s.runNginxWatcher(ctx)
+
 	if s.deviceInfo.HasUDAPISocket {
 		if s.integrationReady() {
 			if err := s.fw.SetupTailscaleFirewall(); err != nil {

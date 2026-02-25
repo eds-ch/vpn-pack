@@ -1,6 +1,6 @@
 [Unit]
 Description=VPN Pack Manager (UniFi)
-After=tailscaled.service ubios-udapi-server.service
+After=tailscaled.service ubios-udapi-server.service unifi-core.service
 Wants=tailscaled.service
 
 [Service]
