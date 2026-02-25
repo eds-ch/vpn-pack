@@ -111,6 +111,15 @@ done
 
 systemctl daemon-reload
 
+# ── Remove symlinks ──────────────────────────────────────────────
+
+for link in /usr/local/bin/tailscale /usr/local/bin/tailscaled; do
+    if [ -L "$link" ]; then
+        info "Removing symlink $(basename "$link")..."
+        rm -f "$link"
+    fi
+done
+
 # ── Remove binaries ───────────────────────────────────────────────
 
 if [ -d "${BIN_DIR}" ]; then

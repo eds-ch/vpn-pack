@@ -125,6 +125,9 @@ cp -f "${SCRIPT_DIR}/bin/tailscaled" "${BIN_DIR}/tailscaled"
 cp -f "${SCRIPT_DIR}/bin/vpn-pack-manager" "${BIN_DIR}/vpn-pack-manager"
 chmod 755 "${BIN_DIR}/tailscale" "${BIN_DIR}/tailscaled" "${BIN_DIR}/vpn-pack-manager"
 
+ln -sf "${BIN_DIR}/tailscale" /usr/local/bin/tailscale
+ln -sf "${BIN_DIR}/tailscaled" /usr/local/bin/tailscaled
+
 # Install defaults only if not present (preserve user customization on upgrade)
 if [ ! -f "${INSTALL_DIR}/tailscaled.defaults" ]; then
     info "Installing default configuration..."
@@ -165,35 +168,25 @@ for i in $(seq 1 10); do
     sleep 1
 done
 
+FAIL=false
+
 if systemctl is-active --quiet tailscaled 2>/dev/null; then
     info "tailscaled is ${GREEN}running${NC}"
-
-    # Brief delay for socket to be ready
-    sleep 2
-
-    # Show status or auth URL
-    STATUS=$("${BIN_DIR}/tailscale" status 2>&1) || true
-    if echo "$STATUS" | grep -q "Log in at"; then
-        echo ""
-        warn "Tailscale needs authentication. Visit the URL below:"
-        echo "$STATUS" | grep "https://"
-    elif echo "$STATUS" | grep -q "NeedsLogin"; then
-        echo ""
-        warn "Run: ${BIN_DIR}/tailscale up"
-    else
-        echo ""
-        echo "$STATUS" | head -5
-    fi
 else
-    error "tailscaled failed to start. Check: journalctl -u tailscaled"
-    exit 1
+    error "tailscaled failed to start"
+    error "Run: journalctl -u tailscaled -e"
+    FAIL=true
 fi
 
 if systemctl is-active --quiet vpn-pack-manager 2>/dev/null; then
-    info "vpn-pack-manager is ${GREEN}running${NC} (behind nginx at /vpn-pack/)"
+    info "vpn-pack-manager is ${GREEN}running${NC}"
 else
-    warn "vpn-pack-manager failed to start. Check: journalctl -u vpn-pack-manager"
+    error "vpn-pack-manager failed to start"
+    error "Run: journalctl -u vpn-pack-manager -e"
+    FAIL=true
 fi
+
+[ "$FAIL" = true ] && exit 1
 
 # Install VERSION and uninstall script
 if [ -f "${SCRIPT_DIR}/VERSION" ]; then
@@ -204,19 +197,24 @@ if [ -f "${SCRIPT_DIR}/uninstall.sh" ]; then
     chmod +x "${INSTALL_DIR}/uninstall.sh"
 fi
 
+# ── Stage 6: Next steps ──────────────────────────────────────────
+
+LAN_IP=$(ip -4 addr show br0 2>/dev/null | grep -oP 'inet \K[^/]+' | head -1)
+[ -z "$LAN_IP" ] && LAN_IP="<device-ip>"
+
 echo ""
-info "Installation complete!"
-info "Binaries: ${BIN_DIR}/"
-info "State:    ${STATE_DIR}/"
-info "Config:   ${CONFIG_DIR}/"
-info "Nginx:    ${NGINX_DEST}"
-info "Services: ${SYSTEMD_UNIT}"
-info "          ${MANAGER_UNIT}"
+echo -e "  ${BOLD}vpn-pack v${VERSION:-unknown} installed${NC}"
 echo ""
-info "Useful commands:"
-echo "  ${BIN_DIR}/tailscale status      — show connection status"
-echo "  ${BIN_DIR}/tailscale up          — authenticate / connect"
-echo "  systemctl restart tailscaled     — restart daemon"
-echo "  journalctl -u tailscaled -f      — follow logs"
-echo "  https://<device-ip>/vpn-pack/    — Web UI (behind UniFi auth)"
-echo "  journalctl -u vpn-pack-manager -f — manager logs"
+echo -e "  ${BOLD}Next steps:${NC}"
+echo ""
+echo -e "  1. Open UniFi console in your browser:"
+echo -e "     ${BOLD}https://${LAN_IP}${NC}"
+echo ""
+echo -e "  2. Go to Settings > API and create an API key"
+echo -e "     (needed for vpn-pack to manage firewall zones)"
+echo ""
+echo -e "  3. Open vpn-pack UI:"
+echo -e "     ${BOLD}https://${LAN_IP}/vpn-pack/${NC}"
+echo ""
+echo -e "  4. Enter the API key and authenticate Tailscale"
+echo ""

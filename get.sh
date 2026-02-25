@@ -27,6 +27,12 @@ die()   { error "$*"; exit 1; }
 [ "$(uname -m)" = "aarch64" ] || die "Unsupported architecture: $(uname -m) (need aarch64)"
 command -v curl >/dev/null || die "curl is required but not found"
 
+INSTALLED_VERSION=""
+if [ -f /persistent/vpn-pack/VERSION ]; then
+    INSTALLED_VERSION=$(head -1 /persistent/vpn-pack/VERSION)
+    info "Installed version: ${BOLD}v${INSTALLED_VERSION}${NC}"
+fi
+
 info "Fetching latest release info..."
 RELEASE_JSON=$(curl -fsSL "$API_URL") || die "Failed to reach GitHub API"
 
@@ -35,9 +41,19 @@ VERSION=$(echo "$RELEASE_JSON" | grep -o '"tag_name" *: *"[^"]*"' | head -1 | gr
 SEMVER=${VERSION#v}
 info "Latest version: ${BOLD}${VERSION}${NC}"
 
+if [ "$INSTALLED_VERSION" = "$SEMVER" ]; then
+    info "Already up to date."
+    exit 0
+fi
+
 ARCHIVE="vpn-pack-${SEMVER}.tar.gz"
 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 
+if [ -n "$INSTALLED_VERSION" ]; then
+    info "Updating v${INSTALLED_VERSION} -> ${VERSION}..."
+else
+    info "Installing ${VERSION}..."
+fi
 info "Downloading ${ARCHIVE}..."
 curl -fSL --progress-bar -o "${TMPDIR}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" || die "Download failed"
 
