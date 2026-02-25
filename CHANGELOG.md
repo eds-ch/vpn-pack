@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-02-25
+
+### Fixed
+- Login/auth-key flows now fail early if MagicDNS cannot be disabled, preventing DNS breakage on router
+- Manifest saves use atomic write (temp file + rename) to prevent corruption on crash
+- Logs tab polling replaced with proper async loop to fix race condition on unmount
+- Clipboard copy errors now caught and surfaced in UI instead of silently failing
+- SSE error deduplication (5s window) and cap at 50 entries to prevent memory leak
+- Install command in README corrected to `get.sh`
+
+### Added
+- WireGuard S2S tunnel update validation (ports, CIDRs, base64 keys)
+- API client request timeouts (30s default, 60s for diagnostics) with AbortController
+- Login flow retry button on failure with 3s delay
+- IPv6 bracket notation support in endpoint validation
+- Reusable ApiKeyForm component (extracted from Settings and Setup)
+- Semantic version comparison for update checker
+- Tests for manifest atomicity, WG S2S validation, version comparison, firewall watcher
+
+### Changed
+- UCG Ultra marked as "Tested" in README (previously "Supported")
+
 ## [1.0.2] - 2026-02-25
 
 ### Fixed
@@ -29,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/eds-ch/vpn-pack/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/eds-ch/vpn-pack/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/eds-ch/vpn-pack/releases/tag/v1.0.0
