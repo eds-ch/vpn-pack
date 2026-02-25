@@ -120,11 +120,12 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 			return
 		case <-ticker.C:
 			enrichment := s.fetchStatusEnrichment()
+			integrationStatus := s.fetchIntegrationStatus()
 
 			s.state.mu.Lock()
 			s.applyEnrichment(enrichment)
 			s.state.data.FirewallHealth = s.firewallHealthSnapshot()
-			s.state.data.IntegrationStatus = s.integrationStatusSnapshot()
+			s.state.data.IntegrationStatus = integrationStatus
 			if s.wgManager != nil {
 				tunnels := s.wgManager.GetStatuses()
 				if s.fw != nil {
@@ -218,10 +219,11 @@ func (s *Server) processNotify(n *ipn.Notify) {
 		enrichment = s.fetchStatusEnrichment()
 	}
 
+	integrationStatus := s.fetchIntegrationStatus()
 	s.state.mu.Lock()
 	s.applyEnrichment(enrichment)
 	s.state.data.FirewallHealth = s.firewallHealthSnapshot()
-	s.state.data.IntegrationStatus = s.integrationStatusSnapshot()
+	s.state.data.IntegrationStatus = integrationStatus
 	s.state.mu.Unlock()
 
 	s.broadcastState()

@@ -24,6 +24,8 @@ let logs = $state([]);
 let updateInfo = $state({ available: false, version: '', currentVersion: '', changelogURL: '', dismissed: false });
 let changedFields = new SvelteSet();
 let nextErrorId = 0;
+const ERROR_CAP = 50;
+const ERROR_DEDUP_MS = 5000;
 let eventSource = null;
 let changeTimer = null;
 let sseErrorId = null;
@@ -49,11 +51,14 @@ export function dismissUpdate() {
 }
 
 export function addError(message) {
+    const now = Date.now();
+    if (errors.some(e => e.message === message && (now - new Date(e.timestamp).getTime()) < ERROR_DEDUP_MS)) return;
     errors.push({
         id: nextErrorId++,
         message,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(now).toISOString(),
     });
+    if (errors.length > ERROR_CAP) errors.splice(0, errors.length - ERROR_CAP);
 }
 
 export function dismissError(id) {
@@ -72,6 +77,13 @@ function addLog(level, message) {
         timestamp: new Date().toISOString(),
     });
     if (logs.length > 500) logs.length = 500;
+}
+
+function valuesEqual(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return a === b;
+    if (typeof a !== 'object') return false;
+    return JSON.stringify(a) === JSON.stringify(b);
 }
 
 export function connect() {
@@ -99,9 +111,7 @@ export function connect() {
 
             for (const key of Object.keys(data)) {
                 if (key in status) {
-                    const oldVal = JSON.stringify(status[key]);
-                    const newVal = JSON.stringify(data[key]);
-                    if (oldVal !== newVal) {
+                    if (!valuesEqual(status[key], data[key])) {
                         changed.add(key);
                     }
                 }

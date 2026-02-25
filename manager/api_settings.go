@@ -100,24 +100,32 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var needsRestart bool
 	if req.ControlURL != nil && *req.ControlURL != oldControlURL {
-		newURL := *req.ControlURL
-		go func() {
-			if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
-				slog.Warn("tailscaled restart failed after control URL change", "err", err, "output", string(out))
-			} else {
-				slog.Info("tailscaled restarted for control URL change", "url", newURL)
-			}
-		}()
+		needsRestart = true
 	}
 
-	if err := s.applyUDPPortChange(req.UDPPort); err != nil {
+	portRestart, err := s.applyUDPPortChange(req.UDPPort)
+	if err != nil {
 		writeAPIError(w, err)
 		return
+	}
+	if portRestart {
+		needsRestart = true
 	}
 
 	s.updateRelayPortRules(req.RelayServerPort, oldRelayPort)
 	s.updateTailscaleWgPortRules(req.UDPPort)
+
+	if needsRestart {
+		go func() {
+			if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
+				slog.Warn("tailscaled restart failed", "err", err, "output", string(out))
+			} else {
+				slog.Info("tailscaled restarted for settings change")
+			}
+		}()
+	}
 
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Hostname:             updated.Hostname,
@@ -226,27 +234,19 @@ func buildMaskedPrefs(req *settingsRequest, relayEndpoints []netip.AddrPort) *ip
 	return mp
 }
 
-func (s *Server) applyUDPPortChange(newPort *int) error {
+func (s *Server) applyUDPPortChange(newPort *int) (bool, error) {
 	if newPort == nil {
-		return nil
+		return false, nil
 	}
 	currentPort := readTailscaledPort()
 	if *newPort == currentPort {
-		return nil
+		return false, nil
 	}
 	if err := writeTailscaledPort(*newPort); err != nil {
 		slog.Warn("failed to write tailscaled port", "err", err)
-		return &apiError{http.StatusInternalServerError, "Failed to update UDP port configuration"}
+		return false, &apiError{http.StatusInternalServerError, "Failed to update UDP port configuration"}
 	}
-	port := *newPort
-	go func() {
-		if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
-			slog.Warn("tailscaled restart failed", "err", err, "output", string(out))
-		} else {
-			slog.Info("tailscaled restarted for port change", "port", port)
-		}
-	}()
-	return nil
+	return true, nil
 }
 
 func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {

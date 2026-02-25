@@ -49,12 +49,45 @@ export function isValidPort(value) {
 }
 
 export function isValidEndpoint(value) {
-    const lastColon = value.lastIndexOf(':');
-    if (lastColon <= 0) return false;
-    const port = value.slice(lastColon + 1);
-    if (!port) return false;
-    const portNum = Number(port);
-    return Number.isInteger(portNum) && portNum >= PORT_MIN && portNum <= PORT_MAX;
+    if (!value) return false;
+
+    let host, portStr;
+
+    if (value.startsWith('[')) {
+        const closeBracket = value.indexOf(']');
+        if (closeBracket === -1) return false;
+        host = value.slice(1, closeBracket);
+        if (value[closeBracket + 1] !== ':') return false;
+        portStr = value.slice(closeBracket + 2);
+    } else {
+        const lastColon = value.lastIndexOf(':');
+        if (lastColon <= 0) return false;
+        host = value.slice(0, lastColon);
+        portStr = value.slice(lastColon + 1);
+    }
+
+    if (!host || !portStr) return false;
+
+    const portNum = Number(portStr);
+    if (!Number.isInteger(portNum) || portNum < PORT_MIN || portNum > PORT_MAX) return false;
+
+    return isValidHost(host);
+}
+
+function isValidHost(host) {
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+        return host.split('.').every(o => {
+            const n = Number(o);
+            return n >= 0 && n <= OCTET_MAX;
+        });
+    }
+    if (/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,62}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,62}[a-zA-Z0-9])?)*$/.test(host)) {
+        return true;
+    }
+    if (host.includes(':')) {
+        return /^[0-9a-fA-F:]+$/.test(host) && /[0-9a-fA-F]/.test(host);
+    }
+    return false;
 }
 
 export function isValidMTU(value) {

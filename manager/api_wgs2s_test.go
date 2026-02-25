@@ -92,3 +92,39 @@ func TestHumanizeWgS2sError(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateWgS2sUpdateRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		modify  func(*wgs2s.TunnelConfig)
+		wantErr bool
+		errMsg  string
+	}{
+		{"empty update", func(c *wgs2s.TunnelConfig) {}, false, ""},
+		{"valid tunnelAddress", func(c *wgs2s.TunnelConfig) { c.TunnelAddress = "10.0.0.1/24" }, false, ""},
+		{"invalid tunnelAddress", func(c *wgs2s.TunnelConfig) { c.TunnelAddress = "not-cidr" }, true, "tunnelAddress"},
+		{"valid peerPublicKey", func(c *wgs2s.TunnelConfig) { c.PeerPublicKey = validBase64Key(t) }, false, ""},
+		{"invalid peerPublicKey", func(c *wgs2s.TunnelConfig) { c.PeerPublicKey = "short" }, true, "peerPublicKey"},
+		{"valid allowedIPs", func(c *wgs2s.TunnelConfig) { c.AllowedIPs = []string{"10.0.0.0/24"} }, false, ""},
+		{"invalid allowedIP", func(c *wgs2s.TunnelConfig) { c.AllowedIPs = []string{"bad"} }, true, "allowedIP"},
+		{"negative port", func(c *wgs2s.TunnelConfig) { c.ListenPort = -1 }, true, "listenPort"},
+		{"zero port (no change)", func(c *wgs2s.TunnelConfig) { c.ListenPort = 0 }, false, ""},
+		{"positive port", func(c *wgs2s.TunnelConfig) { c.ListenPort = 51821 }, false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := wgs2s.TunnelConfig{}
+			tt.modify(&cfg)
+			err := validateWgS2sUpdateRequest(&cfg)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

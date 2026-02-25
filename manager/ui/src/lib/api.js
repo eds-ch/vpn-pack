@@ -1,6 +1,7 @@
 import { addError } from './stores/tailscale.svelte.js';
 
 const API_BASE = '/vpn-pack/api';
+const DEFAULT_TIMEOUT_MS = 30000;
 
 let csrfToken = null;
 
@@ -16,16 +17,19 @@ function saveCsrfToken(res) {
     if (token) csrfToken = token;
 }
 
-async function apiFetch(method, path, body) {
+async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS } = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
     try {
         const headers = {};
         if (csrfToken) headers['X-Csrf-Token'] = csrfToken;
         if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-        const opts = { method, headers };
+        const opts = { method, headers, signal: controller.signal };
         if (body !== undefined) opts.body = JSON.stringify(body);
 
         const res = await fetch(path, opts);
+        clearTimeout(timer);
         saveCsrfToken(res);
 
         if (res.status === 401 || res.status === 403) {
@@ -34,15 +38,26 @@ async function apiFetch(method, path, body) {
         }
 
         const text = await res.text();
-        const data = text ? JSON.parse(text) : {};
+        let data = {};
+        if (text) {
+            try { data = JSON.parse(text); } catch { data = {}; }
+        }
 
         if (!res.ok) {
-            addError(extractError(data, res.status));
+            const msg = data?.error
+                ? extractError(data, res.status)
+                : `HTTP ${res.status}: ${text.slice(0, 200)}`;
+            addError(msg);
             return null;
         }
         return data;
     } catch (e) {
-        addError(`Network error: ${e.message}`);
+        clearTimeout(timer);
+        if (e.name === 'AbortError') {
+            addError(`Request timeout: ${method} ${path}`);
+        } else {
+            addError(`Network error: ${e.message}`);
+        }
         return null;
     }
 }
@@ -55,7 +70,9 @@ export async function initCsrf() {
     try {
         const res = await fetch(`${API_BASE}/status`);
         saveCsrfToken(res);
-    } catch (_) {}
+    } catch (e) {
+        console.warn('initCsrf failed:', e);
+    }
 }
 
 export function tailscaleUp() {
@@ -99,7 +116,7 @@ export function setSettings(settings) {
 }
 
 export function getDiagnostics() {
-    return apiFetch('GET', `${API_BASE}/diagnostics`);
+    return apiFetch('GET', `${API_BASE}/diagnostics`, undefined, { timeout: 60000 });
 }
 
 export function fetchLogs() {

@@ -1,9 +1,9 @@
 <script>
     import Icon from './Icon.svelte';
+    import ApiKeyForm from './ApiKeyForm.svelte';
     import { setIntegrationApiKey } from '../api.js';
 
     let apiKey = $state('');
-    let showKey = $state(false);
     let loading = $state(false);
 
     async function handleSave() {
@@ -12,13 +12,8 @@
         const result = await setIntegrationApiKey(apiKey.trim());
         if (result) {
             apiKey = '';
-            showKey = false;
         }
         loading = false;
-    }
-
-    function handleKeydown(e) {
-        if (e.key === 'Enter') handleSave();
     }
 </script>
 
@@ -37,28 +32,7 @@
 
         <div class="space-y-2">
             <label for="setup-api-key" class="text-body text-text">API Key</label>
-            <div class="relative">
-                <input
-                    id="setup-api-key"
-                    type={showKey ? 'text' : 'password'}
-                    bind:value={apiKey}
-                    onkeydown={handleKeydown}
-                    placeholder="Enter UniFi API key"
-                    disabled={loading}
-                    class="w-full px-3 py-2 pr-10 text-body rounded-lg border border-border bg-input text-text placeholder-text-tertiary focus:outline-none focus:border-blue font-mono"
-                />
-                <button
-                    type="button"
-                    onclick={() => showKey = !showKey}
-                    class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-tertiary hover:text-text-secondary transition-colors"
-                    aria-label={showKey ? 'Hide key' : 'Show key'}
-                >
-                    <Icon name={showKey ? 'eye-off' : 'eye'} size={16} />
-                </button>
-            </div>
-            <p class="text-caption text-text-tertiary">
-                Create at <span class="text-text-secondary">unifi.ui.com</span> &rarr; Settings &rarr; API
-            </p>
+            <ApiKeyForm bind:value={apiKey} disabled={loading} onEnter={handleSave} id="setup-api-key" />
         </div>
 
         <button

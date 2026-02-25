@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,6 +76,34 @@ func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 	return info
 }
 
+func compareVersions(a, b string) int {
+	if a == "" || b == "" || a == "dev" || b == "dev" {
+		return 0
+	}
+	partsA := strings.Split(a, ".")
+	partsB := strings.Split(b, ".")
+	maxLen := len(partsA)
+	if len(partsB) > maxLen {
+		maxLen = len(partsB)
+	}
+	for i := 0; i < maxLen; i++ {
+		var na, nb int
+		if i < len(partsA) {
+			na, _ = strconv.Atoi(partsA[i])
+		}
+		if i < len(partsB) {
+			nb, _ = strconv.Atoi(partsB[i])
+		}
+		if na < nb {
+			return -1
+		}
+		if na > nb {
+			return 1
+		}
+	}
+	return 0
+}
+
 func (uc *updateChecker) fetchLatest(ctx context.Context) *UpdateInfo {
 	req, err := http.NewRequestWithContext(ctx, "GET", githubReleasesURL(), nil)
 	if err != nil {
@@ -108,7 +137,7 @@ func (uc *updateChecker) fetchLatest(ctx context.Context) *UpdateInfo {
 		ChangelogURL:   rel.HTMLURL,
 	}
 
-	if uc.current != "" && remoteVersion != "" && remoteVersion != uc.current {
+	if compareVersions(remoteVersion, uc.current) > 0 {
 		info.Available = true
 	}
 

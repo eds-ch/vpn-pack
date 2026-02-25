@@ -66,9 +66,13 @@
     });
 
     $effect(() => {
-        loadLogs();
-        const timer = setInterval(loadLogs, LOG_POLL_INTERVAL_MS);
-        return () => clearInterval(timer);
+        let active = true;
+        async function poll() {
+            await loadLogs();
+            if (active) setTimeout(poll, LOG_POLL_INTERVAL_MS);
+        }
+        poll();
+        return () => { active = false; };
     });
 </script>
 

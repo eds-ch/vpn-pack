@@ -62,7 +62,9 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 			}
 
 			fm.manifest.SetTailscaleZone(zone.ID, policyIDs, chainPrefix)
-			fm.manifest.Save()
+			if err := fm.manifest.Save(); err != nil {
+				slog.Warn("manifest save failed", "err", err)
+			}
 		}
 	}
 
@@ -109,7 +111,9 @@ func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) err
 		for _, zm := range fm.manifest.WgS2s {
 			if zm.ZoneID == zoneID {
 				fm.manifest.SetWgS2sZone(tunnelID, zm.ZoneID, zm.ZoneName, zm.PolicyIDs, zm.ChainPrefix)
-				fm.manifest.Save()
+				if err := fm.manifest.Save(); err != nil {
+					return fmt.Errorf("save manifest: %w", err)
+				}
 				return nil
 			}
 		}
@@ -140,7 +144,9 @@ func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) err
 	}
 
 	fm.manifest.SetWgS2sZone(tunnelID, zone.ID, zone.Name, policyIDs, chainPrefix)
-	fm.manifest.Save()
+	if err := fm.manifest.Save(); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
 	return nil
 }
 
@@ -152,7 +158,9 @@ func (fm *FirewallManager) SetupWgS2sFirewall(tunnelID, iface string) error {
 			if rediscovered := fm.discoverChainPrefix(zm.ZoneID); rediscovered != "" {
 				chainPrefix = rediscovered
 				fm.manifest.SetWgS2sZone(tunnelID, zm.ZoneID, zm.ZoneName, zm.PolicyIDs, chainPrefix)
-				fm.manifest.Save()
+				if err := fm.manifest.Save(); err != nil {
+					slog.Warn("manifest save failed", "err", err)
+				}
 			}
 		}
 	}
@@ -190,7 +198,9 @@ func (fm *FirewallManager) OpenWanPort(port int, marker string) error {
 	}
 
 	fm.manifest.SetWanPort(marker, policyID, name, port)
-	fm.manifest.Save()
+	if err := fm.manifest.Save(); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
 
 	slog.Info("WAN port policy created", "port", port, "marker", marker, "policyId", policyID)
 	return nil
@@ -216,7 +226,9 @@ func (fm *FirewallManager) CloseWanPort(port int, marker string) error {
 	}
 
 	fm.manifest.RemoveWanPort(marker)
-	fm.manifest.Save()
+	if err := fm.manifest.Save(); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
 
 	slog.Info("WAN port policy deleted", "port", port, "marker", marker)
 	return nil
@@ -233,7 +245,9 @@ func (fm *FirewallManager) resolveSystemZones(siteID string) (string, string, er
 	}
 
 	fm.manifest.SetSystemZoneIDs(extID, gwID)
-	fm.manifest.Save()
+	if err := fm.manifest.Save(); err != nil {
+		return "", "", fmt.Errorf("save manifest: %w", err)
+	}
 
 	return extID, gwID, nil
 }
@@ -252,7 +266,9 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 			_ = udapi.RemoveInterfaceRules(fm.udapi, "tailscale0", marker)
 			chainPrefix = rediscovered
 			fm.manifest.SetTailscaleZone(fm.manifest.Tailscale.ZoneID, fm.manifest.Tailscale.PolicyIDs, rediscovered)
-			fm.manifest.Save()
+			if err := fm.manifest.Save(); err != nil {
+				slog.Warn("manifest save failed", "err", err)
+			}
 			slog.Info("tailscale chain prefix re-discovered", "prefix", rediscovered)
 		}
 	}

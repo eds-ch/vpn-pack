@@ -27,7 +27,11 @@ func (s *Server) runNginxWatcher(ctx context.Context) {
 		s.nginxPollLoop(ctx)
 		return
 	}
-	defer watcher.Close()
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			slog.Warn("nginx watcher close failed", "err", err)
+		}
+	}()
 
 	if err := watcher.Add(nginxConfigDir); err != nil {
 		slog.Warn("nginx dir watch failed, polling only", "path", nginxConfigDir, "err", err)

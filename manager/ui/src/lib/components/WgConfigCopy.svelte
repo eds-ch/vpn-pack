@@ -8,6 +8,7 @@
     let config = $state('');
     let loading = $state(true);
     let copied = $state(false);
+    let copyFailed = $state(false);
 
     onMount(async () => {
         const data = await wgS2sGetConfig(tunnelId);
@@ -22,8 +23,13 @@
         try {
             await navigator.clipboard.writeText(config);
             copied = true;
+            copyFailed = false;
             setTimeout(() => copied = false, COPY_NOTIFICATION_MS);
-        } catch (_) {}
+        } catch (e) {
+            console.warn('Clipboard write failed:', e);
+            copyFailed = true;
+            setTimeout(() => copyFailed = false, COPY_NOTIFICATION_MS);
+        }
     }
 </script>
 
@@ -36,7 +42,7 @@
             <button
                 onclick={copyConfig}
                 class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-            >{copied ? 'Copied!' : 'Copy to Clipboard'}</button>
+            >{copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy to Clipboard'}</button>
             <span class="text-caption text-text-secondary">
                 If remote side also runs VPN Pack, paste this into their tunnel creation form.
             </span>

@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { getDiagnostics, getFirewallStatus } from '../api.js';
+    import { getDiagnostics } from '../api.js';
     import DashboardTailscaleCard from './DashboardTailscaleCard.svelte';
     import DashboardWgS2sCard from './DashboardWgS2sCard.svelte';
     import ConnectionFlow from './ConnectionFlow.svelte';
@@ -8,29 +8,28 @@
     import DeviceInfo from './DeviceInfo.svelte';
     import Icon from './Icon.svelte';
 
-    let { status, deviceInfo, onNavigateIntegration = null } = $props();
+    let { status, deviceInfo } = $props();
 
     let integrationConfigured = $derived(status.integrationStatus?.configured ?? false);
 
     const STORAGE_KEY = 'dashboard-split';
     const MIN = 0.2, MAX = 0.8;
 
-    let ratio = $state(+(localStorage.getItem(STORAGE_KEY) ?? 0.5));
+    function clampRatio(v) {
+        return isFinite(v) ? Math.max(MIN, Math.min(MAX, v)) : 0.5;
+    }
+
+    let ratio = $state(clampRatio(+(localStorage.getItem(STORAGE_KEY) ?? 0.5)));
     let dragging = $state(false);
     let container = $state();
 
     let diagnostics = $state(null);
-    let fw = $state(null);
     let diagLoading = $state(false);
 
     async function refreshDiagnostics() {
         diagLoading = true;
-        const [diagData, fwData] = await Promise.all([
-            getDiagnostics(),
-            getFirewallStatus(),
-        ]);
+        const diagData = await getDiagnostics();
         if (diagData) diagnostics = diagData;
-        if (fwData) fw = fwData;
         diagLoading = false;
     }
 

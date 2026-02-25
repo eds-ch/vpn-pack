@@ -220,6 +220,24 @@ describe('isValidEndpoint', () => {
     it('rejects just a colon', () => {
         expect(isValidEndpoint(':')).toBe(false);
     });
+
+    it('rejects invalid hosts', () => {
+        expect(isValidEndpoint('::::80')).toBe(false);
+        expect(isValidEndpoint('!!invalid:51820')).toBe(false);
+        expect(isValidEndpoint('256.1.1.1:8080')).toBe(false);
+        expect(isValidEndpoint('-bad:8080')).toBe(false);
+    });
+
+    it('accepts IPv6 bracket notation', () => {
+        expect(isValidEndpoint('[::1]:51820')).toBe(true);
+        expect(isValidEndpoint('[2001:db8::1]:8080')).toBe(true);
+    });
+
+    it('rejects invalid IPv6 bracket notation', () => {
+        expect(isValidEndpoint('[::1]:0')).toBe(false);
+        expect(isValidEndpoint('[]:51820')).toBe(false);
+        expect(isValidEndpoint('[::1]')).toBe(false);
+    });
 });
 
 describe('isValidMTU', () => {

@@ -39,7 +39,7 @@ func deleteAPIKey() error {
 	return nil
 }
 
-func (s *Server) integrationStatusSnapshot() *IntegrationStatus {
+func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 	if s.ic == nil {
 		return &IntegrationStatus{Configured: false}
 	}
@@ -67,7 +67,7 @@ func (s *Server) integrationStatusSnapshot() *IntegrationStatus {
 }
 
 func (s *Server) handleIntegrationStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.integrationStatusSnapshot())
+	writeJSON(w, http.StatusOK, s.fetchIntegrationStatus())
 }
 
 func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +105,9 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 		slog.Warn("site discovery failed", "err", err)
 	} else if s.manifest != nil {
 		s.manifest.SiteID = siteID
-		s.manifest.Save()
+		if err := s.manifest.Save(); err != nil {
+			slog.Warn("manifest save failed", "err", err)
+		}
 	}
 
 	st := &IntegrationStatus{

@@ -103,7 +103,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 
 	s.setupTunnelZone(tunnel.ID, req.ZoneID, req.ZoneName)
 
-	s.firewallCh <- FirewallRequest{Action: "apply-wg-s2s", TunnelID: tunnel.ID, Interface: tunnel.InterfaceName}
+	s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: tunnel.ID, Interface: tunnel.InterfaceName})
 	if s.fw != nil {
 		if err := s.fw.OpenWanPort(tunnel.ListenPort, "wg-s2s:"+tunnel.InterfaceName); err != nil {
 			slog.Warn("wg-s2s WAN port open failed", "port", tunnel.ListenPort, "err", err)
@@ -144,6 +144,28 @@ func validateWgS2sCreateRequest(req *wgS2sCreateRequest) error {
 	return nil
 }
 
+
+func validateWgS2sUpdateRequest(updates *wgs2s.TunnelConfig) error {
+	if updates.ListenPort < 0 {
+		return fmt.Errorf("listenPort must be non-negative")
+	}
+	if updates.TunnelAddress != "" {
+		if err := validateCIDR(updates.TunnelAddress); err != nil {
+			return fmt.Errorf("invalid tunnelAddress: %s", err)
+		}
+	}
+	if updates.PeerPublicKey != "" {
+		if err := validateBase64Key(updates.PeerPublicKey); err != nil {
+			return fmt.Errorf("invalid peerPublicKey: %s", err)
+		}
+	}
+	for _, cidr := range updates.AllowedIPs {
+		if err := validateCIDR(cidr); err != nil {
+			return fmt.Errorf("invalid allowedIP %q: %s", cidr, err)
+		}
+	}
+	return nil
+}
 func (s *Server) setupTunnelZone(tunnelID, reqZoneID, reqZoneName string) {
 	if !s.integrationReady() {
 		return
@@ -175,6 +197,11 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 	var updates wgs2s.TunnelConfig
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateWgS2sUpdateRequest(&updates); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -215,7 +242,9 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.manifest.RemoveWgS2sTunnel(id)
-	s.manifest.Save()
+	if err := s.manifest.Save(); err != nil {
+		slog.Warn("manifest save failed", "err", err)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -232,7 +261,7 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	if t := s.findTunnelByID(id); t != nil {
-		s.firewallCh <- FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName}
+		s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName})
 		if s.fw != nil {
 			if err := s.fw.OpenWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port open failed", "port", t.ListenPort, "err", err)

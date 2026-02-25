@@ -23,6 +23,15 @@ type FirewallRequest struct {
 	TunnelID  string
 }
 
+
+func (s *Server) sendFirewallRequest(req FirewallRequest) {
+	select {
+	case s.firewallCh <- req:
+	default:
+		slog.Debug("firewall request dropped", "action", req.Action, "iface", req.Interface)
+
+	}
+}
 func (s *Server) runFirewallWatcher(ctx context.Context) {
 	sighup := make(chan os.Signal, 1)
 	signal.Notify(sighup, syscall.SIGHUP)

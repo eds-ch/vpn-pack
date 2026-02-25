@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 
 	"tailscale.com/ipn"
@@ -25,10 +26,10 @@ func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if st.BackendState == "NeedsLogin" {
-		s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
-			Prefs:      ipn.Prefs{CorpDNS: false},
-			CorpDNSSet: true,
-		})
+		if err := s.disableCorpDNS(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
+			return
+		}
 		err = s.lc.StartLoginInteractive(r.Context())
 	} else {
 		_, err = s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
@@ -62,10 +63,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
-		Prefs:      ipn.Prefs{CorpDNS: false},
-		CorpDNSSet: true,
-	})
+	if err := s.disableCorpDNS(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
+		return
+	}
 	if err := s.lc.StartLoginInteractive(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
@@ -79,6 +80,14 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) disableCorpDNS(ctx context.Context) error {
+	_, err := s.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+		Prefs:      ipn.Prefs{CorpDNS: false},
+		CorpDNSSet: true,
+	})
+	return err
 }
 
 func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {

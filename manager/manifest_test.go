@@ -73,7 +73,7 @@ func TestManifestSaveRoundtrip(t *testing.T) {
 
 	m.SiteID = "my-site"
 	m.SetTailscaleZone("z1", []string{"p1"}, "TS")
-	m.Save()
+	require.NoError(t, m.Save())
 
 	m2, err := LoadManifest(path)
 	require.NoError(t, err)
@@ -135,4 +135,41 @@ func TestWanPortCycle(t *testing.T) {
 
 	m.RemoveWanPort("test-marker")
 	assert.Equal(t, "", m.GetWanPortPolicyID("test-marker"))
+}
+
+func TestManifestSave_ReturnsError(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		dir := t.TempDir()
+		m := &Manifest{path: filepath.Join(dir, "manifest.json"), Version: 2}
+		require.NoError(t, m.Save())
+		data, err := os.ReadFile(m.path)
+		require.NoError(t, err)
+		var loaded Manifest
+		require.NoError(t, json.Unmarshal(data, &loaded))
+		assert.Equal(t, 2, loaded.Version)
+	})
+
+	t.Run("unwritable path", func(t *testing.T) {
+		m := &Manifest{path: "/proc/nonexistent/manifest.json", Version: 2}
+		err := m.Save()
+		assert.Error(t, err)
+	})
+}
+
+func TestManifestSave_Atomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manifest.json")
+
+	m := &Manifest{path: path, Version: 2, SiteID: "initial"}
+	require.NoError(t, m.Save())
+
+	m.SiteID = "updated"
+	require.NoError(t, m.Save())
+
+	_, err := os.Stat(path + ".tmp")
+	assert.True(t, os.IsNotExist(err))
+
+	m2, err := LoadManifest(path)
+	require.NoError(t, err)
+	assert.Equal(t, "updated", m2.SiteID)
 }

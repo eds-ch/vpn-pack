@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -117,20 +116,24 @@ func migrateV1(data []byte) (*Manifest, error) {
 	return m, nil
 }
 
-func (m *Manifest) Save() {
+func (m *Manifest) Save() error {
 	m.UpdatedAt = time.Now().UTC()
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		slog.Warn("manifest marshal failed", "err", err)
-		return
+		return fmt.Errorf("manifest marshal: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(m.path), dirPerm); err != nil {
-		slog.Warn("manifest dir create failed", "err", err)
-		return
+		return fmt.Errorf("manifest dir create: %w", err)
 	}
-	if err := os.WriteFile(m.path, data, secretPerm); err != nil {
-		slog.Warn("manifest save failed", "err", err)
+	tmpPath := m.path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, secretPerm); err != nil {
+		return fmt.Errorf("manifest write tmp: %w", err)
 	}
+	if err := os.Rename(tmpPath, m.path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("manifest rename: %w", err)
+	}
+	return nil
 }
 
 func (m *Manifest) SetTailscaleZone(zoneID string, policyIDs []string, chainPrefix string) {

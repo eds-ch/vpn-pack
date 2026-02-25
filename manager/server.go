@@ -59,7 +59,9 @@ func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceIn
 	if apiKey != "" && manifest.SiteID == "" {
 		if siteID, err := ic.DiscoverSiteID(); err == nil {
 			manifest.SiteID = siteID
-			manifest.Save()
+			if err := manifest.Save(); err != nil {
+				slog.Warn("manifest save failed", "err", err)
+			}
 			slog.Info("discovered site ID", "siteId", siteID)
 		}
 	}
@@ -161,7 +163,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		for _, t := range wgMgr.GetTunnels() {
 			if t.Enabled {
-				s.firewallCh <- FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName}
+				s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName})
 			}
 		}
 	}

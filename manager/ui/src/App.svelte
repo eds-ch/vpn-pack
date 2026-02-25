@@ -56,7 +56,7 @@
 
         <main class="flex-1 {['status', 'logs'].includes(activeTab) ? 'flex flex-col p-3 md:p-6 overflow-hidden' : 'overflow-y-auto p-3 md:p-6'}">
             {#if activeTab === 'status'}
-                <DashboardTab {status} {deviceInfo} onNavigateIntegration={handleNavigateIntegration} />
+                <DashboardTab {status} {deviceInfo} />
             {:else if activeTab === 'settings'}
                 <SettingsTab {status} {deviceInfo} {settingsTarget} onTargetConsumed={() => settingsTarget = null} />
             {:else if activeTab === 'logs'}

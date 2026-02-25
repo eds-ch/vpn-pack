@@ -2,7 +2,6 @@
     import { onMount } from 'svelte';
     import { SvelteSet } from 'svelte/reactivity';
     import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sGetWanIP, wgS2sCreateTunnel, wgS2sListZones } from '../api.js';
-    import { addError } from '../stores/tailscale.svelte.js';
     import { isValidCIDR, validateTunnelFields } from '../utils.js';
     import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE, COPY_NOTIFICATION_MS } from '../constants.js';
 
@@ -26,6 +25,7 @@
     let persistentKeepalive = $state(WG_DEFAULT_KEEPALIVE);
     let mtu = $state(WG_DEFAULT_MTU);
     let copied = $state(false);
+    let copyFailed = $state(false);
 
     let fieldErrors = $state({});
 
@@ -84,8 +84,13 @@
         try {
             await navigator.clipboard.writeText(keypair.publicKey);
             copied = true;
+            copyFailed = false;
             setTimeout(() => copied = false, COPY_NOTIFICATION_MS);
-        } catch (_) {}
+        } catch (e) {
+            console.warn('Clipboard write failed:', e);
+            copyFailed = true;
+            setTimeout(() => copyFailed = false, COPY_NOTIFICATION_MS);
+        }
     }
 
     function validate() {
@@ -165,7 +170,7 @@
                 <button
                     onclick={copyPublicKey}
                     class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                >{copied ? 'Copied!' : 'Copy'}</button>
+                >{copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy'}</button>
             </div>
         </div>
     {:else}

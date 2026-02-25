@@ -28,18 +28,34 @@
 
     let needsLogin = $derived(status.backendState === 'NeedsLogin');
     let loginTriggered = false;
+    let loginError = $state(false);
+    let retryTimer = null;
 
     let integrationConfigured = $derived(status.integrationStatus?.configured ?? false);
 
     $effect(() => {
         if (needsLogin && !status.authURL && !loginTriggered && integrationConfigured) {
             loginTriggered = true;
-            tailscaleUp();
+            loginError = false;
+            tailscaleUp().then(result => {
+                if (!result) {
+                    loginError = true;
+                    retryTimer = setTimeout(() => { loginTriggered = false; }, 3000);
+                }
+            });
         }
         if (!needsLogin) {
             loginTriggered = false;
+            loginError = false;
+            if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
         }
     });
+
+    function retryLogin() {
+        loginTriggered = false;
+        loginError = false;
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    }
 </script>
 
 <section class="bg-surface rounded-xl p-5 border border-border">
@@ -93,7 +109,14 @@
                             <QRCode value={status.authURL} />
                         </div>
                     {:else}
-                        <p class="text-caption text-text-secondary animate-pulse">Waiting for auth URL...</p>
+                        {#if loginError}
+                            <div class="flex items-center gap-2">
+                                <span class="text-caption text-red-400">Failed to start login</span>
+                                <button onclick={retryLogin} class="text-caption text-blue hover:text-blue-hover font-bold">Retry</button>
+                            </div>
+                        {:else}
+                            <p class="text-caption text-text-secondary animate-pulse">Waiting for auth URL...</p>
+                        {/if}
                     {/if}
                 </div>
 

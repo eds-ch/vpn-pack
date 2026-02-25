@@ -20,18 +20,8 @@
 
     let healthIssues = $derived(healthChecks.filter(c => !c.ok).length);
 
-    let severity = $derived(
-        status.backendState === 'Stopped' ? 'error' :
-        status.backendState === 'NeedsLogin' ? 'warning' :
-        (health && healthIssues > 0) ? 'warning' : 'ok'
-    );
-
     function handleWindowClick(e) {
         if (open && root && !root.contains(e.target)) open = false;
-    }
-
-    function isChanged(field) {
-        return changedFields?.has?.(field);
     }
 </script>
 
