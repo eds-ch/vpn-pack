@@ -1,0 +1,13 @@
+[Unit]
+Description=VPN Pack Manager (UniFi)
+After=tailscaled.service ubios-udapi-server.service
+Wants=tailscaled.service
+
+[Service]
+ExecStart=/persistent/vpn-pack/bin/vpn-pack-manager \
+    --socket=/run/tailscale/tailscaled.sock
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+# Tailscale daemon configuration for UniFi devices
+#
+# Set the port to listen on for incoming VPN packets.
+PORT="41641"
+
+# Extra flags for tailscaled.
+# Note: --accept-dns is a "tailscale up" flag, not a tailscaled flag.
+# Use: tailscale up --accept-dns=false
+FLAGS=""

@@ -1,0 +1,15 @@
+# Tailscale-Version: 1.94.1
+# Description: Set Package=unifi-tailscale via build tag ts_package_unifi
+--- /dev/null
++++ b/hostinfo/packagetype_unifi.go
+@@ -0,0 +1,10 @@
++// Copyright (c) Tailscale Inc & contributors
++// SPDX-License-Identifier: BSD-3-Clause
++
++//go:build linux && ts_package_unifi
++
++package hostinfo
++
++func init() {
++	linuxBuildTagPackageType = "unifi-tailscale"
++}

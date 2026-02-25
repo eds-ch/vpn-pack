@@ -1,0 +1,31 @@
+# Tailscale-Version: 1.94.1
+# Description: Report Distro=ubnt, Version=firmware, CodeName from os-release
+--- a/hostinfo/hostinfo_linux.go	2026-02-21 10:16:23.501758797 +0000
++++ b/hostinfo/hostinfo_linux.go	2026-02-21 10:16:00.159807117 +0000
+@@ -115,6 +115,26 @@
+ 		slurp, _ := os.ReadFile("/etc/version_info")
+ 		meta.DistroVersion = getQnapQtsVersion(string(slurp))
+ 		return
++	case distro.UBNT:
++		if out, err := exec.Command("ubnt-device-info", "firmware").Output(); err == nil {
++			meta.DistroVersion = strings.TrimSpace(string(out))
++		}
++		// Read codename from os-release but preserve DistroName as "ubnt"
++		m := map[string]string{}
++		for lr := range lineiter.File("/etc/os-release") {
++			line, err := lr.Value()
++			if err != nil {
++				break
++			}
++			eq := bytes.IndexByte(line, '=')
++			if eq == -1 {
++				continue
++			}
++			k, v := string(line[:eq]), strings.Trim(string(line[eq+1:]), `"'`)
++			m[k] = v
++		}
++		meta.DistroCodeName = m["VERSION_CODENAME"]
++		return
+ 	}
+
+ 	m := map[string]string{}

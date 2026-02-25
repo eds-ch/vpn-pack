@@ -1,0 +1,39 @@
+# Build artifacts
+build/
+manager/manager
+
+# Tailscale upstream source (cloned during build)
+reference/
+
+# Node modules
+node_modules/
+manager/ui/node_modules/
+
+# UI build output (embedded in Go binary)
+manager/ui/dist/
+
+# Editor & IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Temporary
+temp/
+*.tmp
+*.log
+
+# Tooling
+.mcp.json
+.claude/settings.local.json
+CLAUDE.md
+
+# Documentation
+docs/
+
