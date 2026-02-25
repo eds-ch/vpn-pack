@@ -31,7 +31,7 @@ temp/
 
 # Tooling
 .mcp.json
-.claude/settings.local.json
+.claude/
 CLAUDE.md
 
 # Documentation
