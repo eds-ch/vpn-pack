@@ -124,4 +124,10 @@ For connecting to non-UniFi peers (MikroTik, pfSense, Linux servers, cloud VPCs)
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
+
+## Acknowledgments
+
+Built on [Tailscale](https://tailscale.com/) (BSD-3-Clause, see [LICENSES/tailscale.txt](LICENSES/tailscale.txt)). This project is not affiliated with or endorsed by Tailscale Inc.
+
+"[WireGuard](https://www.wireguard.com/)" is a registered trademark of Jason A. Donenfeld.

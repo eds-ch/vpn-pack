@@ -1,5 +1,6 @@
 <script>
     import Icon from './Icon.svelte';
+    import { REPO_URL } from '../constants.js';
 
     let { activeTab = 'status', onTabChange } = $props();
 
@@ -55,17 +56,37 @@
         </div>
     {/each}
 
-    <div class="mt-auto pb-4 relative group">
-        <a
-            href="/network/"
-            class="w-8 h-8 rounded-full flex items-center justify-center text-text-secondary hover:text-text transition-colors"
-            aria-label="UniFi Network"
-        >
-            <Icon name="ubiquiti" size={18} />
-        </a>
-        <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-[#1c1e21] rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-            UniFi Network
-        </span>
+    <div class="mt-auto flex flex-col items-center gap-3 pb-4">
+        <div class="relative group">
+            <a
+                href="/network/"
+                class="w-8 h-8 rounded-full flex items-center justify-center text-text-secondary hover:text-text transition-colors"
+                aria-label="UniFi Network"
+            >
+                <Icon name="ubiquiti" size={18} />
+            </a>
+            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-[#1c1e21] rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+                UniFi Network
+            </span>
+        </div>
+        <div class="w-5 border-t border-border"></div>
+        <div class="flex flex-col items-center gap-1">
+            <div class="relative group">
+                <a
+                    href={REPO_URL}
+                    target="_blank"
+                    rel="noopener"
+                    class="w-8 h-8 rounded-full flex items-center justify-center text-text-secondary hover:text-text transition-colors"
+                    aria-label="GitHub"
+                >
+                    <Icon name="github" size={18} />
+                </a>
+                <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-[#1c1e21] rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+                    GitHub
+                </span>
+            </div>
+            <span class="text-micro text-text-tertiary">v{__APP_VERSION__}</span>
+        </div>
     </div>
 </nav>
 
