@@ -11,7 +11,7 @@
 #   make fetch-tailscale    — clone/checkout Tailscale source
 
 VPNPACK_VERSION   := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
-TAILSCALE_VERSION := 1.94.1
+TAILSCALE_VERSION := 1.94.2
 
 TAILSCALE_SRC     := reference/tailscale
 BUILD_DIR         := build
@@ -29,14 +29,16 @@ GOARM64           := v8.0,crypto
 CGO_ENABLED       := 0
 GO                := go
 
-BUILD_TAGS        := ts_package_unifi,ts_omit_aws,ts_omit_bird,ts_omit_cloud,ts_omit_completion,ts_omit_desktop_sessions,ts_omit_drive,ts_omit_kube,ts_omit_serve,ts_omit_synology,ts_omit_systray,ts_omit_taildrop,ts_omit_webclient
-LDFLAGS           := -s -w -X tailscale.com/version.longStamp=$(TAILSCALE_VERSION) \
-                     -X tailscale.com/version.shortStamp=$(TAILSCALE_VERSION)
-GOFLAGS           := -trimpath -tags $(BUILD_TAGS) -ldflags "$(LDFLAGS)"
-
 GIT_COMMIT        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE        := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 GITHUB_REPO       := eds-ch/vpn-pack
+
+BUILD_TAGS        := ts_package_unifi,ts_omit_ace,ts_omit_acme,ts_omit_appconnectors,ts_omit_aws,ts_omit_bird,ts_omit_capture,ts_omit_clientupdate,ts_omit_cloud,ts_omit_completion,ts_omit_dbus,ts_omit_desktop_sessions,ts_omit_drive,ts_omit_identityfederation,ts_omit_kube,ts_omit_networkmanager,ts_omit_oauthkey,ts_omit_outboundproxy,ts_omit_posture,ts_omit_qrcodes,ts_omit_relayserver,ts_omit_resolved,ts_omit_serve,ts_omit_synology,ts_omit_syspolicy,ts_omit_systray,ts_omit_taildrop,ts_omit_tap,ts_omit_tpm,ts_omit_wakeonlan,ts_omit_webclient
+
+VERSION_LONG      := $(TAILSCALE_VERSION)-vpnpack$(VPNPACK_VERSION)-g$(GIT_COMMIT)
+LDFLAGS           := -s -w -X tailscale.com/version.longStamp=$(VERSION_LONG) \
+                     -X tailscale.com/version.shortStamp=$(TAILSCALE_VERSION)
+GOFLAGS           := -trimpath -tags $(BUILD_TAGS) -ldflags "$(LDFLAGS)"
 
 MANAGER_LDFLAGS   := -s -w -X main.version=$(VPNPACK_VERSION) \
                      -X main.tailscaleVersion=$(TAILSCALE_VERSION) \
