@@ -25,11 +25,12 @@ UI_DIR            := $(MANAGER_DIR)/ui
 
 GOOS              := linux
 GOARCH            := arm64
+GOARM64           := v8.0,crypto
 CGO_ENABLED       := 0
 GO                := go
 
-BUILD_TAGS        := ts_package_unifi
-LDFLAGS           := -X tailscale.com/version.longStamp=$(TAILSCALE_VERSION) \
+BUILD_TAGS        := ts_package_unifi,ts_omit_aws,ts_omit_bird,ts_omit_cloud,ts_omit_completion,ts_omit_desktop_sessions,ts_omit_drive,ts_omit_kube,ts_omit_serve,ts_omit_synology,ts_omit_systray,ts_omit_taildrop,ts_omit_webclient
+LDFLAGS           := -s -w -X tailscale.com/version.longStamp=$(TAILSCALE_VERSION) \
                      -X tailscale.com/version.shortStamp=$(TAILSCALE_VERSION)
 GOFLAGS           := -trimpath -tags $(BUILD_TAGS) -ldflags "$(LDFLAGS)"
 
@@ -37,7 +38,7 @@ GIT_COMMIT        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unk
 BUILD_DATE        := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 GITHUB_REPO       := eds-ch/vpn-pack
 
-MANAGER_LDFLAGS   := -X main.version=$(VPNPACK_VERSION) \
+MANAGER_LDFLAGS   := -s -w -X main.version=$(VPNPACK_VERSION) \
                      -X main.tailscaleVersion=$(TAILSCALE_VERSION) \
                      -X main.gitCommit=$(GIT_COMMIT) \
                      -X main.buildDate=$(BUILD_DATE) \
@@ -97,11 +98,11 @@ fetch-tailscale:
 build: fetch-tailscale patch manager-build
 	@echo "==> Building tailscaled for $(GOOS)/$(GOARCH)..."
 	cd $(PATCHED_SRC) && \
-		GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) \
+		GOOS=$(GOOS) GOARCH=$(GOARCH) GOARM64=$(GOARM64) CGO_ENABLED=$(CGO_ENABLED) \
 		$(GO) build $(GOFLAGS) -o ../../$(BUILD_DIR)/tailscaled ./cmd/tailscaled
 	@echo "==> Building tailscale CLI for $(GOOS)/$(GOARCH)..."
 	cd $(PATCHED_SRC) && \
-		GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) \
+		GOOS=$(GOOS) GOARCH=$(GOARCH) GOARM64=$(GOARM64) CGO_ENABLED=$(CGO_ENABLED) \
 		$(GO) build $(GOFLAGS) -o ../../$(BUILD_DIR)/tailscale ./cmd/tailscale
 	@echo "==> Build complete:"
 	@ls -lh $(BUILD_DIR)/tailscale $(BUILD_DIR)/tailscaled $(BUILD_DIR)/vpn-pack-manager
@@ -118,7 +119,7 @@ ui-build:
 manager-build: ui-build
 	@echo "==> Building vpn-pack-manager for $(GOOS)/$(GOARCH) (vpn-pack $(VPNPACK_VERSION), tailscale $(TAILSCALE_VERSION))..."
 	cd $(MANAGER_DIR) && \
-		GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) \
+		GOOS=$(GOOS) GOARCH=$(GOARCH) GOARM64=$(GOARM64) CGO_ENABLED=$(CGO_ENABLED) \
 		$(GO) build -trimpath -ldflags "$(MANAGER_LDFLAGS)" -o ../$(BUILD_DIR)/vpn-pack-manager .
 	@echo "==> vpn-pack-manager build complete."
 
