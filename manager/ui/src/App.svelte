@@ -9,9 +9,31 @@
     import LogsTab from './lib/components/LogsTab.svelte';
     import ErrorPanel from './lib/components/ErrorPanel.svelte';
 
-    let activeTab = $state('status');
+    const VALID_TABS = new Set(['status', 'settings', 'logs']);
+    const VALID_SUBTABS = new Set(['general', 'advanced', 'routing', 'integration', 'tunnels']);
+
+    function parseHash() {
+        const hash = location.hash.replace(/^#\/?/, '');
+        if (!hash) return { tab: 'status', subTab: 'general' };
+        const parts = hash.split('/');
+        const tab = VALID_TABS.has(parts[0]) ? parts[0] : 'status';
+        const subTab = (tab === 'settings' && VALID_SUBTABS.has(parts[1])) ? parts[1] : 'general';
+        return { tab, subTab };
+    }
+
+    function navigate(tab, subTab) {
+        const hash = tab === 'settings'
+            ? '#/settings/' + (subTab || settingsSubTab)
+            : tab === 'logs' ? '#/logs' : '#/';
+        if (location.hash !== hash) location.hash = hash;
+        activeTab = tab;
+        if (tab === 'settings') settingsSubTab = subTab || settingsSubTab;
+    }
+
+    const initial = parseHash();
+    let activeTab = $state(initial.tab);
+    let settingsSubTab = $state(initial.subTab);
     let deviceInfo = $state(null);
-    let settingsTarget = $state(null);
 
     const status = getStatus();
     const errors = getErrors();
@@ -22,10 +44,21 @@
         if (localStorage.getItem('theme') === 'light') {
             document.documentElement.classList.add('light');
         }
+
+        function onHashChange() {
+            const { tab, subTab } = parseHash();
+            activeTab = tab;
+            if (tab === 'settings') settingsSubTab = subTab;
+        }
+        window.addEventListener('hashchange', onHashChange);
+
         await initCsrf();
         connect();
         deviceInfo = await getDeviceInfo();
-        return disconnect;
+        return () => {
+            window.removeEventListener('hashchange', onHashChange);
+            disconnect();
+        };
     });
 
     function handleThemeToggle() {
@@ -35,8 +68,7 @@
     }
 
     function handleNavigateIntegration() {
-        settingsTarget = 'integration';
-        activeTab = 'settings';
+        navigate('settings', 'integration');
     }
 </script>
 
@@ -52,13 +84,13 @@
     />
 
     <div class="flex flex-1 min-h-0">
-        <Sidebar {activeTab} onTabChange={(tab) => activeTab = tab} />
+        <Sidebar {activeTab} onTabChange={(tab) => navigate(tab)} />
 
         <main class="flex-1 {['status', 'logs'].includes(activeTab) ? 'flex flex-col p-3 md:p-6 overflow-hidden' : 'overflow-y-auto p-3 md:p-6'}">
             {#if activeTab === 'status'}
                 <DashboardTab {status} {deviceInfo} />
             {:else if activeTab === 'settings'}
-                <SettingsTab {status} {deviceInfo} {settingsTarget} onTargetConsumed={() => settingsTarget = null} />
+                <SettingsTab {status} {deviceInfo} subTab={settingsSubTab} onSubTabChange={(sub) => navigate('settings', sub)} />
             {:else if activeTab === 'logs'}
                 <LogsTab />
             {/if}

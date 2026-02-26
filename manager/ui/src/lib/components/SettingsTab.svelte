@@ -7,7 +7,7 @@
     import WgS2sTab from './WgS2sTab.svelte';
     import Icon from './Icon.svelte';
 
-    let { status, deviceInfo, settingsTarget = null, onTargetConsumed = null } = $props();
+    let { status, deviceInfo, subTab = 'general', onSubTabChange } = $props();
 
     const SETTINGS_KEYS = ['hostname', 'acceptDNS', 'acceptRoutes', 'shieldsUp', 'runSSH',
         'controlURL', 'noSNAT', 'udpPort', 'relayServerPort', 'relayServerEndpoints', 'advertiseTags'];
@@ -23,7 +23,6 @@
     let loading = $derived(status.backendState === 'Unknown');
     let saving = $state(false);
 
-    let activeSubTab = $state('general');
     let generalHasErrors = $state(false);
     let advancedHasErrors = $state(false);
     let hasValidationErrors = $derived(generalHasErrors || advancedHasErrors);
@@ -48,14 +47,7 @@
         { id: 'integration', label: 'Integration' },
     ];
 
-    let showApply = $derived(activeSubTab === 'general' || activeSubTab === 'advanced');
-
-    $effect(() => {
-        if (settingsTarget === 'integration') {
-            activeSubTab = 'integration';
-            onTargetConsumed?.();
-        }
-    });
+    let showApply = $derived(subTab === 'general' || subTab === 'advanced');
 
     function stageChange(key, value) {
         if (JSON.stringify(value) === JSON.stringify(serverSettings[key])) {
@@ -94,10 +86,10 @@
             {#each tailscaleTabs as tab (tab.id)}
                 <button
                     class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
-                        {activeSubTab === tab.id
+                        {subTab === tab.id
                             ? 'text-blue font-bold bg-surface'
                             : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
-                    onclick={() => activeSubTab = tab.id}
+                    onclick={() => onSubTabChange(tab.id)}
                 >
                     {tab.label}
                 </button>
@@ -113,10 +105,10 @@
             {#each wireguardTabs as tab (tab.id)}
                 <button
                     class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
-                        {activeSubTab === tab.id
+                        {subTab === tab.id
                             ? 'text-blue font-bold bg-surface'
                             : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
-                    onclick={() => activeSubTab = tab.id}
+                    onclick={() => onSubTabChange(tab.id)}
                 >
                     {tab.label}
                 </button>
@@ -132,10 +124,10 @@
             {#each unifiTabs as tab (tab.id)}
                 <button
                     class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
-                        {activeSubTab === tab.id
+                        {subTab === tab.id
                             ? 'text-blue font-bold bg-surface'
                             : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
-                    onclick={() => activeSubTab = tab.id}
+                    onclick={() => onSubTabChange(tab.id)}
                 >
                     {tab.label}
                 </button>
@@ -149,35 +141,35 @@
             {#each tailscaleTabs as tab (tab.id)}
                 <button
                     class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
-                        {activeSubTab === tab.id
+                        {subTab === tab.id
                             ? 'text-blue font-bold bg-surface'
                             : 'text-text-secondary'}"
-                    onclick={() => activeSubTab = tab.id}
+                    onclick={() => onSubTabChange(tab.id)}
                 >{tab.label}</button>
             {/each}
             <div class="w-px bg-border shrink-0 my-1"></div>
             {#each wireguardTabs as tab (tab.id)}
                 <button
                     class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
-                        {activeSubTab === tab.id
+                        {subTab === tab.id
                             ? 'text-blue font-bold bg-surface'
                             : 'text-text-secondary'}"
-                    onclick={() => activeSubTab = tab.id}
+                    onclick={() => onSubTabChange(tab.id)}
                 >{tab.label}</button>
             {/each}
             <div class="w-px bg-border shrink-0 my-1"></div>
             {#each unifiTabs as tab (tab.id)}
                 <button
                     class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
-                        {activeSubTab === tab.id
+                        {subTab === tab.id
                             ? 'text-blue font-bold bg-surface'
                             : 'text-text-secondary'}"
-                    onclick={() => activeSubTab = tab.id}
+                    onclick={() => onSubTabChange(tab.id)}
                 >{tab.label}</button>
             {/each}
         </div>
 
-        {#if activeSubTab === 'general' || activeSubTab === 'advanced'}
+        {#if subTab === 'general' || subTab === 'advanced'}
             {#if loading}
                 <div class="space-y-4">
                     {#each [1, 2, 3] as _, i (i)}
@@ -185,17 +177,17 @@
                     {/each}
                 </div>
             {:else}
-                {#if activeSubTab === 'general'}
+                {#if subTab === 'general'}
                     <SettingsGeneral staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => generalHasErrors = v} />
                 {:else}
                     <SettingsAdvanced staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => advancedHasErrors = v} />
                 {/if}
             {/if}
-        {:else if activeSubTab === 'routing'}
+        {:else if subTab === 'routing'}
             <RoutingTab {status} {deviceInfo} />
-        {:else if activeSubTab === 'integration'}
+        {:else if subTab === 'integration'}
             <SettingsIntegration {status} />
-        {:else if activeSubTab === 'tunnels'}
+        {:else if subTab === 'tunnels'}
             <WgS2sTab {status} />
         {/if}
 
