@@ -294,6 +294,16 @@ const mockStatus = {
         },
     ],
     connected: true,
+    hostname: 'udm-se-test-us-office',
+    acceptDNS: false,
+    acceptRoutes: false,
+    shieldsUp: false,
+    runSSH: true,
+    noSNAT: false,
+    udpPort: 41641,
+    relayServerPort: null,
+    relayServerEndpoints: '',
+    advertiseTags: [],
 };
 
 const mockDevice = {
@@ -358,6 +368,7 @@ const mockSubnets = {
 
 const mockSettings = {
     hostname: 'udm-se-test-us-office',
+    acceptDNS: false,
     acceptRoutes: false,
     shieldsUp: false,
     runSSH: true,
@@ -614,6 +625,7 @@ export default function mockApiPlugin() {
                     req.on('end', () => {
                         const updates = JSON.parse(body);
                         Object.assign(mockSettings, updates);
+                        Object.assign(mockStatus, updates);
                         json(res, mockSettings);
                     });
                     return;

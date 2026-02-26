@@ -13,13 +13,22 @@
     let stagedCidrs = $state(null);
     let stagedExitNode = $state(null);
     let applying = $state(false);
+    let userTouched = $state(false);
 
     let initialized = $derived(stagedCidrs !== null);
 
     $effect.pre(() => {
-        if (isRunning && stagedCidrs === null) {
+        if (isRunning && !userTouched) {
             stagedCidrs = routes.map(r => r.cidr);
             stagedExitNode = exitNode;
+        }
+    });
+
+    $effect(() => {
+        if (!isRunning) {
+            userTouched = false;
+            stagedCidrs = null;
+            stagedExitNode = null;
         }
     });
 
@@ -37,6 +46,7 @@
     async function handleApply() {
         applying = true;
         await setRoutes(stagedCidrs, stagedExitNode);
+        userTouched = false;
         applying = false;
     }
 </script>
@@ -61,13 +71,13 @@
         <SubnetPicker
             value={stagedCidrs}
             {routes}
-            onchange={(cidrs) => stagedCidrs = cidrs}
+            onchange={(cidrs) => { stagedCidrs = cidrs; userTouched = true; }}
         />
         <ExitNodeToggle
             value={stagedExitNode}
             {activeVPNClients}
             dpiFingerprinting={status.dpiFingerprinting}
-            onchange={(val) => stagedExitNode = val}
+            onchange={(val) => { stagedExitNode = val; userTouched = true; }}
         />
     </div>
 

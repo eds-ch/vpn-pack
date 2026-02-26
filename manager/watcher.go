@@ -42,6 +42,18 @@ type stateData struct {
 	DPIFingerprinting *bool               `json:"dpiFingerprinting,omitempty"`
 	IntegrationStatus *IntegrationStatus  `json:"integrationStatus,omitempty"`
 	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
+
+	// Settings (from Tailscale prefs, pushed via SSE for live sync)
+	Hostname             string   `json:"hostname"`
+	AcceptDNS            bool     `json:"acceptDNS"`
+	AcceptRoutes         bool     `json:"acceptRoutes"`
+	ShieldsUp            bool     `json:"shieldsUp"`
+	RunSSH               bool     `json:"runSSH"`
+	NoSNAT               bool     `json:"noSNAT"`
+	UDPPort              int      `json:"udpPort"`
+	RelayServerPort      *uint16  `json:"relayServerPort"`
+	RelayServerEndpoints string   `json:"relayServerEndpoints"`
+	AdvertiseTags        []string `json:"advertiseTags"`
 }
 
 type RouteStatus struct {
@@ -128,6 +140,7 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 			s.state.data.FirewallHealth = s.firewallHealthSnapshot()
 			s.state.data.DPIFingerprinting = syncDPIFingerprint(s.state.data.ExitNode)
 			s.state.data.IntegrationStatus = integrationStatus
+			s.state.data.UDPPort = readTailscaledPort()
 			if s.wgManager != nil {
 				tunnels := s.wgManager.GetStatuses()
 				if s.fw != nil {
@@ -196,6 +209,21 @@ func (s *Server) processNotify(n *ipn.Notify) {
 		for i := range ar.Len() {
 			s.state.advertiseRoutes[i] = ar.At(i)
 		}
+
+		s.state.data.Hostname = n.Prefs.Hostname()
+		s.state.data.AcceptDNS = n.Prefs.CorpDNS()
+		s.state.data.AcceptRoutes = n.Prefs.RouteAll()
+		s.state.data.ShieldsUp = n.Prefs.ShieldsUp()
+		s.state.data.RunSSH = n.Prefs.RunSSH()
+		s.state.data.NoSNAT = n.Prefs.NoSNAT()
+		s.state.data.RelayServerPort = n.Prefs.RelayServerPort().Clone()
+		s.state.data.RelayServerEndpoints = formatAddrPorts(n.Prefs.RelayServerStaticEndpoints().AsSlice())
+		tags := n.Prefs.AdvertiseTags().AsSlice()
+		if tags == nil {
+			tags = []string{}
+		}
+		s.state.data.AdvertiseTags = tags
+		s.state.data.UDPPort = readTailscaledPort()
 	}
 
 	if n.NetMap != nil {

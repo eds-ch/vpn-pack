@@ -1,9 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 class MockEventSource {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSED = 2;
+    static instances = [];
+
     constructor(url) {
         this.url = url;
-        this.readyState = 0;
+        this.readyState = MockEventSource.CONNECTING;
         this.onopen = null;
         this.onmessage = null;
         this.onerror = null;
@@ -14,9 +19,8 @@ class MockEventSource {
         this._listeners[type] = handler;
     }
     close() {
-        this.readyState = 2;
+        this.readyState = MockEventSource.CLOSED;
     }
-    static instances = [];
     static reset() {
         MockEventSource.instances = [];
     }
@@ -59,6 +63,20 @@ describe('tailscale store', () => {
 
         it('is not connected', () => {
             expect(getStatus().connected).toBe(false);
+        });
+
+        it('has default settings fields', () => {
+            const s = getStatus();
+            expect(s.hostname).toBe('');
+            expect(s.acceptDNS).toBe(false);
+            expect(s.acceptRoutes).toBe(false);
+            expect(s.shieldsUp).toBe(false);
+            expect(s.runSSH).toBe(false);
+            expect(s.noSNAT).toBe(false);
+            expect(s.udpPort).toBe(0);
+            expect(s.relayServerPort).toBe(null);
+            expect(s.relayServerEndpoints).toBe('');
+            expect(s.advertiseTags).toEqual([]);
         });
     });
 
@@ -180,6 +198,85 @@ describe('tailscale store', () => {
             const errorLog = newLogs.find(l => l.message.includes('Failed to parse SSE'));
             expect(errorLog).toBeTruthy();
             expect(errorLog.level).toBe('error');
+        });
+
+        it('reconnects when EventSource enters CLOSED state', () => {
+            vi.useFakeTimers();
+            try {
+                connect();
+                const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+                const countBefore = MockEventSource.instances.length;
+
+                es.readyState = MockEventSource.CLOSED;
+                es.onerror();
+
+                expect(getStatus().connected).toBe(false);
+                expect(MockEventSource.instances.length).toBe(countBefore);
+
+                vi.advanceTimersByTime(3000);
+
+                expect(MockEventSource.instances.length).toBe(countBefore + 1);
+                const newEs = MockEventSource.instances[MockEventSource.instances.length - 1];
+                expect(newEs.url).toBe('/vpn-pack/api/events');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('does not reconnect when EventSource is still CONNECTING', () => {
+            vi.useFakeTimers();
+            try {
+                connect();
+                const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+                const countBefore = MockEventSource.instances.length;
+
+                es.readyState = MockEventSource.CONNECTING;
+                es.onerror();
+
+                vi.advanceTimersByTime(10000);
+
+                expect(MockEventSource.instances.length).toBe(countBefore);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('updates settings fields on SSE message', () => {
+            connect();
+            const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+            es.onmessage({
+                data: JSON.stringify({
+                    hostname: 'new-host',
+                    acceptRoutes: true,
+                    shieldsUp: true,
+                    udpPort: 51820,
+                    advertiseTags: ['tag:relay'],
+                }),
+            });
+            expect(getStatus().hostname).toBe('new-host');
+            expect(getStatus().acceptRoutes).toBe(true);
+            expect(getStatus().shieldsUp).toBe(true);
+            expect(getStatus().udpPort).toBe(51820);
+            expect(getStatus().advertiseTags).toEqual(['tag:relay']);
+        });
+
+        it('disconnect cancels pending reconnect timer', () => {
+            vi.useFakeTimers();
+            try {
+                connect();
+                const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+                const countBefore = MockEventSource.instances.length;
+
+                es.readyState = MockEventSource.CLOSED;
+                es.onerror();
+
+                disconnect();
+                vi.advanceTimersByTime(5000);
+
+                expect(MockEventSource.instances.length).toBe(countBefore);
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 });

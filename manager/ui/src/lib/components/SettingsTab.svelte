@@ -1,6 +1,5 @@
 <script>
-    import { onMount } from 'svelte';
-    import { getSettings, setSettings } from '../api.js';
+    import { setSettings } from '../api.js';
     import SettingsGeneral from './SettingsGeneral.svelte';
     import SettingsAdvanced from './SettingsAdvanced.svelte';
     import SettingsIntegration from './SettingsIntegration.svelte';
@@ -10,11 +9,19 @@
 
     let { status, deviceInfo, settingsTarget = null, onTargetConsumed = null } = $props();
 
-    let loading = $state(true);
+    const SETTINGS_KEYS = ['hostname', 'acceptDNS', 'acceptRoutes', 'shieldsUp', 'runSSH',
+        'controlURL', 'noSNAT', 'udpPort', 'relayServerPort', 'relayServerEndpoints', 'advertiseTags'];
+
+    let serverSettings = $derived(
+        Object.fromEntries(SETTINGS_KEYS.map(k => [k, status[k]]))
+    );
+
+    let dirtyOverrides = $state({});
+
+    let displaySettings = $derived({ ...serverSettings, ...dirtyOverrides });
+
+    let loading = $derived(status.backendState === 'Unknown');
     let saving = $state(false);
-    let original = $state({});
-    let staged = $state({});
-    let loadError = $state(false);
 
     let activeSubTab = $state('general');
     let generalHasErrors = $state(false);
@@ -22,7 +29,9 @@
     let hasValidationErrors = $derived(generalHasErrors || advancedHasErrors);
 
     let hasChanges = $derived(
-        Object.keys(staged).some(k => JSON.stringify(staged[k]) !== JSON.stringify(original[k]))
+        Object.keys(dirtyOverrides).some(k =>
+            JSON.stringify(dirtyOverrides[k]) !== JSON.stringify(serverSettings[k])
+        )
     );
 
     const tailscaleTabs = [
@@ -48,33 +57,26 @@
         }
     });
 
-    onMount(async () => {
-        const data = await getSettings();
-        if (data) {
-            original = { ...data };
-            staged = { ...data };
-        } else {
-            loadError = true;
-        }
-        loading = false;
-    });
-
     function stageChange(key, value) {
-        staged = { ...staged, [key]: value };
+        if (JSON.stringify(value) === JSON.stringify(serverSettings[key])) {
+            const { [key]: _, ...rest } = dirtyOverrides;
+            dirtyOverrides = rest;
+        } else {
+            dirtyOverrides = { ...dirtyOverrides, [key]: value };
+        }
     }
 
     async function handleApply() {
         saving = true;
         const delta = {};
-        for (const key of Object.keys(staged)) {
-            if (JSON.stringify(staged[key]) !== JSON.stringify(original[key])) {
-                delta[key] = staged[key];
+        for (const [key, value] of Object.entries(dirtyOverrides)) {
+            if (JSON.stringify(value) !== JSON.stringify(serverSettings[key])) {
+                delta[key] = value;
             }
         }
         const result = await setSettings(delta);
         if (result) {
-            original = { ...original, ...result };
-            staged = { ...original };
+            dirtyOverrides = {};
         }
         saving = false;
     }
@@ -182,15 +184,11 @@
                         <div class="h-14 bg-surface rounded-lg animate-pulse"></div>
                     {/each}
                 </div>
-            {:else if loadError}
-                <div class="rounded-xl border border-error/30 bg-error/5 p-6 text-center">
-                    <p class="text-body text-error">Failed to load settings</p>
-                </div>
             {:else}
                 {#if activeSubTab === 'general'}
-                    <SettingsGeneral {staged} {original} {stageChange} onValidation={(v) => generalHasErrors = v} />
+                    <SettingsGeneral staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => generalHasErrors = v} />
                 {:else}
-                    <SettingsAdvanced {staged} {original} {stageChange} onValidation={(v) => advancedHasErrors = v} />
+                    <SettingsAdvanced staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => advancedHasErrors = v} />
                 {/if}
             {/if}
         {:else if activeSubTab === 'routing'}
@@ -201,7 +199,7 @@
             <WgS2sTab {status} />
         {/if}
 
-        {#if showApply && !loading && !loadError}
+        {#if showApply && !loading}
             <div class="flex justify-end mt-6">
                 <button
                     onclick={handleApply}

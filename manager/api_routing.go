@@ -116,9 +116,8 @@ func (s *Server) handleSetRoutes(w http.ResponseWriter, r *http.Request) {
 		if len(activeClients) > 0 {
 			ifaces := strings.Join(activeClients, ", ")
 			warning = fmt.Sprintf(
-				"WireGuard VPN client is active (%s). Advertising as exit node is safe for forwarded traffic, "+
-					"but do not use another Tailscale node as exit node while wgclt is active — "+
-					"Tailscale routing (ip rule 5270) would override WireGuard client routing (32507).", ifaces)
+				"Advertising is safe, but don't route this device's own traffic through a remote exit node — "+
+					"Tailscale ip rules have higher priority and would override %s routing.", ifaces)
 		}
 		prefixes = append(prefixes,
 			netip.MustParsePrefix("0.0.0.0/0"),

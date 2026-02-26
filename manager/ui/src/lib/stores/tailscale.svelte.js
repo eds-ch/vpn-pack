@@ -18,6 +18,16 @@ let status = $state({
     wgS2sTunnels: [],
     controlURL: '',
     connected: false,
+    hostname: '',
+    acceptDNS: false,
+    acceptRoutes: false,
+    shieldsUp: false,
+    runSSH: false,
+    noSNAT: false,
+    udpPort: 0,
+    relayServerPort: null,
+    relayServerEndpoints: '',
+    advertiseTags: [],
 });
 
 let errors = $state([]);
@@ -29,7 +39,9 @@ const ERROR_CAP = 50;
 const ERROR_DEDUP_MS = 5000;
 let eventSource = null;
 let changeTimer = null;
+let reconnectTimer = null;
 let sseErrorId = null;
+const RECONNECT_DELAY_MS = 3000;
 
 export function getStatus() {
     return status;
@@ -88,6 +100,9 @@ function valuesEqual(a, b) {
 }
 
 export function connect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+
     if (eventSource) {
         eventSource.onopen = null;
         eventSource.onerror = null;
@@ -153,11 +168,19 @@ export function connect() {
             sseErrorId = nextErrorId;
             addError('SSE connection lost, reconnecting...');
         }
+        if (eventSource.readyState === EventSource.CLOSED && !reconnectTimer) {
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                connect();
+            }, RECONNECT_DELAY_MS);
+        }
     };
 }
 
 export function disconnect() {
     clearTimeout(changeTimer);
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
     if (eventSource) {
         eventSource.onopen = null;
         eventSource.onerror = null;

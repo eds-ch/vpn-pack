@@ -13,7 +13,7 @@
         <p class="text-caption text-text-tertiary mt-0.5">Route all traffic from other Tailscale nodes through this device.</p>
         {#if hasWgclt && value}
             <p class="text-caption text-warning mt-1">
-                WireGuard VPN client ({wgcltNames}) is active. Do not use another node as exit node while wgclt is active.
+                Advertising is safe, but don't route this device's own traffic through a remote exit node — Tailscale ip rules have higher priority and would override {wgcltNames} routing.
             </p>
         {/if}
         {#if dpiFingerprinting === false}
