@@ -25,7 +25,7 @@ UI_DIR            := $(MANAGER_DIR)/ui
 
 GOOS              := linux
 GOARCH            := arm64
-GOARM64           := v8.0
+GOARM64           := v8.0,crypto
 CGO_ENABLED       := 0
 GO                := go
 
