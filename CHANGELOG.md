@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-02-26
+
+### Added
+- Hash-based URL routing — UI preserves current page on refresh (F5), supports browser Back/Forward and deep links
+- Real-time settings sync via SSE — CLI changes (`tailscale set`) instantly reflected in UI without polling
+
+### Fixed
+- SSE auth keepalive prevents session expiry during long idle periods on SSE connections
+
 ## [1.1.1] - 2026-02-26
 
 ### Fixed
@@ -68,7 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/eds-ch/vpn-pack/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/eds-ch/vpn-pack/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/eds-ch/vpn-pack/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/eds-ch/vpn-pack/compare/v1.0.2...v1.0.3
