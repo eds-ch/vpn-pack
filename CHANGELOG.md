@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-02-26
+
+### Changed
+- ARM64 build targets hardware crypto extensions (`GOARM64=v8.0,crypto`) for Cortex-A57 and IPQ5322 CPUs
+- Binaries stripped of debug info and symbol tables (`-s -w`), reducing total size from 78 MB to 45 MB
+- Unused Tailscale components excluded via `ts_omit_*` build tags (AWS, Kubernetes, Synology, Drive, Serve, etc.)
+
 ## [1.1.3] - 2026-02-26
 
 ### Fixed
@@ -91,7 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/eds-ch/vpn-pack/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/eds-ch/vpn-pack/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/eds-ch/vpn-pack/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/eds-ch/vpn-pack/compare/v1.1.0...v1.1.1
