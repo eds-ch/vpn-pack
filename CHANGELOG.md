@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-02-26
+
+### Changed
+- Tailscale updated from 1.94.1 to 1.94.2
+- 17 additional `ts_omit_*` build tags added (total 29), further reducing binary size by excluding unused features (ACME, DBus, NetworkManager, TPM, etc.)
+- Version stamp now includes vpn-pack version and git commit hash for traceability (e.g. `1.94.2-vpnpack1.1.5-g99ab894`)
+
 ## [1.1.4] - 2026-02-26
 
 ### Changed
@@ -98,7 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.5...HEAD
+[1.1.5]: https://github.com/eds-ch/vpn-pack/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/eds-ch/vpn-pack/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/eds-ch/vpn-pack/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/eds-ch/vpn-pack/compare/v1.1.1...v1.1.2
