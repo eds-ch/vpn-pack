@@ -13,6 +13,7 @@ let status = $state({
     peers: [],
     derp: [],
     firewallHealth: null,
+    dpiFingerprinting: null,
     integrationStatus: null,
     wgS2sTunnels: [],
     controlURL: '',

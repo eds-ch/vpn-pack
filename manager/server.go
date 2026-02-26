@@ -191,6 +191,11 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	defer func() {
+		if hasDPIFingerprint() {
+			if err := setDPIFingerprint(true); err != nil {
+				slog.Warn("failed to restore DPI fingerprinting on shutdown", "err", err)
+			}
+		}
 		if s.wgManager != nil {
 			s.wgManager.Close()
 		}

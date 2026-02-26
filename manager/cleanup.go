@@ -23,6 +23,12 @@ func runCleanup() {
 
 	removeIntegrationResources()
 
+	if hasDPIFingerprint() {
+		if err := setDPIFingerprint(true); err != nil {
+			slog.Warn("cleanup: DPI fingerprint restore failed", "err", err)
+		}
+	}
+
 	slog.Info("cleanup: done")
 }
 

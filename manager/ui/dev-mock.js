@@ -25,6 +25,7 @@ const mockStatus = {
     },
     health: [],
     exitNode: false,
+    dpiFingerprinting: true,
     derp: [
         { regionID: 1, regionCode: 'nyc', regionName: 'New York', latencyMs: 4.2, preferred: true },
         { regionID: 12, regionCode: 'ord', regionName: 'Chicago', latencyMs: 8.1, preferred: false },
@@ -596,7 +597,17 @@ export default function mockApiPlugin() {
                     return json(res, { ok: true });
                 }
                 if (path === '/tailscale/auth-key') return json(res, { ok: true });
-                if (path === '/routes' && req.method === 'POST') return json(res, { ok: true });
+                if (path === '/routes' && req.method === 'POST') {
+                    let body = '';
+                    req.on('data', c => body += c);
+                    req.on('end', () => {
+                        const data = JSON.parse(body);
+                        mockStatus.exitNode = !!data.exitNode;
+                        mockStatus.dpiFingerprinting = !mockStatus.exitNode;
+                        json(res, { ok: true });
+                    });
+                    return;
+                }
                 if (path === '/settings' && req.method === 'POST') {
                     let body = '';
                     req.on('data', c => body += c);

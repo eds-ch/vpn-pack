@@ -66,6 +66,7 @@
         <ExitNodeToggle
             value={stagedExitNode}
             {activeVPNClients}
+            dpiFingerprinting={status.dpiFingerprinting}
             onchange={(val) => stagedExitNode = val}
         />
     </div>

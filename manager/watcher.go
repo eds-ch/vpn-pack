@@ -39,6 +39,7 @@ type stateData struct {
 	Peers          []PeerInfo          `json:"peers"`
 	DERP              []DERPInfo           `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth     `json:"firewallHealth,omitempty"`
+	DPIFingerprinting *bool               `json:"dpiFingerprinting,omitempty"`
 	IntegrationStatus *IntegrationStatus  `json:"integrationStatus,omitempty"`
 	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
 }
@@ -125,6 +126,7 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 			s.state.mu.Lock()
 			s.applyEnrichment(enrichment)
 			s.state.data.FirewallHealth = s.firewallHealthSnapshot()
+			s.state.data.DPIFingerprinting = syncDPIFingerprint(s.state.data.ExitNode)
 			s.state.data.IntegrationStatus = integrationStatus
 			if s.wgManager != nil {
 				tunnels := s.wgManager.GetStatuses()
@@ -189,7 +191,6 @@ func (s *Server) processNotify(n *ipn.Notify) {
 
 	if n.Prefs != nil && n.Prefs.Valid() {
 		s.state.data.ControlURL = n.Prefs.ControlURL()
-		s.state.data.ExitNode = n.Prefs.ExitNodeID() != ""
 		ar := n.Prefs.AdvertiseRoutes()
 		s.state.advertiseRoutes = make([]netip.Prefix, ar.Len())
 		for i := range ar.Len() {
@@ -203,6 +204,7 @@ func (s *Server) processNotify(n *ipn.Notify) {
 	}
 
 	s.recomputeRoutes()
+	s.state.data.DPIFingerprinting = syncDPIFingerprint(s.state.data.ExitNode)
 
 	if n.Health != nil {
 		warnings := make([]string, 0, len(n.Health.Warnings))
@@ -395,9 +397,11 @@ func (s *Server) recomputeRoutes() {
 	}
 
 	var routes []RouteStatus
+	isExit := false
 	for _, p := range s.state.advertiseRoutes {
 		str := p.String()
 		if str == "0.0.0.0/0" || str == "::/0" {
+			isExit = true
 			continue
 		}
 		routes = append(routes, RouteStatus{
@@ -408,6 +412,7 @@ func (s *Server) recomputeRoutes() {
 	if routes == nil {
 		routes = []RouteStatus{}
 	}
+	s.state.data.ExitNode = isExit
 	s.state.data.Routes = routes
 }
 
