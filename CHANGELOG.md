@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-02-26
+
+### Fixed
+- Exit node status was always reported as off in SSE/UI (checked wrong Tailscale pref field)
+- DPI fingerprinting now auto-disabled when exit node is active to prevent dpi-flow-stats crash on UniFi devices (TUN interface lacks MAC addresses, causing OUI lookup error loop)
+
+### Added
+- DPI fingerprint monitoring with 5s enforcement — re-disables if system resets the value
+- UI warning in Routing tab when DPI fingerprinting is disabled
+
 ## [1.1.0] - 2026-02-25
 
 ### Added
@@ -58,7 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/eds-ch/vpn-pack/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/eds-ch/vpn-pack/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/eds-ch/vpn-pack/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/eds-ch/vpn-pack/compare/v1.0.0...v1.0.2
