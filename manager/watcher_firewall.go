@@ -258,6 +258,19 @@ func (s *Server) reconcileWanPortPolicies() {
 	}
 }
 
+func (s *Server) schedulePostPolicyRestore() {
+	if !s.postPolicyRestore.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer s.postPolicyRestore.Store(false)
+		for range 10 {
+			time.Sleep(2 * time.Second)
+			s.checkAndRestoreRules()
+		}
+	}()
+}
+
 func (s *Server) handleFirewallRequest(req FirewallRequest) {
 	switch req.Action {
 	case "apply-wg-s2s":

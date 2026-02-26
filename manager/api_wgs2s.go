@@ -105,6 +105,8 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 	if s.fw != nil {
 		if err := s.fw.OpenWanPort(tunnel.ListenPort, "wg-s2s:"+tunnel.InterfaceName); err != nil {
 			slog.Warn("wg-s2s WAN port open failed", "port", tunnel.ListenPort, "err", err)
+		} else {
+			s.schedulePostPolicyRestore()
 		}
 	}
 
@@ -234,6 +236,8 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 		if t.ListenPort > 0 {
 			if err := s.fw.CloseWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port close failed", "port", t.ListenPort, "err", err)
+			} else {
+				s.schedulePostPolicyRestore()
 			}
 		}
 	}
@@ -262,6 +266,8 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 		if s.fw != nil {
 			if err := s.fw.OpenWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port open failed", "port", t.ListenPort, "err", err)
+			} else {
+				s.schedulePostPolicyRestore()
 			}
 		}
 	}
@@ -287,6 +293,8 @@ func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request
 		if t.ListenPort > 0 {
 			if err := s.fw.CloseWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port close failed", "port", t.ListenPort, "err", err)
+			} else {
+				s.schedulePostPolicyRestore()
 			}
 		}
 	}

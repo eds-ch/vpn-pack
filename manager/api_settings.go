@@ -290,15 +290,23 @@ func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {
 		return
 	}
 	const marker = "relay-server"
+	var changed bool
 	if oldRelayPort != nil && *oldRelayPort > 0 {
 		if err := s.fw.CloseWanPort(int(*oldRelayPort), marker); err != nil {
 			slog.Warn("relay WAN port close failed", "port", *oldRelayPort, "err", err)
+		} else {
+			changed = true
 		}
 	}
 	if *newRelayPort > 0 {
 		if err := s.fw.OpenWanPort(*newRelayPort, marker); err != nil {
 			slog.Warn("relay WAN port open failed", "port", *newRelayPort, "err", err)
+		} else {
+			changed = true
 		}
+	}
+	if changed {
+		s.schedulePostPolicyRestore()
 	}
 }
 
@@ -312,15 +320,23 @@ func (s *Server) updateTailscaleWgPortRules(newPort *int) {
 	if oldPort == *newPort {
 		return
 	}
+	var changed bool
 	if oldPort > 0 {
 		if err := s.fw.CloseWanPort(oldPort, marker); err != nil {
 			slog.Warn("tailscale WG WAN port close failed", "port", oldPort, "err", err)
+		} else {
+			changed = true
 		}
 	}
 	if *newPort > 0 {
 		if err := s.fw.OpenWanPort(*newPort, marker); err != nil {
 			slog.Warn("tailscale WG WAN port open failed", "port", *newPort, "err", err)
+		} else {
+			changed = true
 		}
+	}
+	if changed {
+		s.schedulePostPolicyRestore()
 	}
 }
 
