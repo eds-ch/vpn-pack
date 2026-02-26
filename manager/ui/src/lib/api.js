@@ -1,9 +1,11 @@
 import { addError } from './stores/tailscale.svelte.js';
+import { AUTH_KEEPALIVE_MS } from './constants.js';
 
 const API_BASE = '/vpn-pack/api';
 const DEFAULT_TIMEOUT_MS = 30000;
 
 let csrfToken = null;
+let lastRequestTime = 0;
 
 function extractError(data, status) {
     const err = data?.error;
@@ -17,7 +19,7 @@ function saveCsrfToken(res) {
     if (token) csrfToken = token;
 }
 
-async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS } = {}) {
+async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isRetry = false } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
@@ -33,9 +35,20 @@ async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS } = {
         saveCsrfToken(res);
 
         if (res.status === 401 || res.status === 403) {
+            if (!_isRetry) {
+                try {
+                    const refreshRes = await fetch(`${API_BASE}/status`);
+                    saveCsrfToken(refreshRes);
+                    if (refreshRes.ok) {
+                        return apiFetch(method, path, body, { timeout, _isRetry: true });
+                    }
+                } catch {}
+            }
             window.location.href = '/';
             return null;
         }
+
+        lastRequestTime = Date.now();
 
         const text = await res.text();
         let data = {};
@@ -170,4 +183,9 @@ export function removeIntegrationApiKey() {
 }
 export function testIntegrationKey() {
     return apiFetch('POST', `${API_BASE}/integration/test`);
+}
+
+export function keepalive() {
+    if (Date.now() - lastRequestTime < AUTH_KEEPALIVE_MS * 0.8) return;
+    return apiFetch('GET', `${API_BASE}/status`);
 }

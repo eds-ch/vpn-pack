@@ -23,6 +23,7 @@ export const SECONDS_PER_DAY = 86400;
 
 export const LOG_POLL_INTERVAL_MS = 10000;
 export const COPY_NOTIFICATION_MS = 2000;
+export const AUTH_KEEPALIVE_MS = 3 * 60 * 1000;
 
 export const REPO_INSTALL_URL = 'https://raw.githubusercontent.com/eds-ch/vpn-pack/main/install.sh';
 export const REPO_URL = 'https://github.com/eds-ch/vpn-pack';

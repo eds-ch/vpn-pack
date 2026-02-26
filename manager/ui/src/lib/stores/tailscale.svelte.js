@@ -1,4 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity';
+import { keepalive } from '../api.js';
+import { AUTH_KEEPALIVE_MS } from '../constants.js';
 
 let status = $state({
     backendState: 'Unknown',
@@ -40,6 +42,7 @@ const ERROR_DEDUP_MS = 5000;
 let eventSource = null;
 let changeTimer = null;
 let reconnectTimer = null;
+let keepaliveTimer = null;
 let sseErrorId = null;
 const RECONNECT_DELAY_MS = 3000;
 
@@ -175,12 +178,17 @@ export function connect() {
             }, RECONNECT_DELAY_MS);
         }
     };
+
+    clearInterval(keepaliveTimer);
+    keepaliveTimer = setInterval(keepalive, AUTH_KEEPALIVE_MS);
 }
 
 export function disconnect() {
     clearTimeout(changeTimer);
     clearTimeout(reconnectTimer);
+    clearInterval(keepaliveTimer);
     reconnectTimer = null;
+    keepaliveTimer = null;
     if (eventSource) {
         eventSource.onopen = null;
         eventSource.onerror = null;
