@@ -229,11 +229,13 @@ func (s *Server) restoreWgS2sRules() {
 }
 
 func (s *Server) reconcileWanPortPolicies() {
-	if len(s.manifest.WanPorts) == 0 {
+	wanPorts := s.manifest.GetWanPortsSnapshot()
+	if len(wanPorts) == 0 {
 		return
 	}
 
-	policies, err := s.ic.ListPolicies(s.manifest.SiteID)
+	siteID := s.manifest.GetSiteID()
+	policies, err := s.ic.ListPolicies(siteID)
 	if err != nil {
 		slog.Warn("WAN port reconciliation failed: cannot list policies", "err", err)
 		return
@@ -244,7 +246,7 @@ func (s *Server) reconcileWanPortPolicies() {
 		policySet[p.ID] = true
 	}
 
-	for marker, entry := range s.manifest.WanPorts {
+	for marker, entry := range wanPorts {
 		if policySet[entry.PolicyID] {
 			continue
 		}

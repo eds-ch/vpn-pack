@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -33,8 +34,9 @@ type Server struct {
 	manifest       *Manifest
 	nginx          *NginxManager
 	firewallCh     chan FirewallRequest
-	watcherRunning atomic.Bool
-	lastRestore    atomic.Pointer[time.Time]
+	watcherRunning     atomic.Bool
+	lastRestore        atomic.Pointer[time.Time]
+	postPolicyRestore  atomic.Bool
 	logBuf         *LogBuffer
 	wgManager      *wgs2s.TunnelManager
 	vpnClientsMu  sync.Mutex
@@ -56,9 +58,9 @@ func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceIn
 		manifest = &Manifest{path: manifestPath, Version: 2, CreatedAt: time.Now().UTC()}
 	}
 
-	if apiKey != "" && manifest.SiteID == "" {
+	if apiKey != "" && !manifest.HasSiteID() {
 		if siteID, err := ic.DiscoverSiteID(); err == nil {
-			manifest.SiteID = siteID
+			manifest.SetSiteID(siteID)
 			if err := manifest.Save(); err != nil {
 				slog.Warn("manifest save failed", "err", err)
 			}
@@ -250,11 +252,25 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return err
+		}
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return err
+	}
+	return nil
+}
+
 func isUDAPIReachable() bool {
 	_, err := os.Stat(udapiSocketPath)
 	return err == nil
 }
 
 func (s *Server) integrationReady() bool {
-	return s.ic != nil && s.ic.HasAPIKey() && s.manifest != nil && s.manifest.SiteID != ""
+	return s.ic != nil && s.ic.HasAPIKey() && s.manifest != nil && s.manifest.HasSiteID()
 }

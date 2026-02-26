@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -172,4 +174,90 @@ func TestManifestSave_Atomic(t *testing.T) {
 	m2, err := LoadManifest(path)
 	require.NoError(t, err)
 	assert.Equal(t, "updated", m2.SiteID)
+}
+
+func TestManifest_ConcurrentAccess(t *testing.T) {
+	dir := t.TempDir()
+	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const iterations = 100
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				tunnelID := fmt.Sprintf("tunnel-%d-%d", id, j)
+				m.SetWgS2sZone(tunnelID, "zone-1", "Zone One", []string{"p1"}, "VPN")
+			}
+		}(i)
+	}
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = m.GetWgS2sZones()
+				_, _ = m.GetWgS2sZone("tunnel-0-0")
+				_ = m.GetWgS2sSnapshot()
+			}
+		}()
+	}
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			marker := fmt.Sprintf("marker-%d", id)
+			for j := 0; j < iterations; j++ {
+				m.SetWanPort(marker, "pol-1", "Test", 8080+id)
+				_ = m.GetWanPortPolicyID(marker)
+				_, _ = m.GetWanPortEntry(marker)
+				m.RemoveWanPort(marker)
+			}
+		}(i)
+	}
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				m.SetSiteID(fmt.Sprintf("site-%d", id))
+				_ = m.GetSiteID()
+				_ = m.HasSiteID()
+			}
+		}(i)
+	}
+
+	for i := 0; i < goroutines/2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations/10; j++ {
+				_ = m.Save()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestManifest_SnapshotIsolation(t *testing.T) {
+	m := &Manifest{
+		WanPorts: map[string]WanPortEntry{
+			"a": {PolicyID: "p1", Port: 80},
+			"b": {PolicyID: "p2", Port: 443},
+		},
+	}
+
+	snap := m.GetWanPortsSnapshot()
+	m.RemoveWanPort("a")
+
+	assert.Contains(t, snap, "a")
+	assert.Equal(t, "", m.GetWanPortPolicyID("a"))
 }

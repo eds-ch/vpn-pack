@@ -4,7 +4,6 @@ import { AUTH_KEEPALIVE_MS } from './constants.js';
 const API_BASE = '/vpn-pack/api';
 const DEFAULT_TIMEOUT_MS = 30000;
 
-let csrfToken = null;
 let lastRequestTime = 0;
 
 function extractError(data, status) {
@@ -14,17 +13,11 @@ function extractError(data, status) {
     return `Request failed: ${status}`;
 }
 
-function saveCsrfToken(res) {
-    const token = res.headers.get('X-Csrf-Token');
-    if (token) csrfToken = token;
-}
-
 async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isRetry = false } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
         const headers = {};
-        if (csrfToken) headers['X-Csrf-Token'] = csrfToken;
         if (body !== undefined) headers['Content-Type'] = 'application/json';
 
         const opts = { method, headers, signal: controller.signal };
@@ -32,13 +25,11 @@ async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isR
 
         const res = await fetch(path, opts);
         clearTimeout(timer);
-        saveCsrfToken(res);
 
         if (res.status === 401 || res.status === 403) {
             if (!_isRetry) {
                 try {
                     const refreshRes = await fetch(`${API_BASE}/status`);
-                    saveCsrfToken(refreshRes);
                     if (refreshRes.ok) {
                         return apiFetch(method, path, body, { timeout, _isRetry: true });
                     }
@@ -77,15 +68,6 @@ async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isR
 
 export function getStatusOnce() {
     return apiFetch('GET', `${API_BASE}/status`);
-}
-
-export async function initCsrf() {
-    try {
-        const res = await fetch(`${API_BASE}/status`);
-        saveCsrfToken(res);
-    } catch (e) {
-        console.warn('initCsrf failed:', e);
-    }
 }
 
 export function tailscaleUp() {

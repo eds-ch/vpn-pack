@@ -1,7 +1,7 @@
 <script>
     import { onMount } from 'svelte';
     import { connect, disconnect, getStatus, getErrors, getChangedFields, getUpdateInfo, dismissUpdate } from './lib/stores/tailscale.svelte.js';
-    import { getDeviceInfo, initCsrf } from './lib/api.js';
+    import { getDeviceInfo } from './lib/api.js';
     import TopBar from './lib/components/TopBar.svelte';
     import Sidebar from './lib/components/Sidebar.svelte';
     import DashboardTab from './lib/components/DashboardTab.svelte';
@@ -52,7 +52,6 @@
         }
         window.addEventListener('hashchange', onHashChange);
 
-        await initCsrf();
         connect();
         deviceInfo = await getDeviceInfo();
         return () => {

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 type Manifest struct {
+	mu             sync.RWMutex             `json:"-"`
 	path           string                   `json:"-"`
 	Version        int                      `json:"version"`
 	CreatedAt      time.Time                `json:"createdAt"`
@@ -117,6 +119,8 @@ func migrateV1(data []byte) (*Manifest, error) {
 }
 
 func (m *Manifest) Save() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.UpdatedAt = time.Now().UTC()
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -137,6 +141,8 @@ func (m *Manifest) Save() error {
 }
 
 func (m *Manifest) SetTailscaleZone(zoneID string, policyIDs []string, chainPrefix string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Tailscale = ZoneManifest{
 		ZoneID:      zoneID,
 		PolicyIDs:   policyIDs,
@@ -146,6 +152,8 @@ func (m *Manifest) SetTailscaleZone(zoneID string, policyIDs []string, chainPref
 }
 
 func (m *Manifest) SetWgS2sZone(tunnelID, zoneID, zoneName string, policyIDs []string, chainPrefix string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.WgS2s == nil {
 		m.WgS2s = make(map[string]ZoneManifest)
 	}
@@ -159,11 +167,15 @@ func (m *Manifest) SetWgS2sZone(tunnelID, zoneID, zoneName string, policyIDs []s
 }
 
 func (m *Manifest) RemoveWgS2sTunnel(tunnelID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.WgS2s, tunnelID)
 	m.UpdatedAt = time.Now().UTC()
 }
 
 func (m *Manifest) GetWgS2sZones() []WgS2sZoneInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	seen := make(map[string]*WgS2sZoneInfo)
 	var order []string
 	for _, zm := range m.WgS2s {
@@ -189,6 +201,8 @@ func (m *Manifest) GetWgS2sZones() []WgS2sZoneInfo {
 }
 
 func (m *Manifest) GetTailscaleChainPrefix() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.Tailscale.ChainPrefix != "" {
 		return m.Tailscale.ChainPrefix
 	}
@@ -196,6 +210,8 @@ func (m *Manifest) GetTailscaleChainPrefix() string {
 }
 
 func (m *Manifest) GetWgS2sChainPrefix(tunnelID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if zm, ok := m.WgS2s[tunnelID]; ok && zm.ChainPrefix != "" {
 		return zm.ChainPrefix
 	}
@@ -203,6 +219,8 @@ func (m *Manifest) GetWgS2sChainPrefix(tunnelID string) string {
 }
 
 func (m *Manifest) SetWanPort(marker, policyID, policyName string, port int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.WanPorts == nil {
 		m.WanPorts = make(map[string]WanPortEntry)
 	}
@@ -211,11 +229,15 @@ func (m *Manifest) SetWanPort(marker, policyID, policyName string, port int) {
 }
 
 func (m *Manifest) RemoveWanPort(marker string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.WanPorts, marker)
 	m.UpdatedAt = time.Now().UTC()
 }
 
 func (m *Manifest) GetWanPortPolicyID(marker string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.WanPorts == nil {
 		return ""
 	}
@@ -226,7 +248,83 @@ func (m *Manifest) GetWanPortPolicyID(marker string) string {
 }
 
 func (m *Manifest) SetSystemZoneIDs(externalID, gatewayID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ExternalZoneID = externalID
 	m.GatewayZoneID = gatewayID
 	m.UpdatedAt = time.Now().UTC()
+}
+
+func (m *Manifest) GetSiteID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.SiteID
+}
+
+func (m *Manifest) SetSiteID(siteID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.SiteID = siteID
+	m.UpdatedAt = time.Now().UTC()
+}
+
+func (m *Manifest) HasSiteID() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.SiteID != ""
+}
+
+func (m *Manifest) GetWgS2sZone(tunnelID string) (ZoneManifest, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	zm, ok := m.WgS2s[tunnelID]
+	return zm, ok
+}
+
+func (m *Manifest) GetWanPortEntry(marker string) (WanPortEntry, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.WanPorts == nil {
+		return WanPortEntry{}, false
+	}
+	e, ok := m.WanPorts[marker]
+	return e, ok
+}
+
+func (m *Manifest) GetTailscaleZone() ZoneManifest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Tailscale
+}
+
+func (m *Manifest) GetSystemZoneIDs() (string, string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.ExternalZoneID, m.GatewayZoneID
+}
+
+func (m *Manifest) GetWanPortsSnapshot() map[string]WanPortEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.WanPorts) == 0 {
+		return nil
+	}
+	cp := make(map[string]WanPortEntry, len(m.WanPorts))
+	for k, v := range m.WanPorts {
+		cp[k] = v
+	}
+	return cp
+}
+
+func (m *Manifest) GetWgS2sSnapshot() map[string]ZoneManifest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.WgS2s) == 0 {
+		return nil
+	}
+	cp := make(map[string]ZoneManifest, len(m.WgS2s))
+	for k, v := range m.WgS2s {
+		cp[k] = v
+	}
+	return cp
 }

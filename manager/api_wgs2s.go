@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -69,7 +68,7 @@ func (s *Server) handleWgS2sListTunnels(w http.ResponseWriter, r *http.Request) 
 		if pubKey, err := s.wgManager.GetPublicKey(t.ID); err == nil {
 			resp.PublicKey = pubKey
 		}
-		if zm, ok := s.manifest.WgS2s[t.ID]; ok {
+		if zm, ok := s.manifest.GetWgS2sZone(t.ID); ok {
 			resp.ZoneID = zm.ZoneID
 			resp.ZoneName = zm.ZoneName
 		}
@@ -85,8 +84,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req wgS2sCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
 
@@ -114,7 +112,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 	if pubKey, err := s.wgManager.GetPublicKey(tunnel.ID); err == nil {
 		resp.PublicKey = pubKey
 	}
-	if zm, ok := s.manifest.WgS2s[tunnel.ID]; ok {
+	if zm, ok := s.manifest.GetWgS2sZone(tunnel.ID); ok {
 		resp.ZoneID = zm.ZoneID
 		resp.ZoneName = zm.ZoneName
 	}
@@ -195,8 +193,7 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 	id := r.PathValue("id")
 
 	var updates wgs2s.TunnelConfig
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := readJSON(w, r, &updates); err != nil {
 		return
 	}
 

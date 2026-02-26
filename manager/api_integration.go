@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -49,8 +48,8 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 
 	st := &IntegrationStatus{Configured: true}
 
-	if s.manifest != nil && s.manifest.SiteID != "" {
-		st.SiteID = s.manifest.SiteID
+	if s.manifest != nil && s.manifest.HasSiteID() {
+		st.SiteID = s.manifest.GetSiteID()
 		st.Valid = true
 	}
 
@@ -74,8 +73,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		APIKey string `json:"apiKey"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
 
@@ -104,7 +102,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		slog.Warn("site discovery failed", "err", err)
 	} else if s.manifest != nil {
-		s.manifest.SiteID = siteID
+		s.manifest.SetSiteID(siteID)
 		if err := s.manifest.Save(); err != nil {
 			slog.Warn("manifest save failed", "err", err)
 		}
@@ -178,7 +176,7 @@ func (s *Server) handleTestIntegrationKey(w http.ResponseWriter, r *http.Request
 
 	siteID := ""
 	if s.manifest != nil {
-		siteID = s.manifest.SiteID
+		siteID = s.manifest.GetSiteID()
 	}
 	if siteID == "" {
 		if id, err := s.ic.DiscoverSiteID(); err == nil {

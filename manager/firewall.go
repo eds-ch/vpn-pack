@@ -19,7 +19,7 @@ type FirewallManager struct {
 }
 
 func (fm *FirewallManager) requireIntegration() error {
-	if fm.ic == nil || !fm.ic.HasAPIKey() || fm.manifest == nil || fm.manifest.SiteID == "" {
+	if fm.ic == nil || !fm.ic.HasAPIKey() || fm.manifest == nil || !fm.manifest.HasSiteID() {
 		return errIntegrationNotConfigured
 	}
 	return nil
@@ -41,8 +41,8 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 
 	chainPrefix := defaultChainPrefix
 
-	if fm.ic != nil && fm.ic.HasAPIKey() && fm.manifest != nil && fm.manifest.SiteID != "" {
-		siteID := fm.manifest.SiteID
+	if fm.ic != nil && fm.ic.HasAPIKey() && fm.manifest != nil && fm.manifest.HasSiteID() {
+		siteID := fm.manifest.GetSiteID()
 		zone, err := fm.ic.EnsureZone(siteID, "VPN Pack: Tailscale")
 		if err != nil {
 			slog.Warn("Integration API zone setup failed, using UDAPI only", "err", err)
@@ -105,10 +105,10 @@ func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) err
 	if err := fm.requireIntegration(); err != nil {
 		return err
 	}
-	siteID := fm.manifest.SiteID
+	siteID := fm.manifest.GetSiteID()
 
 	if zoneID != "" && zoneID != "new" {
-		for _, zm := range fm.manifest.WgS2s {
+		for _, zm := range fm.manifest.GetWgS2sSnapshot() {
 			if zm.ZoneID == zoneID {
 				fm.manifest.SetWgS2sZone(tunnelID, zm.ZoneID, zm.ZoneName, zm.PolicyIDs, zm.ChainPrefix)
 				if err := fm.manifest.Save(); err != nil {
@@ -154,7 +154,7 @@ func (fm *FirewallManager) SetupWgS2sFirewall(tunnelID, iface string) error {
 	chainPrefix := fm.manifest.GetWgS2sChainPrefix(tunnelID)
 
 	if chainPrefix == defaultChainPrefix {
-		if zm, ok := fm.manifest.WgS2s[tunnelID]; ok && zm.ZoneID != "" {
+		if zm, ok := fm.manifest.GetWgS2sZone(tunnelID); ok && zm.ZoneID != "" {
 			if rediscovered := fm.discoverChainPrefix(zm.ZoneID); rediscovered != "" {
 				chainPrefix = rediscovered
 				fm.manifest.SetWgS2sZone(tunnelID, zm.ZoneID, zm.ZoneName, zm.PolicyIDs, chainPrefix)
@@ -185,7 +185,7 @@ func (fm *FirewallManager) OpenWanPort(port int, marker string) error {
 		return nil
 	}
 
-	siteID := fm.manifest.SiteID
+	siteID := fm.manifest.GetSiteID()
 	extID, gwID, err := fm.resolveSystemZones(siteID)
 	if err != nil {
 		return fmt.Errorf("resolve system zones: %w", err)
@@ -216,7 +216,7 @@ func (fm *FirewallManager) CloseWanPort(port int, marker string) error {
 		return nil
 	}
 
-	siteID := fm.manifest.SiteID
+	siteID := fm.manifest.GetSiteID()
 	if err := fm.ic.DeletePolicy(siteID, policyID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			slog.Info("WAN port policy already gone from API", "marker", marker, "policyId", policyID)
@@ -235,8 +235,8 @@ func (fm *FirewallManager) CloseWanPort(port int, marker string) error {
 }
 
 func (fm *FirewallManager) resolveSystemZones(siteID string) (string, string, error) {
-	if fm.manifest.ExternalZoneID != "" && fm.manifest.GatewayZoneID != "" {
-		return fm.manifest.ExternalZoneID, fm.manifest.GatewayZoneID, nil
+	if extID, gwID := fm.manifest.GetSystemZoneIDs(); extID != "" && gwID != "" {
+		return extID, gwID, nil
 	}
 
 	extID, gwID, err := fm.ic.findSystemZoneIDs(siteID)
@@ -261,11 +261,12 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 
 	marker := firewallMarker
 
-	if chainPrefix == defaultChainPrefix && fm.manifest.Tailscale.ZoneID != "" {
-		if rediscovered := fm.discoverChainPrefix(fm.manifest.Tailscale.ZoneID); rediscovered != "" {
+	ts := fm.manifest.GetTailscaleZone()
+	if chainPrefix == defaultChainPrefix && ts.ZoneID != "" {
+		if rediscovered := fm.discoverChainPrefix(ts.ZoneID); rediscovered != "" {
 			_ = udapi.RemoveInterfaceRules(fm.udapi, "tailscale0", marker)
 			chainPrefix = rediscovered
-			fm.manifest.SetTailscaleZone(fm.manifest.Tailscale.ZoneID, fm.manifest.Tailscale.PolicyIDs, rediscovered)
+			fm.manifest.SetTailscaleZone(ts.ZoneID, ts.PolicyIDs, rediscovered)
 			if err := fm.manifest.Save(); err != nil {
 				slog.Warn("manifest save failed", "err", err)
 			}

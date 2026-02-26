@@ -241,6 +241,22 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 	}
 
 	if wasEnabled {
+		if _, err := loadPrivateKey(m.configDir, cfg.ID); err != nil {
+			return nil, fmt.Errorf("preflight: %w", err)
+		}
+		if merged.PeerEndpoint != "" && merged.PeerEndpoint != cfg.PeerEndpoint {
+			if _, err := net.ResolveUDPAddr("udp", merged.PeerEndpoint); err != nil {
+				return nil, fmt.Errorf("preflight: cannot resolve peer endpoint %s: %w", merged.PeerEndpoint, err)
+			}
+		}
+		if merged.ListenPort != cfg.ListenPort && merged.ListenPort != 0 {
+			if err := checkPortAvailable(merged.ListenPort); err != nil {
+				return nil, fmt.Errorf("preflight: port %d: %w", merged.ListenPort, err)
+			}
+		}
+	}
+
+	if wasEnabled {
 		m.tearDown(*cfg)
 	}
 

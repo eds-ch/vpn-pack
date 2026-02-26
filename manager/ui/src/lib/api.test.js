@@ -12,7 +12,6 @@ import {
     wgS2sDeleteTunnel,
     connectWithAuthKey,
     getDeviceInfo,
-    initCsrf,
 } from './api.js';
 
 function mockFetch(overrides = {}) {
@@ -39,26 +38,6 @@ describe('api', () => {
             expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual({ data: 'test' });
-    });
-
-    it('extracts and sends CSRF token', async () => {
-        const headers = new Headers();
-        headers.set('X-Csrf-Token', 'my-csrf-token');
-        global.fetch = mockFetch({ headers });
-
-        await getStatusOnce();
-
-        global.fetch = mockFetch();
-        await getDeviceInfo();
-
-        expect(global.fetch).toHaveBeenCalledWith(
-            '/vpn-pack/api/device',
-            expect.objectContaining({
-                headers: expect.objectContaining({
-                    'X-Csrf-Token': 'my-csrf-token',
-                }),
-            }),
-        );
     });
 
     it('sends POST with JSON body for setSettings', async () => {

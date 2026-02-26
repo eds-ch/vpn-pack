@@ -179,8 +179,7 @@ func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
 		Note string `json:"note"`
 	}
 	if r.Body != nil && r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
+		if err := readJSON(w, r, &req); err != nil {
 			return
 		}
 	}

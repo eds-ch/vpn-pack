@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -69,8 +68,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 	var req settingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
 
@@ -309,7 +307,8 @@ func (s *Server) updateTailscaleWgPortRules(newPort *int) {
 		return
 	}
 	const marker = "tailscale-wg"
-	oldPort := s.manifest.WanPorts[marker].Port
+	entry, _ := s.manifest.GetWanPortEntry(marker)
+	oldPort := entry.Port
 	if oldPort == *newPort {
 		return
 	}

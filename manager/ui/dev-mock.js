@@ -1,8 +1,6 @@
 // Vite plugin: mock API server for UI development without Go backend.
 // Usage: MOCK=1 npm run dev -- --host 0.0.0.0
 
-const CSRF_TOKEN = 'mock-csrf-token-dev';
-
 const mockStatus = {
     backendState: 'Running',
     tailscaleIPs: ['100.65.93.69', 'fd7a:115c:a1e0::4145'],
@@ -460,7 +458,6 @@ const mockLogs = {
 function json(res, data, statusCode = 200) {
     res.writeHead(statusCode, {
         'Content-Type': 'application/json',
-        'X-Csrf-Token': CSRF_TOKEN,
     });
     res.end(JSON.stringify(data));
 }
@@ -506,7 +503,6 @@ export default function mockApiPlugin() {
                         'Content-Type': 'text/event-stream',
                         'Cache-Control': 'no-cache',
                         'Connection': 'keep-alive',
-                        'X-Csrf-Token': CSRF_TOKEN,
                     });
                     res.write(`data: ${JSON.stringify(mockStatus)}\n\n`);
                     sseClients.push(res);

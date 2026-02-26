@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -92,8 +91,7 @@ func (s *Server) handleGetRoutes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSetRoutes(w http.ResponseWriter, r *http.Request) {
 	var req setRoutesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
 
@@ -148,8 +146,7 @@ func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req authKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
 

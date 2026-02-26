@@ -21,11 +21,12 @@ const (
 )
 
 const (
-	readHeaderTimeout = 10 * time.Second
-	readTimeout       = 30 * time.Second
-	idleTimeout       = 120 * time.Second
-	maxHeaderBytes    = 1 << 20
-	shutdownTimeout   = 5 * time.Second
+	readHeaderTimeout   = 10 * time.Second
+	readTimeout         = 30 * time.Second
+	idleTimeout         = 120 * time.Second
+	maxHeaderBytes      = 1 << 20
+	maxRequestBodyBytes = 64 << 10 // 64 KB
+	shutdownTimeout     = 5 * time.Second
 )
 
 const (

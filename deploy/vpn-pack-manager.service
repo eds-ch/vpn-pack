@@ -8,6 +8,13 @@ ExecStart=/persistent/vpn-pack/bin/vpn-pack-manager \
     --socket=/run/tailscale/tailscaled.sock
 Restart=on-failure
 RestartSec=5
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
 
 [Install]
 WantedBy=multi-user.target
