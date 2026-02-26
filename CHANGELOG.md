@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-02-26
+
+### Changed
+- Restored `GOARM64=v8.0,crypto` — all supported UniFi devices have ARMv8 crypto extensions
+
 ## [1.1.6] - 2026-02-26
 
 ### Changed
@@ -110,7 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.6...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.7...HEAD
+[1.1.7]: https://github.com/eds-ch/vpn-pack/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/eds-ch/vpn-pack/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/eds-ch/vpn-pack/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/eds-ch/vpn-pack/compare/v1.1.3...v1.1.4
