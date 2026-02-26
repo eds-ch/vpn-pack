@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-02-26
+
+### Fixed
+- Manifest race condition — concurrent map access from HTTP handlers and background goroutines could cause runtime panic; protected with `sync.RWMutex` and thread-safe accessors
+- Firewall rules now restored after WAN port policy changes to prevent UDAPI interface bindings from being lost
+
+### Changed
+- All JSON request body parsing wrapped with `MaxBytesReader` (64 KB limit) to reject oversized payloads
+- systemd service hardened with `NoNewPrivileges`, `ProtectHome`, `PrivateTmp`, `ProtectKernelTunables`, `ProtectControlGroups`, `RestrictSUIDSGID`, `MemoryDenyWriteExecute`
+- WG S2S tunnel updates run preflight checks (private key, endpoint resolution, port availability) before tearing down the active tunnel
+
+### Removed
+- Dead CSRF token code from frontend — authentication is handled by UniFi nginx layer
+
 ## [1.1.2] - 2026-02-26
 
 ### Added
@@ -77,7 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/eds-ch/vpn-pack/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/eds-ch/vpn-pack/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/eds-ch/vpn-pack/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/eds-ch/vpn-pack/compare/v1.0.3...v1.1.0
