@@ -82,7 +82,7 @@ When you provide a UniFi Network API key in the Settings, vpn-pack:
 3. Opens the WireGuard port on WAN
 4. Assigns each S2S tunnel its own firewall zone
 
-These zones and policies appear in the UniFi Network UI and persist across reboots. 
+These zones and policies appear in the UniFi Network UI and persist across reboots. All auto-created rules are prefixed with `VPN Pack:` so they're easy to spot in the UI.
 
 ## Uninstall
 
