@@ -8,6 +8,7 @@ ExecStart=/persistent/vpn-pack/bin/vpn-pack-manager \
     --socket=/run/tailscale/tailscaled.sock
 Restart=on-failure
 RestartSec=5
+RestartPreventExitStatus=78
 NoNewPrivileges=yes
 ProtectHome=yes
 PrivateTmp=yes

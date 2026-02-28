@@ -46,6 +46,11 @@ func main() {
 		"activeVPNClients", info.ActiveVPNClients,
 	)
 
+	if err := checkMinUniFiVersion(info.UniFiVersion); err != nil {
+		slog.Error("version requirement not met", "err", err)
+		os.Exit(78)
+	}
+
 	srv := NewServer(ctx, *listen, *socket, info)
 
 	if err := srv.Run(ctx); err != nil {
