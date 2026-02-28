@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-02-28
+
+### Added
+- UniFi Network 10.1+ version gate — installer and daemon refuse to run on older versions
+- Factory reset recovery in `get.sh` — reinstalls when systemd units or services are missing but data persists
+- Integration resilience — automatic zone-based firewall (ZBF) detection, CSRF token refresh on rotation, recovery after factory reset
+
+### Changed
+- `get.sh` checks Network version before downloading the archive (saves bandwidth on unsupported versions)
+- Daemon exits with code 78 (EX_CONFIG) on version mismatch; systemd won't auto-restart (`RestartPreventExitStatus=78`)
+
 ## [1.1.7] - 2026-02-26
 
 ### Changed
@@ -115,7 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.7...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.8...HEAD
+[1.1.8]: https://github.com/eds-ch/vpn-pack/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/eds-ch/vpn-pack/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/eds-ch/vpn-pack/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/eds-ch/vpn-pack/compare/v1.1.4...v1.1.5
