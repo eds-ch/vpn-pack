@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.10] - 2026-02-28
+
+### Changed
+- Enabled Unix socket identity support — `tailscaled` can now identify local callers via peer credentials (removed `ts_omit_unixsocketidentity` build tag)
+
 ## [1.1.9] - 2026-02-28
 
 ### Fixed
@@ -133,7 +138,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.9...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.10...HEAD
+[1.1.10]: https://github.com/eds-ch/vpn-pack/compare/v1.1.9...v1.1.10
 [1.1.9]: https://github.com/eds-ch/vpn-pack/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/eds-ch/vpn-pack/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/eds-ch/vpn-pack/compare/v1.1.6...v1.1.7
