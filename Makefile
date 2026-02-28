@@ -33,7 +33,7 @@ GIT_COMMIT        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unk
 BUILD_DATE        := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 GITHUB_REPO       := eds-ch/vpn-pack
 
-BUILD_TAGS        := ts_package_unifi,ts_omit_ace,ts_omit_acme,ts_omit_appconnectors,ts_omit_aws,ts_omit_bird,ts_omit_capture,ts_omit_captiveportal,ts_omit_clientupdate,ts_omit_cloud,ts_omit_completion,ts_omit_dbus,ts_omit_debugeventbus,ts_omit_debugportmapper,ts_omit_desktop_sessions,ts_omit_drive,ts_omit_hujsonconf,ts_omit_identityfederation,ts_omit_kube,ts_omit_lazywg,ts_omit_linuxdnsfight,ts_omit_netlog,ts_omit_networkmanager,ts_omit_oauthkey,ts_omit_outboundproxy,ts_omit_portlist,ts_omit_posture,ts_omit_qrcodes,ts_omit_resolved,ts_omit_serve,ts_omit_synology,ts_omit_syspolicy,ts_omit_systray,ts_omit_taildrop,ts_omit_tap,ts_omit_tpm,ts_omit_unixsocketidentity,ts_omit_useproxy,ts_omit_wakeonlan,ts_omit_webclient
+BUILD_TAGS        := ts_package_unifi,ts_omit_ace,ts_omit_acme,ts_omit_appconnectors,ts_omit_aws,ts_omit_bird,ts_omit_capture,ts_omit_captiveportal,ts_omit_clientupdate,ts_omit_cloud,ts_omit_completion,ts_omit_dbus,ts_omit_debugeventbus,ts_omit_debugportmapper,ts_omit_desktop_sessions,ts_omit_drive,ts_omit_hujsonconf,ts_omit_identityfederation,ts_omit_kube,ts_omit_lazywg,ts_omit_linuxdnsfight,ts_omit_netlog,ts_omit_networkmanager,ts_omit_oauthkey,ts_omit_outboundproxy,ts_omit_portlist,ts_omit_posture,ts_omit_qrcodes,ts_omit_resolved,ts_omit_serve,ts_omit_synology,ts_omit_syspolicy,ts_omit_systray,ts_omit_taildrop,ts_omit_tap,ts_omit_tpm,ts_omit_useproxy,ts_omit_wakeonlan,ts_omit_webclient
 
 VERSION_LONG      := $(TAILSCALE_VERSION)-vpnpack$(VPNPACK_VERSION)-g$(GIT_COMMIT)
 LDFLAGS           := -s -w -X tailscale.com/version.longStamp=$(VERSION_LONG) \
