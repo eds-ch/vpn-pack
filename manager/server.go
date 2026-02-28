@@ -37,8 +37,10 @@ type Server struct {
 	watcherRunning      atomic.Bool
 	lastRestore         atomic.Pointer[time.Time]
 	postPolicyRestore   atomic.Bool
-	integrationDegraded atomic.Bool
-	logBuf              *LogBuffer
+	integrationDegraded    atomic.Bool
+	integrationRetryCount int
+	lastIntegrationRetry  time.Time
+	logBuf                *LogBuffer
 	wgManager           *wgs2s.TunnelManager
 	vpnClientsMu       sync.Mutex
 	updater             *updateChecker

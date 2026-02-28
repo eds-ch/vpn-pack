@@ -153,8 +153,66 @@ func (s *Server) handleFsEvent(event fsnotify.Event) bool {
 }
 
 func (s *Server) checkAndRestoreRules() {
+	s.retryIntegrationSetup()
 	s.restoreTailscaleRules()
 	s.restoreWgS2sRules()
+}
+
+func (s *Server) integrationRetryInterval() time.Duration {
+	switch s.integrationRetryCount {
+	case 0:
+		return 0
+	case 1:
+		return 5 * time.Second
+	default:
+		return 10 * time.Second
+	}
+}
+
+func (s *Server) retryIntegrationSetup() {
+	if !s.integrationReady() {
+		return
+	}
+	if s.integrationDegraded.Load() {
+		return
+	}
+
+	ts := s.manifest.GetTailscaleZone()
+	if ts.ZoneID != "" {
+		if s.integrationRetryCount > 0 {
+			s.integrationRetryCount = 0
+		}
+		return
+	}
+
+	interval := s.integrationRetryInterval()
+	if interval > 0 && time.Since(s.lastIntegrationRetry) < interval {
+		return
+	}
+
+	s.lastIntegrationRetry = time.Now()
+	s.integrationRetryCount++
+
+	slog.Info("retrying integration zone/policy setup", "attempt", s.integrationRetryCount)
+
+	if err := s.fw.SetupTailscaleFirewall(); err != nil {
+		slog.Warn("integration setup retry failed", "attempt", s.integrationRetryCount, "err", err)
+		return
+	}
+
+	ts = s.manifest.GetTailscaleZone()
+	if ts.ZoneID == "" {
+		return
+	}
+
+	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.integrationRetryCount)
+	s.integrationRetryCount = 0
+
+	if port := readTailscaledPort(); port > 0 {
+		if err := s.fw.OpenWanPort(port, "tailscale-wg"); err != nil {
+			slog.Warn("WAN port open after integration retry failed", "port", port, "err", err)
+		}
+	}
 }
 
 func (s *Server) restoreTailscaleRules() {
@@ -169,6 +227,13 @@ func (s *Server) restoreTailscaleRules() {
 	}
 
 	forward, input, output, ipset := s.fw.CheckTailscaleRulesPresent()
+
+	ts := s.manifest.GetTailscaleZone()
+	noZone := ts.ZoneID == ""
+	if noZone {
+		ipset = true
+	}
+
 	if forward && input && output && ipset {
 		return
 	}
