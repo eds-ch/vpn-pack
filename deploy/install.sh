@@ -31,6 +31,25 @@ warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
 error() { echo -e "${RED}[x]${NC} $*"; }
 die()   { error "$*"; exit 1; }
 
+check_network_version() {
+    local raw major minor rest
+    raw=$(dpkg-query -W -f='${Version}' unifi 2>/dev/null) || true
+    if [ -z "$raw" ]; then
+        die "UniFi Network Application not found. A working UniFi Network 10.1+ installation is required."
+    fi
+    major="${raw%%.*}"
+    rest="${raw#*.}"
+    minor="${rest%%.*}"
+    if ! [ "$major" -eq "$major" ] 2>/dev/null || ! [ "$minor" -eq "$minor" ] 2>/dev/null; then
+        die "Cannot parse UniFi Network version: ${raw}"
+    fi
+    if [ "$major" -gt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -ge 1 ]; }; then
+        info "UniFi Network: ${BOLD}${major}.${minor}${NC} (${raw})"
+        return 0
+    fi
+    die "UniFi Network 10.1 or later is required (found: ${major}.${minor}). Please update via Settings > System > Updates in the UniFi console."
+}
+
 # ── Stage 1: Environment checks ───────────────────────────────────
 
 info "vpn-pack installer"
@@ -56,6 +75,8 @@ info "Firmware: ${FIRMWARE}"
 if ! systemctl is-active --quiet unifi-core 2>/dev/null; then
     die "unifi-core is not running. A working UniFi OS controller is required."
 fi
+
+check_network_version
 
 # Version info
 if [ -f "${SCRIPT_DIR}/VERSION" ]; then

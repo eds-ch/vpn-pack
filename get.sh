@@ -23,9 +23,29 @@ info()  { echo -e "${GREEN}[+]${NC} $*"; }
 error() { echo -e "${RED}[x]${NC} $*"; }
 die()   { error "$*"; exit 1; }
 
+check_network_version() {
+    local raw major minor rest
+    raw=$(dpkg-query -W -f='${Version}' unifi 2>/dev/null) || true
+    if [ -z "$raw" ]; then
+        die "UniFi Network Application not found. A working UniFi Network 10.1+ installation is required."
+    fi
+    major="${raw%%.*}"
+    rest="${raw#*.}"
+    minor="${rest%%.*}"
+    if ! [ "$major" -eq "$major" ] 2>/dev/null || ! [ "$minor" -eq "$minor" ] 2>/dev/null; then
+        die "Cannot parse UniFi Network version: ${raw}"
+    fi
+    if [ "$major" -gt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -ge 1 ]; }; then
+        info "UniFi Network: ${BOLD}${major}.${minor}${NC} (${raw})"
+        return 0
+    fi
+    die "UniFi Network 10.1 or later is required (found: ${major}.${minor}). Please update via Settings > System > Updates in the UniFi console."
+}
+
 [ "$(id -u)" -eq 0 ] || die "Must be run as root"
 [ "$(uname -m)" = "aarch64" ] || die "Unsupported architecture: $(uname -m) (need aarch64)"
 command -v curl >/dev/null || die "curl is required but not found"
+check_network_version
 
 INSTALLED_VERSION=""
 if [ -f /persistent/vpn-pack/VERSION ]; then
