@@ -303,6 +303,17 @@ func (m *Manifest) GetSystemZoneIDs() (string, string) {
 	return m.ExternalZoneID, m.GatewayZoneID
 }
 
+func (m *Manifest) ResetIntegration() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Tailscale = ZoneManifest{}
+	m.WgS2s = nil
+	m.WanPorts = nil
+	m.ExternalZoneID = ""
+	m.GatewayZoneID = ""
+	m.UpdatedAt = time.Now().UTC()
+}
+
 func (m *Manifest) GetWanPortsSnapshot() map[string]WanPortEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

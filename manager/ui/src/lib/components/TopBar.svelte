@@ -9,8 +9,12 @@
     let bannerDismissed = $state(false);
 
     let isNeedsLogin = $derived(status.backendState === 'NeedsLogin');
+    let zbfDisabled = $derived(
+        status.integrationStatus?.configured && status.integrationStatus?.zbfEnabled === false
+    );
     let showBanner = $derived(
-        (isNeedsLogin || !bannerDismissed) && status.integrationStatus && !status.integrationStatus.configured
+        ((isNeedsLogin || !bannerDismissed) && status.integrationStatus && !status.integrationStatus.configured)
+        || (!bannerDismissed && zbfDisabled)
     );
 
     let showUpdateBanner = $derived(
@@ -64,7 +68,9 @@
         <div class="flex items-center gap-2 min-w-0">
             <Icon name="alert-triangle" size={14} class="text-warning shrink-0" />
             <span class="text-caption text-warning truncate">
-                {#if isNeedsLogin}
+                {#if zbfDisabled}
+                    Zone-Based Firewall required. In UniFi Network go to Settings → Firewall & Security and click "Upgrade to the New Zone-Based Firewall".
+                {:else if isNeedsLogin}
                     Integration API key required to activate Tailscale.
                 {:else}
                     UniFi API key not configured. Firewall zones are managed via legacy UDAPI only.
@@ -80,7 +86,7 @@
                     Configure in Settings
                 </button>
             {/if}
-            {#if !isNeedsLogin}
+            {#if !isNeedsLogin || zbfDisabled}
                 <button
                     onclick={() => bannerDismissed = true}
                     class="p-0.5 text-warning/60 hover:text-warning transition-colors"

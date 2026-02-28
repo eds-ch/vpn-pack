@@ -135,6 +135,34 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 			enrichment := s.fetchStatusEnrichment()
 			integrationStatus := s.fetchIntegrationStatus()
 
+			if integrationStatus != nil && integrationStatus.Reason == "key_expired" && s.ic.HasAPIKey() {
+				slog.Warn("periodic check: API key rejected, clearing")
+				s.ic.SetAPIKey("")
+				_ = deleteAPIKey()
+				s.manifest.ResetIntegration()
+				_ = s.manifest.Save()
+				s.integrationDegraded.Store(true)
+				integrationStatus = s.fetchIntegrationStatus()
+			}
+
+			if integrationStatus != nil && integrationStatus.ZBFEnabled != nil && *integrationStatus.ZBFEnabled && !s.integrationDegraded.Load() {
+				ts := s.manifest.GetTailscaleZone()
+				if ts.ZoneID != "" && len(ts.PolicyIDs) == 0 && s.fw != nil {
+					slog.Info("ZBF enabled but policies missing, retrying firewall setup")
+					if err := s.fw.SetupTailscaleFirewall(); err != nil {
+						slog.Warn("firewall setup retry failed, will not retry until restart", "err", err)
+						s.integrationDegraded.Store(true)
+					} else {
+						if port := readTailscaledPort(); port > 0 {
+							if err := s.fw.OpenWanPort(port, "tailscale-wg"); err != nil {
+								slog.Warn("WAN port open failed", "port", port, "err", err)
+							}
+						}
+					}
+					integrationStatus = s.fetchIntegrationStatus()
+				}
+			}
+
 			s.state.mu.Lock()
 			s.applyEnrichment(enrichment)
 			s.state.data.FirewallHealth = s.firewallHealthSnapshot()

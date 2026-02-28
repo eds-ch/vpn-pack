@@ -4,6 +4,7 @@ import { AUTH_KEEPALIVE_MS } from './constants.js';
 const API_BASE = '/vpn-pack/api';
 const DEFAULT_TIMEOUT_MS = 30000;
 
+let csrfToken = null;
 let lastRequestTime = 0;
 
 function extractError(data, status) {
@@ -19,6 +20,7 @@ async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isR
     try {
         const headers = {};
         if (body !== undefined) headers['Content-Type'] = 'application/json';
+        if (csrfToken && method !== 'GET') headers['X-Csrf-Token'] = csrfToken;
 
         const opts = { method, headers, signal: controller.signal };
         if (body !== undefined) opts.body = JSON.stringify(body);
@@ -26,10 +28,15 @@ async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isR
         const res = await fetch(path, opts);
         clearTimeout(timer);
 
+        const newCsrf = res.headers.get('X-Csrf-Token');
+        if (newCsrf) csrfToken = newCsrf;
+
         if (res.status === 401 || res.status === 403) {
             if (!_isRetry) {
                 try {
                     const refreshRes = await fetch(`${API_BASE}/status`);
+                    const refreshCsrf = refreshRes.headers.get('X-Csrf-Token');
+                    if (refreshCsrf) csrfToken = refreshCsrf;
                     if (refreshRes.ok) {
                         return apiFetch(method, path, body, { timeout, _isRetry: true });
                     }

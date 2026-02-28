@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,8 @@ type IntegrationStatus struct {
 	SiteID     string `json:"siteId,omitempty"`
 	AppVersion string `json:"appVersion,omitempty"`
 	Error      string `json:"error,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	ZBFEnabled *bool  `json:"zbfEnabled,omitempty"`
 }
 
 func loadAPIKey() string {
@@ -55,11 +58,22 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 
 	info, err := s.ic.Validate()
 	if err != nil {
-		st.Error = err.Error()
 		st.Valid = false
+		if errors.Is(err, ErrUnauthorized) {
+			st.Error = "API key is no longer valid. This may happen after a factory reset. Please enter a new API key."
+			st.Reason = "key_expired"
+		} else {
+			st.Error = err.Error()
+		}
 	} else {
 		st.Valid = true
 		st.AppVersion = info.ApplicationVersion
+	}
+
+	if st.Valid && st.SiteID != "" {
+		_, _, err := s.ic.findSystemZoneIDs(st.SiteID)
+		enabled := err == nil
+		st.ZBFEnabled = &enabled
 	}
 
 	return st
@@ -115,6 +129,12 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 		SiteID:     siteID,
 	}
 
+	if siteID != "" {
+		_, _, err := s.ic.findSystemZoneIDs(siteID)
+		enabled := err == nil
+		st.ZBFEnabled = &enabled
+	}
+
 	slog.Info("integration API key configured", "appVersion", info.ApplicationVersion, "siteId", siteID)
 
 	if s.fw != nil && siteID != "" {
@@ -127,6 +147,8 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
+
+	s.integrationDegraded.Store(false)
 
 	s.state.mu.Lock()
 	s.state.data.IntegrationStatus = st

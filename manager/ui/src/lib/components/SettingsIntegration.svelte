@@ -14,6 +14,14 @@
     let configured = $derived(integrationStatus?.configured ?? false);
     let valid = $derived(integrationStatus?.valid ?? false);
 
+    let reasonMessage = $derived.by(() => {
+        if (!integrationStatus?.reason) return null;
+        if (integrationStatus.reason === 'key_expired') {
+            return 'The API key is no longer valid. This usually happens after a factory reset. Please enter a new API key below.';
+        }
+        return null;
+    });
+
     async function handleSave() {
         if (!apiKey.trim()) return;
         loading = true;
@@ -93,10 +101,16 @@
                     <span class="text-text">v{integrationStatus.appVersion}</span>
                 </div>
             {/if}
+            {#if integrationStatus?.zbfEnabled === false}
+                <div class="flex gap-2 items-start mt-2 p-2.5 rounded-lg bg-warning/8 border border-warning/20">
+                    <Icon name="alert-triangle" size={14} class="text-warning shrink-0 mt-0.5" />
+                    <span class="text-caption text-warning">Zone-Based Firewall is required. In UniFi Network go to Settings → Firewall & Security and click "Upgrade to the New Zone-Based Firewall".</span>
+                </div>
+            {/if}
             {#if integrationStatus?.error}
                 <div class="flex gap-2 items-start mt-2 p-2.5 rounded-lg bg-error/8 border border-error/20">
                     <Icon name="alert-triangle" size={14} class="text-error shrink-0 mt-0.5" />
-                    <span class="text-caption text-error">{integrationStatus.error}</span>
+                    <span class="text-caption text-error">{reasonMessage ?? integrationStatus.error}</span>
                 </div>
             {/if}
         </div>

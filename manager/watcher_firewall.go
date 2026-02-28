@@ -161,6 +161,9 @@ func (s *Server) restoreTailscaleRules() {
 	if !s.integrationReady() {
 		return
 	}
+	if s.integrationDegraded.Load() {
+		return
+	}
 	if !interfaceExists("tailscale0") {
 		return
 	}
@@ -200,6 +203,9 @@ func (s *Server) restoreWgS2sRules() {
 	if s.wgManager == nil {
 		return
 	}
+	if s.integrationDegraded.Load() {
+		return
+	}
 
 	var ifaces []string
 	for _, t := range s.wgManager.GetTunnels() {
@@ -229,6 +235,9 @@ func (s *Server) restoreWgS2sRules() {
 }
 
 func (s *Server) reconcileWanPortPolicies() {
+	if s.integrationDegraded.Load() {
+		return
+	}
 	wanPorts := s.manifest.GetWanPortsSnapshot()
 	if len(wanPorts) == 0 {
 		return

@@ -23,24 +23,25 @@ import (
 var uiFS embed.FS
 
 type Server struct {
-	lc             *local.Client
-	hub            *Hub
-	mux            *http.ServeMux
-	deviceInfo     DeviceInfo
-	httpServer     *http.Server
-	state          *TailscaleState
-	fw             *FirewallManager
-	ic             *IntegrationClient
-	manifest       *Manifest
-	nginx          *NginxManager
-	firewallCh     chan FirewallRequest
-	watcherRunning     atomic.Bool
-	lastRestore        atomic.Pointer[time.Time]
-	postPolicyRestore  atomic.Bool
-	logBuf         *LogBuffer
-	wgManager      *wgs2s.TunnelManager
-	vpnClientsMu  sync.Mutex
-	updater       *updateChecker
+	lc                  *local.Client
+	hub                 *Hub
+	mux                 *http.ServeMux
+	deviceInfo          DeviceInfo
+	httpServer          *http.Server
+	state               *TailscaleState
+	fw                  *FirewallManager
+	ic                  *IntegrationClient
+	manifest            *Manifest
+	nginx               *NginxManager
+	firewallCh          chan FirewallRequest
+	watcherRunning      atomic.Bool
+	lastRestore         atomic.Pointer[time.Time]
+	postPolicyRestore   atomic.Bool
+	integrationDegraded atomic.Bool
+	logBuf              *LogBuffer
+	wgManager           *wgs2s.TunnelManager
+	vpnClientsMu       sync.Mutex
+	updater             *updateChecker
 }
 
 func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceInfo) *Server {
@@ -56,16 +57,6 @@ func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceIn
 	if err != nil {
 		slog.Warn("manifest load failed", "err", err)
 		manifest = &Manifest{path: manifestPath, Version: 2, CreatedAt: time.Now().UTC()}
-	}
-
-	if apiKey != "" && !manifest.HasSiteID() {
-		if siteID, err := ic.DiscoverSiteID(); err == nil {
-			manifest.SetSiteID(siteID)
-			if err := manifest.Save(); err != nil {
-				slog.Warn("manifest save failed", "err", err)
-			}
-			slog.Info("discovered site ID", "siteId", siteID)
-		}
 	}
 
 	s := &Server{
@@ -134,6 +125,8 @@ func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceIn
 			return ctx
 		},
 	}
+
+	s.validateIntegration()
 
 	return s
 }
@@ -273,4 +266,91 @@ func isUDAPIReachable() bool {
 
 func (s *Server) integrationReady() bool {
 	return s.ic != nil && s.ic.HasAPIKey() && s.manifest != nil && s.manifest.HasSiteID()
+}
+
+func (s *Server) validateIntegration() {
+	if !s.ic.HasAPIKey() {
+		return
+	}
+
+	_, err := s.ic.Validate()
+	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			slog.Warn("API key invalid (likely factory reset), clearing")
+			s.ic.SetAPIKey("")
+			_ = deleteAPIKey()
+			s.manifest.ResetIntegration()
+			_ = s.manifest.Save()
+			s.integrationDegraded.Store(true)
+			return
+		}
+		slog.Warn("integration validation failed", "err", err)
+		return
+	}
+
+	siteID, err := s.ic.DiscoverSiteID()
+	if err != nil {
+		slog.Warn("site discovery failed", "err", err)
+		return
+	}
+	if s.manifest.GetSiteID() == "" {
+		s.manifest.SetSiteID(siteID)
+		_ = s.manifest.Save()
+		slog.Info("discovered site ID", "siteId", siteID)
+	} else if siteID != s.manifest.GetSiteID() {
+		slog.Warn("site ID changed, resetting manifest", "old", s.manifest.GetSiteID(), "new", siteID)
+		s.manifest.SetSiteID(siteID)
+		s.manifest.ResetIntegration()
+		_ = s.manifest.Save()
+	}
+
+	s.validateManifestZones(siteID)
+}
+
+func (s *Server) validateManifestZones(siteID string) {
+	ts := s.manifest.GetTailscaleZone()
+	if ts.ZoneID == "" {
+		return
+	}
+	zones, err := s.ic.listZones(siteID)
+	if err != nil {
+		slog.Warn("zone validation failed", "err", err)
+		return
+	}
+	zoneFound := false
+	for _, z := range zones {
+		if z.ID == ts.ZoneID {
+			zoneFound = true
+			break
+		}
+	}
+	if !zoneFound {
+		slog.Warn("manifest zone not found in API, resetting", "staleZoneId", ts.ZoneID)
+		s.manifest.ResetIntegration()
+		_ = s.manifest.Save()
+		return
+	}
+
+	if len(ts.PolicyIDs) > 0 {
+		policies, err := s.ic.ListPolicies(siteID)
+		if err != nil {
+			slog.Warn("policy validation failed", "err", err)
+			return
+		}
+		policySet := make(map[string]bool, len(policies))
+		for _, p := range policies {
+			policySet[p.ID] = true
+		}
+		var valid []string
+		for _, id := range ts.PolicyIDs {
+			if policySet[id] {
+				valid = append(valid, id)
+			}
+		}
+		if len(valid) != len(ts.PolicyIDs) {
+			slog.Warn("stale policy IDs in manifest, clearing", "had", len(ts.PolicyIDs), "valid", len(valid))
+			s.manifest.SetTailscaleZone(ts.ZoneID, valid, ts.ChainPrefix)
+			_ = s.manifest.Save()
+		}
+	}
 }
