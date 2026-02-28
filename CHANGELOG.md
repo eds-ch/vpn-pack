@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-02-28
+
+### Fixed
+- Integration API zone/policy creation now retries when Zone-Based Firewall is not yet initialized after factory reset (intervals: 0s, 5s, then every 10s)
+- Suppressed `VPN_subnets` ipset log spam in UDAPI-only fallback mode (when ZBF zone not yet created)
+- Added additional `ts_omit_*` build tags to further reduce binary size
+
 ## [1.1.8] - 2026-02-28
 
 ### Added
@@ -126,7 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.8...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.9...HEAD
+[1.1.9]: https://github.com/eds-ch/vpn-pack/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/eds-ch/vpn-pack/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/eds-ch/vpn-pack/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/eds-ch/vpn-pack/compare/v1.1.5...v1.1.6
