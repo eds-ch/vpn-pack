@@ -42,8 +42,18 @@ SEMVER=${VERSION#v}
 info "Latest version: ${BOLD}${VERSION}${NC}"
 
 if [ "$INSTALLED_VERSION" = "$SEMVER" ]; then
-    info "Already up to date."
-    exit 0
+    NEEDS_REINSTALL=false
+    if [ ! -f /etc/systemd/system/tailscaled.service ] || [ ! -f /etc/systemd/system/vpn-pack-manager.service ]; then
+        NEEDS_REINSTALL=true
+    elif ! systemctl is-active --quiet tailscaled 2>/dev/null || ! systemctl is-active --quiet vpn-pack-manager 2>/dev/null; then
+        NEEDS_REINSTALL=true
+    fi
+    if [ "$NEEDS_REINSTALL" = false ]; then
+        info "Already up to date."
+        exit 0
+    fi
+    info "${YELLOW}Version v${SEMVER} data found but services are not installed${NC}"
+    info "Reinstalling (this can happen after a factory reset)..."
 fi
 
 ARCHIVE="vpn-pack-${SEMVER}.tar.gz"
