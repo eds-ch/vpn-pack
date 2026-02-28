@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -96,4 +98,49 @@ func readFileString(path string) string {
 		return ""
 	}
 	return strings.TrimRight(string(data), "\x00\n")
+}
+
+const minNetworkMajor = 10
+const minNetworkMinor = 1
+
+type uniFiVersion struct {
+	Major int
+	Minor int
+}
+
+func (v uniFiVersion) String() string {
+	return fmt.Sprintf("%d.%d", v.Major, v.Minor)
+}
+
+func parseUniFiVersion(raw string) (uniFiVersion, error) {
+	if raw == "" {
+		return uniFiVersion{}, fmt.Errorf("empty version string")
+	}
+	parts := strings.SplitN(raw, ".", 3)
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return uniFiVersion{}, fmt.Errorf("invalid major version %q: %w", parts[0], err)
+	}
+	minor := 0
+	if len(parts) >= 2 {
+		minor, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return uniFiVersion{}, fmt.Errorf("invalid minor version %q: %w", parts[1], err)
+		}
+	}
+	return uniFiVersion{Major: major, Minor: minor}, nil
+}
+
+func checkMinUniFiVersion(raw string) error {
+	if raw == "" {
+		return fmt.Errorf("UniFi Network Application not found. A working UniFi Network 10.1+ installation is required")
+	}
+	v, err := parseUniFiVersion(raw)
+	if err != nil {
+		return fmt.Errorf("UniFi Network version unreadable (%q): %w", raw, err)
+	}
+	if v.Major > minNetworkMajor || (v.Major == minNetworkMajor && v.Minor >= minNetworkMinor) {
+		return nil
+	}
+	return fmt.Errorf("UniFi Network %d.%d or later is required (found: %s). Please update via Settings > System > Updates in the UniFi console", minNetworkMajor, minNetworkMinor, v)
 }
