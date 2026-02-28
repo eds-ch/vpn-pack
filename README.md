@@ -21,7 +21,7 @@ Tailscale and WireGuard Site-to-Site VPN for UniFi Cloud Gateway devices (UDM SE
 | UCG Ultra | Tested |
 | UDR SE | Supported |
 
-Requirements: UniFi OS with controller (unifi-core), aarch64, systemd, `/dev/net/tun`.
+Requirements: **UniFi Network 10.1 or later**, UniFi OS with controller (unifi-core), aarch64, systemd, `/dev/net/tun`.
 
 ## Install
 
