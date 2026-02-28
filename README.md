@@ -57,9 +57,15 @@ Everything under `/persistent/` survives firmware updates and factory resets.
 
 The management interface runs behind the UniFi controller's authentication — no extra passwords needed.
 
+![Dashboard](https://raw.githubusercontent.com/wiki/eds-ch/vpn-pack/screenshots/dashboard.png)
+
 **Dashboard** — connection status, Tailscale IP, peers with latency, DERP relay info, WG S2S tunnel status.
 
+![Settings](https://raw.githubusercontent.com/wiki/eds-ch/vpn-pack/screenshots/ts_settings.png)
+
 **Settings** — hostname, UDP port, relay server mode, custom control URL, subnet routes, exit node toggle, UniFi Integration API key.
+
+![WireGuard S2S](https://raw.githubusercontent.com/wiki/eds-ch/vpn-pack/screenshots/wg.png)
 
 **WireGuard S2S** — create and manage site-to-site tunnels with full lifecycle: create, configure peers, enable/disable, monitor traffic, export configs.
 
