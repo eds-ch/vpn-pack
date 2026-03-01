@@ -116,11 +116,20 @@ func HasMarkerRule(c *UDAPIClient, chain, marker string) (bool, error) {
 		return false, err
 	}
 
-	var raw json.RawMessage
-	if err := json.Unmarshal(resp.Response, &raw); err != nil {
+	var cr struct {
+		Rules []struct {
+			Description string `json:"description"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(resp.Response, &cr); err != nil {
 		return false, fmt.Errorf("parse %s response: %w", chain, err)
 	}
 
-	return strings.Contains(string(raw), marker), nil
+	for _, r := range cr.Rules {
+		if strings.Contains(r.Description, marker) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 

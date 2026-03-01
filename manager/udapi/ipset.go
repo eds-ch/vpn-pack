@@ -13,25 +13,30 @@ type ipsetEntry struct {
 	Entries []string `json:"entries"`
 }
 
-func EnsureZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
+func findIPSet(c *UDAPIClient, ipsetName string) (*ipsetEntry, []ipsetEntry, error) {
 	resp, err := c.Request("GET", "/firewall/sets", nil)
 	if err != nil {
-		return fmt.Errorf("get firewall sets: %w", err)
+		return nil, nil, fmt.Errorf("get firewall sets: %w", err)
 	}
 
 	var sets []ipsetEntry
 	if err := json.Unmarshal(resp.Response, &sets); err != nil {
-		return fmt.Errorf("parse firewall sets: %w", err)
+		return nil, nil, fmt.Errorf("parse firewall sets: %w", err)
 	}
 
-	var target *ipsetEntry
 	for i := range sets {
 		if sets[i].Identification.Name == ipsetName {
-			target = &sets[i]
-			break
+			return &sets[i], sets, nil
 		}
 	}
+	return nil, sets, nil
+}
 
+func EnsureZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
+	target, _, err := findIPSet(c, ipsetName)
+	if err != nil {
+		return err
+	}
 	if target == nil {
 		return fmt.Errorf("%s ipset not found", ipsetName)
 	}
@@ -56,24 +61,10 @@ func EnsureVPNSubnet(c *UDAPIClient, cidr string) error {
 }
 
 func RemoveZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
-	resp, err := c.Request("GET", "/firewall/sets", nil)
+	target, _, err := findIPSet(c, ipsetName)
 	if err != nil {
-		return fmt.Errorf("get firewall sets: %w", err)
+		return err
 	}
-
-	var sets []ipsetEntry
-	if err := json.Unmarshal(resp.Response, &sets); err != nil {
-		return fmt.Errorf("parse firewall sets: %w", err)
-	}
-
-	var target *ipsetEntry
-	for i := range sets {
-		if sets[i].Identification.Name == ipsetName {
-			target = &sets[i]
-			break
-		}
-	}
-
 	if target == nil {
 		return nil
 	}

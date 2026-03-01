@@ -54,10 +54,6 @@ func NewClient(socketPath string) *UDAPIClient {
 }
 
 func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, error) {
-	if _, err := os.Stat(c.socketPath); err != nil {
-		return nil, fmt.Errorf("%w: %s", errSocketNotFound, c.socketPath)
-	}
-
 	conn, bindPath, err := c.connect()
 	if err != nil {
 		return nil, err
