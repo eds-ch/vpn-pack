@@ -43,17 +43,7 @@ type stateData struct {
 	IntegrationStatus *IntegrationStatus  `json:"integrationStatus,omitempty"`
 	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
 
-	// Settings (from Tailscale prefs, pushed via SSE for live sync)
-	Hostname             string   `json:"hostname"`
-	AcceptDNS            bool     `json:"acceptDNS"`
-	AcceptRoutes         bool     `json:"acceptRoutes"`
-	ShieldsUp            bool     `json:"shieldsUp"`
-	RunSSH               bool     `json:"runSSH"`
-	NoSNAT               bool     `json:"noSNAT"`
-	UDPPort              int      `json:"udpPort"`
-	RelayServerPort      *uint16  `json:"relayServerPort"`
-	RelayServerEndpoints string   `json:"relayServerEndpoints"`
-	AdvertiseTags        []string `json:"advertiseTags"`
+	settingsFields
 }
 
 type RouteStatus struct {

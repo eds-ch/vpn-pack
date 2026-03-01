@@ -17,18 +17,22 @@ import (
 	"tailscale.com/ipn"
 )
 
-type settingsResponse struct {
+type settingsFields struct {
 	Hostname             string   `json:"hostname"`
 	AcceptDNS            bool     `json:"acceptDNS"`
 	AcceptRoutes         bool     `json:"acceptRoutes"`
 	ShieldsUp            bool     `json:"shieldsUp"`
 	RunSSH               bool     `json:"runSSH"`
-	ControlURL           string   `json:"controlURL"`
 	NoSNAT               bool     `json:"noSNAT"`
 	UDPPort              int      `json:"udpPort"`
 	RelayServerPort      *uint16  `json:"relayServerPort"`
 	RelayServerEndpoints string   `json:"relayServerEndpoints"`
 	AdvertiseTags        []string `json:"advertiseTags"`
+}
+
+type settingsResponse struct {
+	settingsFields
+	ControlURL string `json:"controlURL"`
 }
 
 type settingsRequest struct {
@@ -47,17 +51,19 @@ type settingsRequest struct {
 
 func toSettingsResponse(prefs *ipn.Prefs) settingsResponse {
 	return settingsResponse{
-		Hostname:             prefs.Hostname,
-		AcceptDNS:            prefs.CorpDNS,
-		AcceptRoutes:         prefs.RouteAll,
-		ShieldsUp:            prefs.ShieldsUp,
-		RunSSH:               prefs.RunSSH,
-		ControlURL:           prefs.ControlURL,
-		NoSNAT:               prefs.NoSNAT,
-		UDPPort:              readTailscaledPort(),
-		RelayServerPort:      prefs.RelayServerPort,
-		RelayServerEndpoints: formatAddrPorts(prefs.RelayServerStaticEndpoints),
-		AdvertiseTags:        prefs.AdvertiseTags,
+		settingsFields: settingsFields{
+			Hostname:             prefs.Hostname,
+			AcceptDNS:            prefs.CorpDNS,
+			AcceptRoutes:         prefs.RouteAll,
+			ShieldsUp:            prefs.ShieldsUp,
+			RunSSH:               prefs.RunSSH,
+			NoSNAT:               prefs.NoSNAT,
+			UDPPort:              readTailscaledPort(),
+			RelayServerPort:      prefs.RelayServerPort,
+			RelayServerEndpoints: formatAddrPorts(prefs.RelayServerStaticEndpoints),
+			AdvertiseTags:        prefs.AdvertiseTags,
+		},
+		ControlURL: prefs.ControlURL,
 	}
 }
 
