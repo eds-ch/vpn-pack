@@ -1,7 +1,7 @@
 <script>
     import { wgS2sUpdateTunnel, wgS2sDeleteTunnel, wgS2sEnableTunnel, wgS2sDisableTunnel } from '../api.js';
     import { formatBytes, relativeTime, validateTunnelFields, tunnelStatusInfo } from '../utils.js';
-    import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
+    import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE, COPY_NOTIFICATION_MS } from '../constants.js';
     import WgConfigCopy from './WgConfigCopy.svelte';
 
     let { tunnel, onUpdate, onDelete } = $props();
@@ -12,6 +12,8 @@
     let showDeleteConfirm = $state(false);
     let configVisible = $state(false);
     let actionLoading = $state(false);
+    let copied = $state(false);
+    let copyFailed = $state(false);
 
     let si = $derived(tunnelStatusInfo(tunnel));
 
@@ -76,6 +78,20 @@
         actionLoading = false;
     }
 
+    async function copyPublicKey() {
+        if (!tunnel.publicKey) return;
+        try {
+            await navigator.clipboard.writeText(tunnel.publicKey);
+            copied = true;
+            copyFailed = false;
+            setTimeout(() => copied = false, COPY_NOTIFICATION_MS);
+        } catch (e) {
+            console.warn('Clipboard write failed:', e);
+            copyFailed = true;
+            setTimeout(() => copyFailed = false, COPY_NOTIFICATION_MS);
+        }
+    }
+
     async function confirmDelete() {
         actionLoading = true;
         const result = await wgS2sDeleteTunnel(tunnel.id);
@@ -132,6 +148,23 @@
                         <span class="text-text-secondary">MTU</span>
                         <span class="ml-2 text-text">{tunnel.mtu ?? WG_DEFAULT_MTU}</span>
                     </div>
+                    {#if tunnel.publicKey}
+                        <div class="md:col-span-2">
+                            <span class="text-text-secondary">Public Key</span>
+                            <div class="mt-1 flex gap-2">
+                                <input
+                                    type="text"
+                                    readonly
+                                    value={tunnel.publicKey}
+                                    class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono text-caption"
+                                />
+                                <button
+                                    onclick={copyPublicKey}
+                                    class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
+                                >{copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy'}</button>
+                            </div>
+                        </div>
+                    {/if}
                     <div class="md:col-span-2">
                         <span class="text-text-secondary">Peer Public Key</span>
                         <span class="ml-2 text-text font-mono text-caption break-all">{tunnel.peerPublicKey ?? ''}</span>
