@@ -108,11 +108,11 @@ make package                    # create vpn-pack-<version>.tar.gz
 make deploy HOST=<gateway-ip>   # deploy via SSH
 ```
 
-The build applies four patches to upstream Tailscale v1.94.1 to avoid fwmark conflicts with UniFi VPN clients and to report correct device/platform info. See `patches/README.md` for details.
+The build applies four patches to upstream Tailscale v1.94.2 and strips 38 unused modules to produce a binary tailored for UniFi devices (28 MB vs 62 MB stock). See the [Custom Tailscale Build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) wiki page for full details, or `patches/README.md` for patch mechanics.
 
 ## How It Works
 
-Tailscale runs in userspace via `/dev/net/tun` — no kernel modules needed. It uses its own iptables chains (`ts-*`) and fwmark bits that don't overlap with UniFi's (`UBIOS_*`). DNS resolution is left to UniFi (`--accept-dns=false`) to avoid conflicts.
+Tailscale runs as a [custom build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) — patched to avoid fwmark collisions with UniFi VPN clients, stripped of desktop/cloud modules, and statically linked. It operates in userspace via `/dev/net/tun` — no kernel modules needed. It uses its own iptables chains (`ts-*`) and fwmark bits that don't overlap with UniFi's (`UBIOS_*`). DNS resolution is left to UniFi (`--accept-dns=false`) to avoid conflicts.
 
 The manager is a single Go binary with the Svelte UI embedded. It talks to tailscaled via the local Unix socket and to UniFi via the Integration API and UDAPI socket.
 
