@@ -341,13 +341,15 @@ func (s *Server) schedulePostPolicyRestore() {
 		defer s.postPolicyRestore.Store(false)
 		for range 10 {
 			time.Sleep(2 * time.Second)
-			s.checkAndRestoreRules()
+			s.sendFirewallRequest(FirewallRequest{Action: "check-and-restore"})
 		}
 	}()
 }
 
 func (s *Server) handleFirewallRequest(req FirewallRequest) {
 	switch req.Action {
+	case "check-and-restore":
+		s.checkAndRestoreRules()
 	case "apply-wg-s2s":
 		if req.Interface != "" {
 			if err := s.fw.SetupWgS2sFirewall(req.TunnelID, req.Interface, req.AllowedIPs); err != nil {
