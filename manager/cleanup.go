@@ -34,7 +34,7 @@ func runCleanup() {
 
 func removeTailscaleUDAPIRules(uc *udapi.UDAPIClient) {
 	marker := firewallMarker
-	if err := udapi.RemoveInterfaceRules(uc, "tailscale0", marker); err != nil {
+	if err := udapi.RemoveInterfaceRules(uc, tailscaleInterface, marker); err != nil {
 		slog.Warn("cleanup: tailscale UDAPI rules removal failed", "err", err)
 	} else {
 		slog.Info("cleanup: tailscale UDAPI rules removed")

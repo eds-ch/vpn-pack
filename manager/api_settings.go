@@ -289,17 +289,16 @@ func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {
 	if newRelayPort == nil || s.ic == nil || !s.ic.HasAPIKey() {
 		return
 	}
-	const marker = "relay-server"
 	var changed bool
 	if oldRelayPort != nil && *oldRelayPort > 0 {
-		if err := s.fw.CloseWanPort(int(*oldRelayPort), marker); err != nil {
+		if err := s.fw.CloseWanPort(int(*oldRelayPort), wanMarkerRelay); err != nil {
 			slog.Warn("relay WAN port close failed", "port", *oldRelayPort, "err", err)
 		} else {
 			changed = true
 		}
 	}
 	if *newRelayPort > 0 {
-		if err := s.fw.OpenWanPort(*newRelayPort, marker); err != nil {
+		if err := s.fw.OpenWanPort(*newRelayPort, wanMarkerRelay); err != nil {
 			slog.Warn("relay WAN port open failed", "port", *newRelayPort, "err", err)
 		} else {
 			changed = true
@@ -314,22 +313,21 @@ func (s *Server) updateTailscaleWgPortRules(newPort *int) {
 	if newPort == nil || s.ic == nil || !s.ic.HasAPIKey() {
 		return
 	}
-	const marker = "tailscale-wg"
-	entry, _ := s.manifest.GetWanPortEntry(marker)
+	entry, _ := s.manifest.GetWanPortEntry(wanMarkerTailscaleWG)
 	oldPort := entry.Port
 	if oldPort == *newPort {
 		return
 	}
 	var changed bool
 	if oldPort > 0 {
-		if err := s.fw.CloseWanPort(oldPort, marker); err != nil {
+		if err := s.fw.CloseWanPort(oldPort, wanMarkerTailscaleWG); err != nil {
 			slog.Warn("tailscale WG WAN port close failed", "port", oldPort, "err", err)
 		} else {
 			changed = true
 		}
 	}
 	if *newPort > 0 {
-		if err := s.fw.OpenWanPort(*newPort, marker); err != nil {
+		if err := s.fw.OpenWanPort(*newPort, wanMarkerTailscaleWG); err != nil {
 			slog.Warn("tailscale WG WAN port open failed", "port", *newPort, "err", err)
 		} else {
 			changed = true

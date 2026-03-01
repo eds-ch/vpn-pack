@@ -20,11 +20,7 @@ type IntegrationStatus struct {
 }
 
 func loadAPIKey() string {
-	data, err := os.ReadFile(apiKeyPath)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
+	return readFileTrimmed(apiKeyPath)
 }
 
 func saveAPIKey(key string) error {
@@ -142,7 +138,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 			slog.Warn("firewall setup after key save failed", "err", err)
 		}
 		if port := readTailscaledPort(); port > 0 {
-			if err := s.fw.OpenWanPort(port, "tailscale-wg"); err != nil {
+			if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
 				slog.Warn("tailscale WAN port open after key save failed", "port", port, "err", err)
 			}
 		}
@@ -175,7 +171,7 @@ func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Reque
 	s.state.mu.Unlock()
 	s.broadcastState()
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleTestIntegrationKey(w http.ResponseWriter, r *http.Request) {

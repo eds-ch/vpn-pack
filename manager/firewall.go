@@ -73,13 +73,13 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 
 	oldPrefix := fm.manifest.GetTailscaleChainPrefix()
 	if chainPrefix != oldPrefix {
-		_ = udapi.RemoveInterfaceRules(fm.udapi, "tailscale0", marker)
+		_ = udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, marker)
 	}
 
 	if chainPrefix != defaultChainPrefix {
-		fwd := hasChainRule(chainForwardInUser, "-i tailscale0")
-		inp := hasChainRule(chainInputUserHook, "-i tailscale0")
-		out := hasChainRule(chainOutputUserHook, "-o tailscale0")
+		fwd := hasChainRule(chainForwardInUser, "-i " + tailscaleInterface)
+		inp := hasChainRule(chainInputUserHook, "-i " + tailscaleInterface)
+		out := hasChainRule(chainOutputUserHook, "-o " + tailscaleInterface)
 		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), tailscaleCGNAT)
 		if fwd && inp && out && ipsetOK {
 			slog.Info("tailscale firewall setup complete", "chainPrefix", chainPrefix, "source", "ubios")
@@ -87,7 +87,7 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 		}
 	}
 
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, "tailscale0", marker, chainPrefix); err != nil {
+	if err := udapi.AddInterfaceRulesForZone(fm.udapi, tailscaleInterface, marker, chainPrefix); err != nil {
 		slog.Warn("UDAPI tailscale rules failed", "err", err, "prefix", chainPrefix)
 		return err
 	}
@@ -308,7 +308,7 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 	ts := fm.manifest.GetTailscaleZone()
 	if chainPrefix == defaultChainPrefix && ts.ZoneID != "" {
 		if rediscovered := fm.discoverChainPrefix(ts.ZoneID); rediscovered != "" {
-			_ = udapi.RemoveInterfaceRules(fm.udapi, "tailscale0", marker)
+			_ = udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, marker)
 			chainPrefix = rediscovered
 			fm.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, ts.PolicyIDs, rediscovered)
 			if err := fm.manifest.Save(); err != nil {
@@ -319,16 +319,16 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 	}
 
 	if chainPrefix != defaultChainPrefix {
-		fwd := hasChainRule(chainForwardInUser, "-i tailscale0")
-		inp := hasChainRule(chainInputUserHook, "-i tailscale0")
-		out := hasChainRule(chainOutputUserHook, "-o tailscale0")
+		fwd := hasChainRule(chainForwardInUser, "-i " + tailscaleInterface)
+		inp := hasChainRule(chainInputUserHook, "-i " + tailscaleInterface)
+		out := hasChainRule(chainOutputUserHook, "-o " + tailscaleInterface)
 		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), tailscaleCGNAT)
 		if fwd && inp && out && ipsetOK {
 			return nil
 		}
 	}
 
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, "tailscale0", marker, chainPrefix); err != nil {
+	if err := udapi.AddInterfaceRulesForZone(fm.udapi, tailscaleInterface, marker, chainPrefix); err != nil {
 		return err
 	}
 
@@ -342,12 +342,12 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 
 func (fm *FirewallManager) CheckTailscaleRulesPresent() (forward, input, output, ipset bool) {
 	prefix := fm.manifest.GetTailscaleChainPrefix()
-	forward = hasChainRule(chainForwardInUser, "-i tailscale0") ||
-		hasChainRule(fmt.Sprintf("UBIOS_%s_IN", prefix), "-i tailscale0")
-	input = hasChainRule(chainInputUserHook, "-i tailscale0") ||
-		hasChainRule(fmt.Sprintf("UBIOS_%s_LOCAL", prefix), "-i tailscale0")
-	output = hasChainRule(chainOutputUserHook, "-o tailscale0") ||
-		hasChainRule(fmt.Sprintf("UBIOS_LOCAL_%s", prefix), "-o tailscale0")
+	forward = hasChainRule(chainForwardInUser, "-i " + tailscaleInterface) ||
+		hasChainRule(fmt.Sprintf("UBIOS_%s_IN", prefix), "-i " + tailscaleInterface)
+	input = hasChainRule(chainInputUserHook, "-i " + tailscaleInterface) ||
+		hasChainRule(fmt.Sprintf("UBIOS_%s_LOCAL", prefix), "-i " + tailscaleInterface)
+	output = hasChainRule(chainOutputUserHook, "-o " + tailscaleInterface) ||
+		hasChainRule(fmt.Sprintf("UBIOS_LOCAL_%s", prefix), "-o " + tailscaleInterface)
 
 	ipset = hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", prefix), tailscaleCGNAT)
 	return

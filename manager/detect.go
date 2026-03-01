@@ -103,6 +103,14 @@ func readFileString(path string) string {
 	return strings.TrimRight(string(data), "\x00\n")
 }
 
+func readFileTrimmed(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 const minNetworkMajor = 10
 const minNetworkMinor = 1
 

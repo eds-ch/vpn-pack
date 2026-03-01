@@ -128,9 +128,9 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 
 	s.setupTunnelZone(tunnel.ID, req.ZoneID, req.ZoneName)
 
-	s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: tunnel.ID, Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs})
+	s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID, Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs})
 	if s.fw != nil {
-		if err := s.fw.OpenWanPort(tunnel.ListenPort, "wg-s2s:"+tunnel.InterfaceName); err != nil {
+		if err := s.fw.OpenWanPort(tunnel.ListenPort, wanMarkerWgS2sPrefix+tunnel.InterfaceName); err != nil {
 			slog.Warn("wg-s2s WAN port open failed", "port", tunnel.ListenPort, "err", err)
 		} else {
 			s.schedulePostPolicyRestore()
@@ -257,7 +257,7 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 	if updates.AllowedIPs != nil && tunnel.Enabled && existing != nil {
 		s.fw.RemoveWgS2sIPSetEntries(id, existing.AllowedIPs)
 		s.sendFirewallRequest(FirewallRequest{
-			Action: "apply-wg-s2s", TunnelID: tunnel.ID,
+			Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID,
 			Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs,
 		})
 	}
@@ -286,7 +286,7 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 	if s.fw != nil && t != nil {
 		s.fw.RemoveWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs)
 		if t.ListenPort > 0 {
-			if err := s.fw.CloseWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
+			if err := s.fw.CloseWanPort(t.ListenPort, wanMarkerWgS2sPrefix+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port close failed", "port", t.ListenPort, "err", err)
 			} else {
 				s.schedulePostPolicyRestore()
@@ -299,7 +299,7 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 		slog.Warn("manifest save failed", "err", err)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request) {
@@ -314,9 +314,9 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	if t := s.findTunnelByID(id); t != nil {
-		s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
+		s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
 		if s.fw != nil {
-			if err := s.fw.OpenWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
+			if err := s.fw.OpenWanPort(t.ListenPort, wanMarkerWgS2sPrefix+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port open failed", "port", t.ListenPort, "err", err)
 			} else {
 				s.schedulePostPolicyRestore()
@@ -324,7 +324,7 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +343,7 @@ func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request
 	if s.fw != nil && t != nil {
 		s.fw.RemoveWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs)
 		if t.ListenPort > 0 {
-			if err := s.fw.CloseWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
+			if err := s.fw.CloseWanPort(t.ListenPort, wanMarkerWgS2sPrefix+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port close failed", "port", t.ListenPort, "err", err)
 			} else {
 				s.schedulePostPolicyRestore()
@@ -351,7 +351,7 @@ func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleWgS2sGenerateKeypair(w http.ResponseWriter, r *http.Request) {

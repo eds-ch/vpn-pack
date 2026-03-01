@@ -20,6 +20,15 @@ type logEntry struct {
 	Source    string `json:"source,omitempty"`
 }
 
+func newLogEntry(level, message, source string) logEntry {
+	return logEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Level:     level,
+		Message:   message,
+		Source:    source,
+	}
+}
+
 type LogBuffer struct {
 	mu      sync.Mutex
 	entries []logEntry
@@ -98,11 +107,7 @@ func tailLogs(ctx context.Context, lc *local.Client, buf *LogBuffer) error {
 			} `json:"logtail"`
 		}
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
-			buf.Add(logEntry{
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
-				Level:     "info",
-				Message:   line,
-			})
+			buf.Add(newLogEntry("info", line, ""))
 			continue
 		}
 

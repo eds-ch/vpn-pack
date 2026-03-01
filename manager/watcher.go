@@ -156,7 +156,7 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 						s.integrationDegraded.Store(true)
 					} else {
 						if port := readTailscaledPort(); port > 0 {
-							if err := s.fw.OpenWanPort(port, "tailscale-wg"); err != nil {
+							if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
 								slog.Warn("WAN port open failed", "port", port, "err", err)
 							}
 						}

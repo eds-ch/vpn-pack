@@ -64,6 +64,8 @@ const (
 
 const logReconnectDelay = 2 * time.Second
 
+const tailscaleInterface = "tailscale0"
+
 const (
 	tailscaleCGNAT       = "100.64.0.0/10"
 	firewallMarker       = "vpn-pack-manager"
@@ -78,8 +80,21 @@ const (
 )
 
 const (
+	wanMarkerTailscaleWG = "tailscale-wg"
+	wanMarkerRelay       = "relay-server"
+	wanMarkerWgS2sPrefix = "wg-s2s:"
+)
+
+const (
 	deviceInfoCmd   = "ubnt-device-info"
 	vpnClientPrefix = "wgclt"
+)
+
+type FirewallAction string
+
+const (
+	FirewallActionCheckAndRestore FirewallAction = "check-and-restore"
+	FirewallActionApplyWgS2s      FirewallAction = "apply-wg-s2s"
 )
 
 const (

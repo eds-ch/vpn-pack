@@ -18,7 +18,7 @@ func interfaceExists(name string) bool {
 }
 
 type FirewallRequest struct {
-	Action     string
+	Action     FirewallAction
 	Interface  string
 	TunnelID   string
 	AllowedIPs []string
@@ -210,7 +210,7 @@ func (s *Server) retryIntegrationSetup() {
 	s.integrationRetryCount = 0
 
 	if port := readTailscaledPort(); port > 0 {
-		if err := s.fw.OpenWanPort(port, "tailscale-wg"); err != nil {
+		if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
 			slog.Warn("WAN port open after integration retry failed", "port", port, "err", err)
 		}
 	}
@@ -223,7 +223,7 @@ func (s *Server) restoreTailscaleRules() {
 	if s.integrationDegraded.Load() {
 		return
 	}
-	if !interfaceExists("tailscale0") {
+	if !interfaceExists(tailscaleInterface) {
 		return
 	}
 
@@ -292,10 +292,10 @@ func (s *Server) restoreWgS2sRules() {
 			continue
 		}
 		slog.Info("wg-s2s firewall rules missing, restoring", "iface", t.InterfaceName)
-		s.logBuf.Add(logEntry{Timestamp: time.Now().UTC().Format(time.RFC3339), Level: "info", Message: "firewall rules missing, restoring iface=" + t.InterfaceName, Source: "wgs2s"})
+		s.logBuf.Add(newLogEntry("info", "firewall rules missing, restoring iface="+t.InterfaceName, "wgs2s"))
 		if err := s.fw.SetupWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs); err != nil {
 			slog.Warn("wg-s2s firewall restore failed", "iface", t.InterfaceName, "err", err)
-			s.logBuf.Add(logEntry{Timestamp: time.Now().UTC().Format(time.RFC3339), Level: "warn", Message: "firewall restore failed iface=" + t.InterfaceName + " err=" + err.Error(), Source: "wgs2s"})
+			s.logBuf.Add(newLogEntry("warn", "firewall restore failed iface="+t.InterfaceName+" err="+err.Error(), "wgs2s"))
 		}
 	}
 }
@@ -341,20 +341,20 @@ func (s *Server) schedulePostPolicyRestore() {
 		defer s.postPolicyRestore.Store(false)
 		for range 10 {
 			time.Sleep(2 * time.Second)
-			s.sendFirewallRequest(FirewallRequest{Action: "check-and-restore"})
+			s.sendFirewallRequest(FirewallRequest{Action: FirewallActionCheckAndRestore})
 		}
 	}()
 }
 
 func (s *Server) handleFirewallRequest(req FirewallRequest) {
 	switch req.Action {
-	case "check-and-restore":
+	case FirewallActionCheckAndRestore:
 		s.checkAndRestoreRules()
-	case "apply-wg-s2s":
+	case FirewallActionApplyWgS2s:
 		if req.Interface != "" {
 			if err := s.fw.SetupWgS2sFirewall(req.TunnelID, req.Interface, req.AllowedIPs); err != nil {
 				slog.Warn("wg-s2s firewall rules failed", "iface", req.Interface, "err", err)
-				s.logBuf.Add(logEntry{Timestamp: time.Now().UTC().Format(time.RFC3339), Level: "warn", Message: "firewall rules failed iface=" + req.Interface + " err=" + err.Error(), Source: "wgs2s"})
+				s.logBuf.Add(newLogEntry("warn", "firewall rules failed iface="+req.Interface+" err="+err.Error(), "wgs2s"))
 			}
 		}
 	default:

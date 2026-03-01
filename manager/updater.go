@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,15 +40,7 @@ func newUpdateChecker() *updateChecker {
 }
 
 func readVersionFile() string {
-	data, err := os.ReadFile(versionFilePath)
-	if err != nil {
-		return ""
-	}
-	lines := strings.SplitN(string(data), "\n", 2)
-	if len(lines) > 0 {
-		return strings.TrimSpace(lines[0])
-	}
-	return ""
+	return readFileTrimmed(versionFilePath)
 }
 
 type githubRelease struct {

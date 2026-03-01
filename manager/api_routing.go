@@ -169,7 +169,7 @@ func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleGetSubnets(w http.ResponseWriter, r *http.Request) {

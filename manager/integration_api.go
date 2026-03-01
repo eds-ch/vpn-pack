@@ -470,14 +470,14 @@ func (c *IntegrationClient) EnsureWanPortPolicy(siteID string, port int, name, e
 }
 
 func wanPortPolicyName(port int, marker string) string {
-	if strings.HasPrefix(marker, "wg-s2s:") {
-		iface := strings.TrimPrefix(marker, "wg-s2s:")
+	if strings.HasPrefix(marker, wanMarkerWgS2sPrefix) {
+		iface := strings.TrimPrefix(marker, wanMarkerWgS2sPrefix)
 		return fmt.Sprintf("VPN Pack: WG S2S UDP %d (%s)", port, iface)
 	}
-	if marker == "relay-server" {
+	if marker == wanMarkerRelay {
 		return fmt.Sprintf("VPN Pack: Relay Server UDP %d", port)
 	}
-	if marker == "tailscale-wg" {
+	if marker == wanMarkerTailscaleWG {
 		return fmt.Sprintf("VPN Pack: Tailscale WireGuard UDP %d", port)
 	}
 	return fmt.Sprintf("VPN Pack: UDP %d (%s)", port, marker)

@@ -11,10 +11,10 @@ func TestSendFirewallRequest(t *testing.T) {
 		s := &Server{
 			firewallCh: make(chan FirewallRequest, 2),
 		}
-		s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", Interface: "wg0"})
+		s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, Interface: "wg0"})
 		assert.Len(t, s.firewallCh, 1)
 		req := <-s.firewallCh
-		assert.Equal(t, "apply-wg-s2s", req.Action)
+		assert.Equal(t, FirewallActionApplyWgS2s, req.Action)
 		assert.Equal(t, "wg0", req.Interface)
 	})
 
@@ -22,17 +22,17 @@ func TestSendFirewallRequest(t *testing.T) {
 		s := &Server{
 			firewallCh: make(chan FirewallRequest, 1),
 		}
-		s.sendFirewallRequest(FirewallRequest{Action: "first"})
-		s.sendFirewallRequest(FirewallRequest{Action: "second"})
+		s.sendFirewallRequest(FirewallRequest{Action: FirewallActionCheckAndRestore})
+		s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s})
 		assert.Len(t, s.firewallCh, 1)
 		req := <-s.firewallCh
-		assert.Equal(t, "first", req.Action)
+		assert.Equal(t, FirewallActionCheckAndRestore, req.Action)
 	})
 
 	t.Run("unbuffered channel no reader", func(t *testing.T) {
 		s := &Server{
 			firewallCh: make(chan FirewallRequest),
 		}
-		s.sendFirewallRequest(FirewallRequest{Action: "test"})
+		s.sendFirewallRequest(FirewallRequest{Action: FirewallActionCheckAndRestore})
 	})
 }

@@ -42,7 +42,7 @@ func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleDown(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,7 @@ func (s *Server) handleDown(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w)
 }
 
 func (s *Server) disableCorpDNS(ctx context.Context) error {

@@ -160,14 +160,14 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		for _, t := range wgMgr.GetTunnels() {
 			if t.Enabled {
-				s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
+				s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
 			}
 		}
 	}
 
 	if s.integrationReady() {
 		if port := readTailscaledPort(); port > 0 {
-			if err := s.fw.OpenWanPort(port, "tailscale-wg"); err != nil {
+			if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
 				slog.Warn("tailscale WG WAN port open failed", "port", port, "err", err)
 			}
 		}
@@ -245,6 +245,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeOK(w http.ResponseWriter) {
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) error {

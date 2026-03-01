@@ -199,19 +199,19 @@ func TestWanPortPolicyName(t *testing.T) {
 		{
 			name:   "wg-s2s marker",
 			port:   51820,
-			marker: "wg-s2s:wg0",
+			marker: wanMarkerWgS2sPrefix + "wg0",
 			want:   "VPN Pack: WG S2S UDP 51820 (wg0)",
 		},
 		{
 			name:   "relay-server marker",
 			port:   3478,
-			marker: "relay-server",
+			marker: wanMarkerRelay,
 			want:   "VPN Pack: Relay Server UDP 3478",
 		},
 		{
 			name:   "tailscale-wg marker",
 			port:   41641,
-			marker: "tailscale-wg",
+			marker: wanMarkerTailscaleWG,
 			want:   "VPN Pack: Tailscale WireGuard UDP 41641",
 		},
 		{

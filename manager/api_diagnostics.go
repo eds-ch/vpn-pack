@@ -22,7 +22,7 @@ type diagnosticsResponse struct {
 	FwmarkPatched bool               `json:"fwmarkPatched"`
 	FwmarkValue   string             `json:"fwmarkValue"`
 	PreferredDERP int                `json:"preferredDERP"`
-	DERPRegions   []derpRegion       `json:"derpRegions"`
+	DERPRegions   []DERPInfo       `json:"derpRegions"`
 	WgS2s         *wgS2sDiagnostics  `json:"wgS2s,omitempty"`
 }
 
@@ -40,14 +40,6 @@ type wgS2sTunnelDiag struct {
 	ForwardINOk   bool   `json:"forwardINOk"`
 	Connected     bool   `json:"connected"`
 	Endpoint      string `json:"endpoint,omitempty"`
-}
-
-type derpRegion struct {
-	RegionID   int     `json:"regionID"`
-	RegionCode string  `json:"regionCode"`
-	RegionName string  `json:"regionName"`
-	LatencyMs  float64 `json:"latencyMs"`
-	Preferred  bool    `json:"preferred"`
 }
 
 type netcheckResult struct {
@@ -133,13 +125,13 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func buildDERPRegions(derpMap *tailcfg.DERPMap, derpErr error, regionLatencyNs map[string]int64, preferredDERP int) []derpRegion {
+func buildDERPRegions(derpMap *tailcfg.DERPMap, derpErr error, regionLatencyNs map[string]int64, preferredDERP int) []DERPInfo {
 	if derpErr != nil || derpMap == nil {
-		return []derpRegion{}
+		return []DERPInfo{}
 	}
 
 	rids := derpMap.RegionIDs()
-	regions := make([]derpRegion, 0, len(rids))
+	regions := make([]DERPInfo, 0, len(rids))
 	for _, rid := range rids {
 		reg := derpMap.Regions[rid]
 		if reg == nil {
@@ -154,7 +146,7 @@ func buildDERPRegions(derpMap *tailcfg.DERPMap, derpErr error, regionLatencyNs m
 			}
 		}
 
-		regions = append(regions, derpRegion{
+		regions = append(regions, DERPInfo{
 			RegionID:   rid,
 			RegionCode: reg.RegionCode,
 			RegionName: reg.RegionName,
