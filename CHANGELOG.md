@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.13] - 2026-03-01
+
+### Changed
+- Diagnostics checks now run concurrently with caching and batched iptables lookups
+- Extracted reusable helpers: WAN port, firewall, subnet, settings, typed constants, writeOK, readFileTrimmed
+- Ring buffer LogBuffer replaces slice-based log storage; generic doListRequest for paginated APIs
+- Merged DERPInfo into single struct; extracted settingsFields shared between API response and state
+
+### Fixed
+- TOCTOU race in UDAPI ipset lookup — findIPSet now uses atomic check; HasMarkerRule parsing corrected
+
 ## [1.1.12] - 2026-03-01
 
 ### Fixed
@@ -154,7 +165,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.12...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.13...HEAD
+[1.1.13]: https://github.com/eds-ch/vpn-pack/compare/v1.1.12...v1.1.13
 [1.1.12]: https://github.com/eds-ch/vpn-pack/compare/v1.1.11...v1.1.12
 [1.1.11]: https://github.com/eds-ch/vpn-pack/compare/v1.1.10...v1.1.11
 [1.1.10]: https://github.com/eds-ch/vpn-pack/compare/v1.1.9...v1.1.10
