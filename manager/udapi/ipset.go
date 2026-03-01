@@ -13,7 +13,7 @@ type ipsetEntry struct {
 	Entries []string `json:"entries"`
 }
 
-func EnsureVPNSubnet(c *UDAPIClient, cidr string) error {
+func EnsureZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
 	resp, err := c.Request("GET", "/firewall/sets", nil)
 	if err != nil {
 		return fmt.Errorf("get firewall sets: %w", err)
@@ -26,14 +26,14 @@ func EnsureVPNSubnet(c *UDAPIClient, cidr string) error {
 
 	var target *ipsetEntry
 	for i := range sets {
-		if sets[i].Identification.Name == "VPN_subnets" {
+		if sets[i].Identification.Name == ipsetName {
 			target = &sets[i]
 			break
 		}
 	}
 
 	if target == nil {
-		return fmt.Errorf("VPN_subnets ipset not found")
+		return fmt.Errorf("%s ipset not found", ipsetName)
 	}
 
 	for _, entry := range target.Entries {
@@ -46,12 +46,16 @@ func EnsureVPNSubnet(c *UDAPIClient, cidr string) error {
 
 	_, err = c.Request("PUT", "/firewall/sets/set", target)
 	if err != nil {
-		return fmt.Errorf("update VPN_subnets: %w", err)
+		return fmt.Errorf("update %s: %w", ipsetName, err)
 	}
 	return nil
 }
 
-func RemoveVPNSubnet(c *UDAPIClient, cidr string) error {
+func EnsureVPNSubnet(c *UDAPIClient, cidr string) error {
+	return EnsureZoneSubnet(c, "VPN_subnets", cidr)
+}
+
+func RemoveZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
 	resp, err := c.Request("GET", "/firewall/sets", nil)
 	if err != nil {
 		return fmt.Errorf("get firewall sets: %w", err)
@@ -64,7 +68,7 @@ func RemoveVPNSubnet(c *UDAPIClient, cidr string) error {
 
 	var target *ipsetEntry
 	for i := range sets {
-		if sets[i].Identification.Name == "VPN_subnets" {
+		if sets[i].Identification.Name == ipsetName {
 			target = &sets[i]
 			break
 		}
@@ -87,7 +91,11 @@ func RemoveVPNSubnet(c *UDAPIClient, cidr string) error {
 	target.Entries = filtered
 	_, err = c.Request("PUT", "/firewall/sets/set", target)
 	if err != nil {
-		return fmt.Errorf("update VPN_subnets: %w", err)
+		return fmt.Errorf("update %s: %w", ipsetName, err)
 	}
 	return nil
+}
+
+func RemoveVPNSubnet(c *UDAPIClient, cidr string) error {
+	return RemoveZoneSubnet(c, "VPN_subnets", cidr)
 }

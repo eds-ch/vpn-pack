@@ -18,9 +18,10 @@ func interfaceExists(name string) bool {
 }
 
 type FirewallRequest struct {
-	Action    string
-	Interface string
-	TunnelID  string
+	Action     string
+	Interface  string
+	TunnelID   string
+	AllowedIPs []string
 }
 
 
@@ -292,7 +293,7 @@ func (s *Server) restoreWgS2sRules() {
 		}
 		slog.Info("wg-s2s firewall rules missing, restoring", "iface", t.InterfaceName)
 		s.logBuf.Add(logEntry{Timestamp: time.Now().UTC().Format(time.RFC3339), Level: "info", Message: "firewall rules missing, restoring iface=" + t.InterfaceName, Source: "wgs2s"})
-		if err := s.fw.SetupWgS2sFirewall(t.ID, t.InterfaceName); err != nil {
+		if err := s.fw.SetupWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs); err != nil {
 			slog.Warn("wg-s2s firewall restore failed", "iface", t.InterfaceName, "err", err)
 			s.logBuf.Add(logEntry{Timestamp: time.Now().UTC().Format(time.RFC3339), Level: "warn", Message: "firewall restore failed iface=" + t.InterfaceName + " err=" + err.Error(), Source: "wgs2s"})
 		}
@@ -349,7 +350,7 @@ func (s *Server) handleFirewallRequest(req FirewallRequest) {
 	switch req.Action {
 	case "apply-wg-s2s":
 		if req.Interface != "" {
-			if err := s.fw.SetupWgS2sFirewall(req.TunnelID, req.Interface); err != nil {
+			if err := s.fw.SetupWgS2sFirewall(req.TunnelID, req.Interface, req.AllowedIPs); err != nil {
 				slog.Warn("wg-s2s firewall rules failed", "iface", req.Interface, "err", err)
 				s.logBuf.Add(logEntry{Timestamp: time.Now().UTC().Format(time.RFC3339), Level: "warn", Message: "firewall rules failed iface=" + req.Interface + " err=" + err.Error(), Source: "wgs2s"})
 			}

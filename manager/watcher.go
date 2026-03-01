@@ -93,9 +93,11 @@ type DERPInfo struct {
 }
 
 type FirewallHealth struct {
-	ZoneActive     bool `json:"zoneActive"`
-	WatcherRunning bool `json:"watcherRunning"`
-	UDAPIReachable bool `json:"udapiReachable"`
+	ZoneActive     bool   `json:"zoneActive"`
+	WatcherRunning bool   `json:"watcherRunning"`
+	UDAPIReachable bool   `json:"udapiReachable"`
+	ChainPrefix    string `json:"chainPrefix"`
+	ZoneName       string `json:"zoneName,omitempty"`
 }
 
 func (ts *TailscaleState) snapshot() stateData {
@@ -439,10 +441,22 @@ func (s *Server) firewallHealthSnapshot() *FirewallHealth {
 
 	udapiReachable := isUDAPIReachable()
 
+	var chainPrefix, zoneName string
+	if s.manifest != nil {
+		ts := s.manifest.GetTailscaleZone()
+		chainPrefix = ts.ChainPrefix
+		if chainPrefix == "" {
+			chainPrefix = defaultChainPrefix
+		}
+		zoneName = ts.ZoneName
+	}
+
 	return &FirewallHealth{
 		ZoneActive:     forward,
 		WatcherRunning: s.watcherRunning.Load(),
 		UDAPIReachable: udapiReachable,
+		ChainPrefix:    chainPrefix,
+		ZoneName:       zoneName,
 	}
 }
 

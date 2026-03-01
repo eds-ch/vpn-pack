@@ -11,7 +11,7 @@
 
     let healthChecks = $derived(health ? [
         { label: 'Firewall Zone', ok: health.zoneActive,
-          desc: health.zoneActive ? 'tailscale0 → VPN_IN zone' : 'Not in firewall zone' },
+          desc: health.zoneActive ? `tailscale0 → ${health.zoneName || health.chainPrefix || 'VPN'}` : 'Not in firewall zone' },
         { label: 'Watcher', ok: health.watcherRunning,
           desc: health.watcherRunning ? 'Monitoring config push events' : 'Rules won\'t auto-restore' },
         { label: 'UDAPI Socket', ok: health.udapiReachable,

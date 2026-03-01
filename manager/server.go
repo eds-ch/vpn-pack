@@ -160,7 +160,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		for _, t := range wgMgr.GetTunnels() {
 			if t.Enabled {
-				s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName})
+				s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
 			}
 		}
 	}
@@ -351,7 +351,7 @@ func (s *Server) validateManifestZones(siteID string) {
 		}
 		if len(valid) != len(ts.PolicyIDs) {
 			slog.Warn("stale policy IDs in manifest, clearing", "had", len(ts.PolicyIDs), "valid", len(valid))
-			s.manifest.SetTailscaleZone(ts.ZoneID, valid, ts.ChainPrefix)
+			s.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, valid, ts.ChainPrefix)
 			_ = s.manifest.Save()
 		}
 	}

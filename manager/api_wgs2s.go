@@ -36,6 +36,7 @@ type wgS2sTunnelResponse struct {
 	Status    *wgs2s.WgS2sStatus `json:"status,omitempty"`
 	ZoneID    string              `json:"zoneId,omitempty"`
 	ZoneName  string              `json:"zoneName,omitempty"`
+	Warnings  []SubnetConflict    `json:"warnings,omitempty"`
 }
 
 type wgS2sCreateRequest struct {
@@ -93,6 +94,19 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	var warnings []SubnetConflict
+	if sys, err := CollectSystemSubnets(); err != nil {
+		slog.Warn("subnet collection failed, skipping validation", "err", err)
+	} else if vr := ValidateAllowedIPs(req.AllowedIPs, sys); vr.HasBlocks() {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":     fmt.Sprintf("Subnet conflict: %s", vr.Blocked[0].Message),
+			"conflicts": vr.Blocked,
+		})
+		return
+	} else {
+		warnings = vr.Warnings
+	}
+
 	tunnel, err := s.wgManager.CreateTunnel(req.TunnelConfig, req.PrivateKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeWgS2sError(err))
@@ -101,7 +115,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 
 	s.setupTunnelZone(tunnel.ID, req.ZoneID, req.ZoneName)
 
-	s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: tunnel.ID, Interface: tunnel.InterfaceName})
+	s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: tunnel.ID, Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs})
 	if s.fw != nil {
 		if err := s.fw.OpenWanPort(tunnel.ListenPort, "wg-s2s:"+tunnel.InterfaceName); err != nil {
 			slog.Warn("wg-s2s WAN port open failed", "port", tunnel.ListenPort, "err", err)
@@ -110,7 +124,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	resp := wgS2sTunnelResponse{TunnelConfig: *tunnel}
+	resp := wgS2sTunnelResponse{TunnelConfig: *tunnel, Warnings: warnings}
 	if pubKey, err := s.wgManager.GetPublicKey(tunnel.ID); err == nil {
 		resp.PublicKey = pubKey
 	}
@@ -204,13 +218,38 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	existing := s.findTunnelByID(id)
+
+	var warnings []SubnetConflict
+	if updates.AllowedIPs != nil && existing != nil {
+		if sys, err := CollectSystemSubnets(existing.InterfaceName); err != nil {
+			slog.Warn("subnet collection failed, skipping validation", "err", err)
+		} else if vr := ValidateAllowedIPs(updates.AllowedIPs, sys); vr.HasBlocks() {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":     fmt.Sprintf("Subnet conflict: %s", vr.Blocked[0].Message),
+				"conflicts": vr.Blocked,
+			})
+			return
+		} else {
+			warnings = vr.Warnings
+		}
+	}
+
 	tunnel, err := s.wgManager.UpdateTunnel(id, updates)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeWgS2sError(err))
 		return
 	}
 
-	resp := wgS2sTunnelResponse{TunnelConfig: *tunnel}
+	if updates.AllowedIPs != nil && tunnel.Enabled && existing != nil {
+		s.fw.RemoveWgS2sIPSetEntries(id, existing.AllowedIPs)
+		s.sendFirewallRequest(FirewallRequest{
+			Action: "apply-wg-s2s", TunnelID: tunnel.ID,
+			Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs,
+		})
+	}
+
+	resp := wgS2sTunnelResponse{TunnelConfig: *tunnel, Warnings: warnings}
 	if pubKey, err := s.wgManager.GetPublicKey(tunnel.ID); err == nil {
 		resp.PublicKey = pubKey
 	}
@@ -232,7 +271,7 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	if s.fw != nil && t != nil {
-		s.fw.RemoveWgS2sFirewall(t.InterfaceName)
+		s.fw.RemoveWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs)
 		if t.ListenPort > 0 {
 			if err := s.fw.CloseWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port close failed", "port", t.ListenPort, "err", err)
@@ -262,7 +301,7 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	if t := s.findTunnelByID(id); t != nil {
-		s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName})
+		s.sendFirewallRequest(FirewallRequest{Action: "apply-wg-s2s", TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
 		if s.fw != nil {
 			if err := s.fw.OpenWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port open failed", "port", t.ListenPort, "err", err)
@@ -289,7 +328,7 @@ func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request
 	}
 
 	if s.fw != nil && t != nil {
-		s.fw.RemoveWgS2sFirewall(t.InterfaceName)
+		s.fw.RemoveWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs)
 		if t.ListenPort > 0 {
 			if err := s.fw.CloseWanPort(t.ListenPort, "wg-s2s:"+t.InterfaceName); err != nil {
 				slog.Warn("wg-s2s WAN port close failed", "port", t.ListenPort, "err", err)

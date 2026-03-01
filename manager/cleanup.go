@@ -19,7 +19,7 @@ func runCleanup() {
 	removeTailscaleUDAPIRules(uc)
 	removeWgS2sUDAPIRules(uc)
 	removeWgS2sInterfaces()
-	removeVPNSubnetsEntry(uc)
+	removeSubnetsEntries(uc)
 
 	removeIntegrationResources()
 
@@ -71,7 +71,17 @@ func removeWgS2sInterfaces() {
 	}
 }
 
-func removeVPNSubnetsEntry(uc *udapi.UDAPIClient) {
+func removeSubnetsEntries(uc *udapi.UDAPIClient) {
+	manifest, err := LoadManifest(manifestPath)
+	if err == nil && manifest.Tailscale.ChainPrefix != "" && manifest.Tailscale.ChainPrefix != defaultChainPrefix {
+		ipsetName := manifest.Tailscale.ChainPrefix + "_subnets"
+		if err := udapi.RemoveZoneSubnet(uc, ipsetName, tailscaleCGNAT); err != nil {
+			slog.Warn("cleanup: zone ipset entry removal failed", "ipset", ipsetName, "err", err)
+		} else {
+			slog.Info("cleanup: zone ipset entry removed", "ipset", ipsetName, "cidr", tailscaleCGNAT)
+		}
+	}
+
 	if err := udapi.RemoveVPNSubnet(uc, tailscaleCGNAT); err != nil {
 		slog.Warn("cleanup: VPN_subnets entry removal failed", "err", err)
 	} else {

@@ -61,6 +61,7 @@ describe('StatusPill', () => {
                     zoneActive: true,
                     watcherRunning: false,
                     udapiReachable: true,
+                    chainPrefix: 'VPN',
                 },
             }),
             changedFields: new SvelteSet(),
@@ -75,6 +76,7 @@ describe('StatusPill', () => {
                     zoneActive: false,
                     watcherRunning: false,
                     udapiReachable: true,
+                    chainPrefix: 'VPN',
                 },
             }),
             changedFields: new SvelteSet(),
@@ -104,6 +106,7 @@ describe('StatusPill', () => {
                     zoneActive: true,
                     watcherRunning: true,
                     udapiReachable: true,
+                    chainPrefix: 'VPN',
                 },
             }),
             changedFields: new SvelteSet(),
@@ -111,5 +114,48 @@ describe('StatusPill', () => {
         expect(screen.queryByText('1')).not.toBeInTheDocument();
         expect(screen.queryByText('2')).not.toBeInTheDocument();
         expect(screen.queryByText('3')).not.toBeInTheDocument();
+    });
+
+    it('shows zone name in zone description', async () => {
+        render(StatusPill, {
+            status: makeStatus({
+                firewallHealth: {
+                    zoneActive: true,
+                    watcherRunning: true,
+                    udapiReachable: true,
+                    chainPrefix: 'CUSTOM1',
+                    zoneName: 'VPN Pack: Tailscale',
+                },
+            }),
+            changedFields: new SvelteSet(),
+        });
+
+        const button = screen.getByRole('button');
+        await fireEvent.click(button);
+
+        await waitFor(() => {
+            expect(screen.getByText('tailscale0 → VPN Pack: Tailscale')).toBeInTheDocument();
+        });
+    });
+
+    it('falls back to chainPrefix when zoneName is empty', async () => {
+        render(StatusPill, {
+            status: makeStatus({
+                firewallHealth: {
+                    zoneActive: true,
+                    watcherRunning: true,
+                    udapiReachable: true,
+                    chainPrefix: 'CUSTOM1',
+                },
+            }),
+            changedFields: new SvelteSet(),
+        });
+
+        const button = screen.getByRole('button');
+        await fireEvent.click(button);
+
+        await waitFor(() => {
+            expect(screen.getByText('tailscale0 → CUSTOM1')).toBeInTheDocument();
+        });
     });
 });

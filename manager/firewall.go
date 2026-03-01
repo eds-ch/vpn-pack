@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os/exec"
 	"strings"
 
@@ -61,7 +62,7 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 				chainPrefix = discovered
 			}
 
-			fm.manifest.SetTailscaleZone(zone.ID, policyIDs, chainPrefix)
+			fm.manifest.SetTailscaleZone(zone.ID, zone.Name, policyIDs, chainPrefix)
 			if err := fm.manifest.Save(); err != nil {
 				slog.Warn("manifest save failed", "err", err)
 			}
@@ -79,7 +80,8 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 		fwd := hasChainRule(chainForwardInUser, "-i tailscale0")
 		inp := hasChainRule(chainInputUserHook, "-i tailscale0")
 		out := hasChainRule(chainOutputUserHook, "-o tailscale0")
-		if fwd && inp && out {
+		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), tailscaleCGNAT)
+		if fwd && inp && out && ipsetOK {
 			slog.Info("tailscale firewall setup complete", "chainPrefix", chainPrefix, "source", "ubios")
 			return nil
 		}
@@ -90,11 +92,10 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 		return err
 	}
 
-	if chainPrefix == defaultChainPrefix {
-		slog.Info("ensuring VPN_subnets ipset entry", "cidr", tailscaleCGNAT)
-		if err := udapi.EnsureVPNSubnet(fm.udapi, tailscaleCGNAT); err != nil {
-			slog.Warn("VPN_subnets ipset failed", "err", err)
-		}
+	ipsetName := zoneIPSetName(chainPrefix)
+	slog.Info("ensuring zone ipset entry", "ipset", ipsetName, "cidr", tailscaleCGNAT)
+	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, tailscaleCGNAT); err != nil {
+		slog.Warn("zone ipset failed", "ipset", ipsetName, "err", err)
 	}
 
 	slog.Info("tailscale firewall setup complete", "chainPrefix", chainPrefix)
@@ -150,7 +151,7 @@ func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) err
 	return nil
 }
 
-func (fm *FirewallManager) SetupWgS2sFirewall(tunnelID, iface string) error {
+func (fm *FirewallManager) SetupWgS2sFirewall(tunnelID, iface string, allowedIPs []string) error {
 	chainPrefix := fm.manifest.GetWgS2sChainPrefix(tunnelID)
 
 	if chainPrefix == defaultChainPrefix {
@@ -166,13 +167,56 @@ func (fm *FirewallManager) SetupWgS2sFirewall(tunnelID, iface string) error {
 	}
 
 	marker := "wg-s2s-manager:" + iface
-	return udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix)
+	if err := udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix); err != nil {
+		return err
+	}
+
+	if len(allowedIPs) > 0 {
+		ipsetName := zoneIPSetName(chainPrefix)
+		sys, sysErr := CollectSystemSubnets(iface)
+		for _, cidr := range allowedIPs {
+			if sysErr == nil {
+				if _, candidateNet, err := net.ParseCIDR(cidr); err == nil {
+					blocked := false
+					for _, ifSub := range sys.Interfaces {
+						if _, ifNet, err := net.ParseCIDR(ifSub.CIDR); err == nil && subnetsOverlap(candidateNet, ifNet) {
+							slog.Warn("skipping conflicting ipset entry", "cidr", cidr, "conflictsWith", ifSub.CIDR, "iface", ifSub.Interface)
+							blocked = true
+							break
+						}
+					}
+					if blocked {
+						continue
+					}
+				}
+			}
+			if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, cidr); err != nil {
+				slog.Warn("wg-s2s zone ipset failed", "ipset", ipsetName, "cidr", cidr, "err", err)
+			}
+		}
+	}
+
+	return nil
 }
 
-func (fm *FirewallManager) RemoveWgS2sFirewall(iface string) {
+func (fm *FirewallManager) RemoveWgS2sFirewall(tunnelID, iface string, allowedIPs []string) {
 	marker := "wg-s2s-manager:" + iface
 	if err := udapi.RemoveInterfaceRules(fm.udapi, iface, marker); err != nil {
 		slog.Warn("wg-s2s firewall rule removal failed", "iface", iface, "err", err)
+	}
+	fm.RemoveWgS2sIPSetEntries(tunnelID, allowedIPs)
+}
+
+func (fm *FirewallManager) RemoveWgS2sIPSetEntries(tunnelID string, cidrs []string) {
+	chainPrefix := fm.manifest.GetWgS2sChainPrefix(tunnelID)
+	if chainPrefix == defaultChainPrefix || len(cidrs) == 0 {
+		return
+	}
+	ipsetName := zoneIPSetName(chainPrefix)
+	for _, cidr := range cidrs {
+		if err := udapi.RemoveZoneSubnet(fm.udapi, ipsetName, cidr); err != nil {
+			slog.Warn("wg-s2s ipset entry removal failed", "ipset", ipsetName, "cidr", cidr, "err", err)
+		}
 	}
 }
 
@@ -266,7 +310,7 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 		if rediscovered := fm.discoverChainPrefix(ts.ZoneID); rediscovered != "" {
 			_ = udapi.RemoveInterfaceRules(fm.udapi, "tailscale0", marker)
 			chainPrefix = rediscovered
-			fm.manifest.SetTailscaleZone(ts.ZoneID, ts.PolicyIDs, rediscovered)
+			fm.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, ts.PolicyIDs, rediscovered)
 			if err := fm.manifest.Save(); err != nil {
 				slog.Warn("manifest save failed", "err", err)
 			}
@@ -278,7 +322,8 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 		fwd := hasChainRule(chainForwardInUser, "-i tailscale0")
 		inp := hasChainRule(chainInputUserHook, "-i tailscale0")
 		out := hasChainRule(chainOutputUserHook, "-o tailscale0")
-		if fwd && inp && out {
+		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), tailscaleCGNAT)
+		if fwd && inp && out && ipsetOK {
 			return nil
 		}
 	}
@@ -287,10 +332,9 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 		return err
 	}
 
-	if chainPrefix == defaultChainPrefix {
-		if err := udapi.EnsureVPNSubnet(fm.udapi, tailscaleCGNAT); err != nil {
-			slog.Warn("VPN_subnets ipset failed", "err", err)
-		}
+	ipsetName := zoneIPSetName(chainPrefix)
+	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, tailscaleCGNAT); err != nil {
+		slog.Warn("zone ipset failed", "ipset", ipsetName, "err", err)
 	}
 
 	return nil
@@ -305,11 +349,7 @@ func (fm *FirewallManager) CheckTailscaleRulesPresent() (forward, input, output,
 	output = hasChainRule(chainOutputUserHook, "-o tailscale0") ||
 		hasChainRule(fmt.Sprintf("UBIOS_LOCAL_%s", prefix), "-o tailscale0")
 
-	if prefix == defaultChainPrefix {
-		ipset = hasIPSetEntry("UBIOS4VPN_subnets", tailscaleCGNAT)
-	} else {
-		ipset = true
-	}
+	ipset = hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", prefix), tailscaleCGNAT)
 	return
 }
 
@@ -361,6 +401,10 @@ func stripUUIDWrapper(s string) string {
 		return s[6 : len(s)-2]
 	}
 	return s
+}
+
+func zoneIPSetName(chainPrefix string) string {
+	return chainPrefix + "_subnets"
 }
 
 func hasChainRule(chain, match string) bool {

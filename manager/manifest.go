@@ -140,11 +140,12 @@ func (m *Manifest) Save() error {
 	return nil
 }
 
-func (m *Manifest) SetTailscaleZone(zoneID string, policyIDs []string, chainPrefix string) {
+func (m *Manifest) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Tailscale = ZoneManifest{
 		ZoneID:      zoneID,
+		ZoneName:    zoneName,
 		PolicyIDs:   policyIDs,
 		ChainPrefix: chainPrefix,
 	}

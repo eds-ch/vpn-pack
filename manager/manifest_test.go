@@ -74,7 +74,7 @@ func TestManifestSaveRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 
 	m.SiteID = "my-site"
-	m.SetTailscaleZone("z1", []string{"p1"}, "TS")
+	m.SetTailscaleZone("z1", "VPN Pack: Tailscale", []string{"p1"}, "TS")
 	require.NoError(t, m.Save())
 
 	m2, err := LoadManifest(path)
