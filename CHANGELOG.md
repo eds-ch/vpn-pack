@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.11] - 2026-03-01
+
+### Added
+- Zone-aware ipset management — WG S2S tunnel subnets are now added to zone ipsets with cross-zone conflict detection (prevents LAN reclassification when remote subnets overlap)
+
+### Fixed
+- `forwardINOk` now correctly enriched in `/api/wg-s2s/tunnels` response (was always `false` due to missing `CheckWgS2sRulesPresent` call)
+- `WgS2sTab` frontend component read non-existent field `forwardINRule` instead of `forwardINOk`
+- Eliminated UDAPI rule duplication race — post-policy restore now routes through the firewall request channel instead of calling `checkAndRestoreRules` directly from a separate goroutine
+
 ## [1.1.10] - 2026-02-28
 
 ### Changed
@@ -138,7 +148,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.10...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.11...HEAD
+[1.1.11]: https://github.com/eds-ch/vpn-pack/compare/v1.1.10...v1.1.11
 [1.1.10]: https://github.com/eds-ch/vpn-pack/compare/v1.1.9...v1.1.10
 [1.1.9]: https://github.com/eds-ch/vpn-pack/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/eds-ch/vpn-pack/compare/v1.1.7...v1.1.8
