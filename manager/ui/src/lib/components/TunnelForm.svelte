@@ -296,9 +296,9 @@
 
     <div>
         <span class="text-caption text-text-secondary">Custom Remote Subnets (comma-separated CIDRs)</span>
-        <textarea bind:value={customCIDRs} rows="2" placeholder="10.20.0.0/24, 10.20.1.0/24"
+        <textarea bind:value={customCIDRs} rows="1" placeholder="10.20.0.0/24, 10.20.1.0/24"
             oninput={() => clearError('customCIDRs')}
-            class="{inputClass('customCIDRs')} font-mono text-caption resize-none"></textarea>
+            class="{inputClass('customCIDRs')} font-mono resize-none"></textarea>
         {#if fieldErrors.customCIDRs}<p class="text-caption text-error mt-0.5">{fieldErrors.customCIDRs}</p>{/if}
     </div>
 
@@ -314,9 +314,4 @@
         >Cancel</button>
     </div>
 
-    {#if keypair?.publicKey}
-        <p class="text-caption text-text-secondary">
-            If remote side also runs VPN Pack, paste this config into their tunnel creation form.
-        </p>
-    {/if}
 </div>

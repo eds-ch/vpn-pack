@@ -43,9 +43,6 @@
                 onclick={copyConfig}
                 class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
             >{copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy to Clipboard'}</button>
-            <span class="text-caption text-text-secondary">
-                If remote side also runs VPN Pack, paste this into their tunnel creation form.
-            </span>
         </div>
     {:else}
         <p class="text-caption text-text-secondary">Failed to generate config</p>
