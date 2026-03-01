@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.14] - 2026-03-01
+
+### Added
+- WG S2S hot-update — endpoint, AllowedIPs, and keepalive changes no longer tear down the tunnel (graceful fallback to recreate on failure)
+- AcceptDNS backend guard — rejects MagicDNS enable with HTTP 400 and explanation
+- Explicit route metric (100) for WG S2S routes, aligning with UniFi IPSec S2S pattern
+
+### Changed
+- Firewall watcher now checks INPUT and OUTPUT rules in addition to FORWARD_IN for WG S2S interfaces
+- Dropped firewall requests logged at Warn level instead of Debug
+- WAN IP detection uses UDAPI config (`identification.type == "wan"`) instead of hardcoded `eth8`, improving UCG-Ultra portability
+- Settings UI shows effective hostname as placeholder when hostname field is empty
+
+### Fixed
+- MTU now applied to WG S2S kernel interface via rtnetlink (previously stored but not set)
+- Atomic write for `tunnels.json` using temp+rename pattern (prevents data loss on power failure)
+- systemd unit allows `/proc/nf_dpi/` writes while keeping `ProtectKernelTunables=yes` (fixes DPI crash on exit node)
+- Router public key displayed with copy button in WG S2S tunnel card
+
 ## [1.1.13] - 2026-03-01
 
 ### Changed
@@ -165,7 +184,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.13...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.14...HEAD
+[1.1.14]: https://github.com/eds-ch/vpn-pack/compare/v1.1.13...v1.1.14
 [1.1.13]: https://github.com/eds-ch/vpn-pack/compare/v1.1.12...v1.1.13
 [1.1.12]: https://github.com/eds-ch/vpn-pack/compare/v1.1.11...v1.1.12
 [1.1.11]: https://github.com/eds-ch/vpn-pack/compare/v1.1.10...v1.1.11
