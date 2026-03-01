@@ -178,7 +178,7 @@
                 </div>
             {:else}
                 {#if subTab === 'general'}
-                    <SettingsGeneral staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => generalHasErrors = v} />
+                    <SettingsGeneral staged={displaySettings} original={serverSettings} {stageChange} effectiveHostname={status.self?.hostName || ''} onValidation={(v) => generalHasErrors = v} />
                 {:else}
                     <SettingsAdvanced staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => advancedHasErrors = v} />
                 {/if}

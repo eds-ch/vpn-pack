@@ -3,7 +3,7 @@
     import { isValidEndpoint } from '../utils.js';
     import { TS_DEFAULT_UDP_PORT, TS_DEFAULT_RELAY_PORT, PORT_MIN, PORT_MAX, RELAY_PORT_MIN, HOSTNAME_MAX_LENGTH } from '../constants.js';
 
-    let { staged, original, stageChange, onValidation = () => {} } = $props();
+    let { staged, original, stageChange, effectiveHostname = '', onValidation = () => {} } = $props();
 
     let relayEnabled = $derived(staged.relayServerPort != null && staged.relayServerPort >= 0);
 
@@ -91,7 +91,7 @@
             id="hostname"
             type="text"
             value={staged.hostname ?? ''}
-            placeholder={original.hostname ?? 'hostname'}
+            placeholder={effectiveHostname || 'hostname'}
             oninput={(e) => stageChange('hostname', e.target.value)}
             class="w-full sm:w-64 px-3 py-1.5 text-body rounded-lg border bg-input text-text placeholder-text-secondary focus:outline-none
                 {hostnameError ? 'border-error' : 'border-border focus:border-blue'}"
