@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.15] - 2026-03-01
+
+### Fixed
+- Custom Remote Subnets field in WG S2S tunnel form was taller than other inputs and had smaller placeholder font
+- Tailscale DNS toggle now shows a persistent red warning about potential DNS breakage before enabling (previously only visible after toggle)
+- Removed unimplemented "remote VPN Pack" hint from tunnel creation and config copy screens
+
 ## [1.1.14] - 2026-03-01
 
 ### Added
@@ -184,7 +191,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.14...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.15...HEAD
+[1.1.15]: https://github.com/eds-ch/vpn-pack/compare/v1.1.14...v1.1.15
 [1.1.14]: https://github.com/eds-ch/vpn-pack/compare/v1.1.13...v1.1.14
 [1.1.13]: https://github.com/eds-ch/vpn-pack/compare/v1.1.12...v1.1.13
 [1.1.12]: https://github.com/eds-ch/vpn-pack/compare/v1.1.11...v1.1.12
