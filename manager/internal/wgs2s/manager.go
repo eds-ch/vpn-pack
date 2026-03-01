@@ -476,6 +476,13 @@ func (m *TunnelManager) bringUp(cfg TunnelConfig, privKey wgtypes.Key) error {
 		}
 	}
 
+	if cfg.MTU != 0 {
+		if err := setMTU(m.rtConn, ifIndex, uint32(cfg.MTU)); err != nil {
+			cleanup()
+			return fmt.Errorf("set MTU: %w", err)
+		}
+	}
+
 	peer := &peerConfig{
 		PublicKey:           cfg.PeerPublicKey,
 		Endpoint:            cfg.PeerEndpoint,

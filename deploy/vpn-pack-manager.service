@@ -13,6 +13,7 @@ NoNewPrivileges=yes
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
+ReadWritePaths=/proc/nf_dpi/
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 MemoryDenyWriteExecute=yes

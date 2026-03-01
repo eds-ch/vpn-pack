@@ -41,6 +41,16 @@ func setInterfaceUp(conn *rtnetlink.Conn, index uint32) error {
 	})
 }
 
+func setMTU(conn *rtnetlink.Conn, index uint32, mtu uint32) error {
+	return conn.Link.Set(&rtnetlink.LinkMessage{
+		Family: unix.AF_UNSPEC,
+		Index:  index,
+		Attributes: &rtnetlink.LinkAttributes{
+			MTU: mtu,
+		},
+	})
+}
+
 func addAddress(conn *rtnetlink.Conn, index uint32, cidr string) error {
 	ip, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
