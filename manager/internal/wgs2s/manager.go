@@ -16,7 +16,10 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-const errFmtTunnelNotFound = "tunnel %s not found"
+const (
+	errFmtTunnelNotFound = "tunnel %s not found"
+	configFileName       = "tunnels.json"
+)
 
 type TunnelManager struct {
 	mu        sync.Mutex
@@ -43,7 +46,7 @@ func NewTunnelManager(configDir string, log *slog.Logger) (*TunnelManager, error
 		return nil, fmt.Errorf("create rtnetlink conn: %w", err)
 	}
 
-	cfgPath := filepath.Join(configDir, "tunnels.json")
+	cfgPath := filepath.Join(configDir, configFileName)
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		_ = rtConn.Close()
@@ -537,7 +540,7 @@ func (m *TunnelManager) findTunnel(id string) int {
 }
 
 func (m *TunnelManager) save() error {
-	return saveConfig(filepath.Join(m.configDir, "tunnels.json"), m.config)
+	return saveConfig(filepath.Join(m.configDir, configFileName), m.config)
 }
 
 func checkPortAvailable(port int) error {

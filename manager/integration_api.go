@@ -189,45 +189,31 @@ func (c *IntegrationClient) Validate() (*AppInfo, error) {
 	return &info, nil
 }
 
-func (c *IntegrationClient) getSites() ([]SiteInfo, error) {
-	body, status, err := c.doRequest("GET", "/v1/sites", nil)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: GET /v1/sites returned %d: %s", ErrIntegrationAPI, status, body)
-	}
-
-	var page paginatedResponse
-	if err := json.Unmarshal(body, &page); err != nil {
-		return nil, fmt.Errorf("parse sites response: %w", err)
-	}
-	var sites []SiteInfo
-	if err := json.Unmarshal(page.Data, &sites); err != nil {
-		return nil, fmt.Errorf("parse sites data: %w", err)
-	}
-	return sites, nil
-}
-
-func (c *IntegrationClient) listZones(siteID string) ([]Zone, error) {
-	path := fmt.Sprintf("/v1/sites/%s/firewall/zones?limit=%d", siteID, paginationLimit)
+func doListRequest[T any](c *IntegrationClient, path string) ([]T, error) {
 	body, status, err := c.doRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: list zones returned %d: %s", ErrIntegrationAPI, status, body)
+		return nil, fmt.Errorf("%w: GET %s returned %d: %s", ErrIntegrationAPI, path, status, body)
 	}
-
 	var page paginatedResponse
 	if err := json.Unmarshal(body, &page); err != nil {
-		return nil, fmt.Errorf("parse zones response: %w", err)
+		return nil, fmt.Errorf("parse response for %s: %w", path, err)
 	}
-	var zones []Zone
-	if err := json.Unmarshal(page.Data, &zones); err != nil {
-		return nil, fmt.Errorf("parse zones data: %w", err)
+	var items []T
+	if err := json.Unmarshal(page.Data, &items); err != nil {
+		return nil, fmt.Errorf("parse data for %s: %w", path, err)
 	}
-	return zones, nil
+	return items, nil
+}
+
+func (c *IntegrationClient) getSites() ([]SiteInfo, error) {
+	return doListRequest[SiteInfo](c, "/v1/sites")
+}
+
+func (c *IntegrationClient) listZones(siteID string) ([]Zone, error) {
+	return doListRequest[Zone](c, fmt.Sprintf("/v1/sites/%s/firewall/zones?limit=%d", siteID, paginationLimit))
 }
 
 func (c *IntegrationClient) CreateZone(siteID, name string) (*Zone, error) {
@@ -265,24 +251,7 @@ func (c *IntegrationClient) findZoneByName(siteID, name string) (*Zone, error) {
 }
 
 func (c *IntegrationClient) ListPolicies(siteID string) ([]Policy, error) {
-	path := fmt.Sprintf("/v1/sites/%s/firewall/policies?limit=%d", siteID, paginationLimit)
-	body, status, err := c.doRequest("GET", path, nil)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: list policies returned %d: %s", ErrIntegrationAPI, status, body)
-	}
-
-	var page paginatedResponse
-	if err := json.Unmarshal(body, &page); err != nil {
-		return nil, fmt.Errorf("parse policies response: %w", err)
-	}
-	var policies []Policy
-	if err := json.Unmarshal(page.Data, &policies); err != nil {
-		return nil, fmt.Errorf("parse policies data: %w", err)
-	}
-	return policies, nil
+	return doListRequest[Policy](c, fmt.Sprintf("/v1/sites/%s/firewall/policies?limit=%d", siteID, paginationLimit))
 }
 
 type createPolicyRequest struct {

@@ -79,13 +79,13 @@ func (h *Hub) CurrentState() []byte {
 func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
 
 	ch, unsubscribe, err := s.hub.Subscribe()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 	defer unsubscribe()

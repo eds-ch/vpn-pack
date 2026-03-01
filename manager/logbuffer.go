@@ -23,12 +23,14 @@ type logEntry struct {
 type LogBuffer struct {
 	mu      sync.Mutex
 	entries []logEntry
+	head    int
+	count   int
 	maxSize int
 }
 
 func NewLogBuffer(maxSize int) *LogBuffer {
 	return &LogBuffer{
-		entries: make([]logEntry, 0, maxSize),
+		entries: make([]logEntry, maxSize),
 		maxSize: maxSize,
 	}
 }
@@ -36,20 +38,20 @@ func NewLogBuffer(maxSize int) *LogBuffer {
 func (lb *LogBuffer) Add(e logEntry) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	if len(lb.entries) >= lb.maxSize {
-		copy(lb.entries, lb.entries[1:])
-		lb.entries = lb.entries[:lb.maxSize-1]
+	lb.entries[lb.head] = e
+	lb.head = (lb.head + 1) % lb.maxSize
+	if lb.count < lb.maxSize {
+		lb.count++
 	}
-	lb.entries = append(lb.entries, e)
 }
 
 func (lb *LogBuffer) Snapshot() []logEntry {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	n := len(lb.entries)
-	out := make([]logEntry, n)
-	for i, e := range lb.entries {
-		out[n-1-i] = e
+	out := make([]logEntry, lb.count)
+	for i := range lb.count {
+		idx := (lb.head - 1 - i + lb.maxSize) % lb.maxSize
+		out[i] = lb.entries[idx]
 	}
 	return out
 }
