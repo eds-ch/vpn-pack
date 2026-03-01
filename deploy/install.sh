@@ -32,8 +32,13 @@ error() { echo -e "${RED}[x]${NC} $*"; }
 die()   { error "$*"; exit 1; }
 
 check_network_version() {
-    local raw major minor rest
+    local raw major minor rest pkg
     raw=$(dpkg-query -W -f='${Version}' unifi 2>/dev/null) || true
+    pkg="unifi"
+    if [ -z "$raw" ]; then
+        raw=$(dpkg-query -W -f='${Version}' unifi-native 2>/dev/null) || true
+        pkg="unifi-native"
+    fi
     if [ -z "$raw" ]; then
         die "UniFi Network Application not found. A working UniFi Network 10.1+ installation is required."
     fi
@@ -44,7 +49,7 @@ check_network_version() {
         die "Cannot parse UniFi Network version: ${raw}"
     fi
     if [ "$major" -gt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -ge 1 ]; }; then
-        info "UniFi Network: ${BOLD}${major}.${minor}${NC} (${raw})"
+        info "UniFi Network: ${BOLD}${major}.${minor}${NC} (${pkg} ${raw})"
         return 0
     fi
     die "UniFi Network 10.1 or later is required (found: ${major}.${minor}). Please update via Settings > System > Updates in the UniFi console."

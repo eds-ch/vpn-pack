@@ -35,6 +35,9 @@ func detectDevice() DeviceInfo {
 	info.ModelShort = cmdOutput(deviceInfoCmd, "model_short")
 	info.Firmware = cmdOutput(deviceInfoCmd, "firmware")
 	info.UniFiVersion = cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi")
+	if info.UniFiVersion == "" {
+		info.UniFiVersion = cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi-native")
+	}
 	info.PackageVersion = version
 	info.TailscaleVersion = tailscaleVersion
 
