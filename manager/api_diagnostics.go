@@ -53,7 +53,7 @@ var (
 	netcheckCacheAt time.Time
 )
 
-func tailscaleBinPath() string {
+var tailscaleBin = sync.OnceValue(func() string {
 	exe, err := os.Executable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "tailscale")
@@ -62,7 +62,7 @@ func tailscaleBinPath() string {
 		}
 	}
 	return "tailscale"
-}
+})
 
 func runNetcheck(ctx context.Context) *netcheckResult {
 	netcheckCacheMu.Lock()
@@ -75,7 +75,7 @@ func runNetcheck(ctx context.Context) *netcheckResult {
 	cmdCtx, cancel := context.WithTimeout(ctx, netcheckTimeout)
 	defer cancel()
 
-	out, err := exec.CommandContext(cmdCtx, tailscaleBinPath(), "netcheck", "--format=json").Output()
+	out, err := exec.CommandContext(cmdCtx, tailscaleBin(), "netcheck", "--format=json").Output()
 	if err != nil {
 		return netcheckCache
 	}
@@ -96,21 +96,53 @@ func runNetcheck(ctx context.Context) *netcheckResult {
 }
 
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
-	ipFwd := "enabled"
-	if err := s.lc.CheckIPForwarding(r.Context()); err != nil {
-		ipFwd = err.Error()
+	ctx := r.Context()
+
+	var (
+		ipFwd   string
+		nc      *netcheckResult
+		derpMap *tailcfg.DERPMap
+		derpErr error
+		wgDiag  *wgS2sDiagnostics
+	)
+
+	var wg sync.WaitGroup
+
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		if err := s.lc.CheckIPForwarding(ctx); err != nil {
+			ipFwd = err.Error()
+		} else {
+			ipFwd = "enabled"
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		nc = runNetcheck(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		derpMap, derpErr = s.lc.CurrentDERPMap(ctx)
+	}()
+
+	if s.wgManager != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wgDiag = s.gatherWgS2sDiagnostics()
+		}()
 	}
 
-	nc := runNetcheck(r.Context())
+	wg.Wait()
+
 	preferredDERP := 0
 	var regionLatencyNs map[string]int64
 	if nc != nil {
 		preferredDERP = nc.PreferredDERP
 		regionLatencyNs = nc.RegionLatency
 	}
-
-	derpMap, err := s.lc.CurrentDERPMap(r.Context())
-	regions := buildDERPRegions(derpMap, err, regionLatencyNs, preferredDERP)
+	regions := buildDERPRegions(derpMap, derpErr, regionLatencyNs, preferredDERP)
 
 	resp := diagnosticsResponse{
 		IPForwarding:  ipFwd,
@@ -118,9 +150,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		FwmarkValue:   "0x800000",
 		PreferredDERP: preferredDERP,
 		DERPRegions:   regions,
-	}
-	if s.wgManager != nil {
-		resp.WgS2s = s.gatherWgS2sDiagnostics()
+		WgS2s:         wgDiag,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

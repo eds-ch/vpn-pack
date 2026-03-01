@@ -7,6 +7,8 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"unifi-tailscale/manager/udapi"
 )
@@ -393,7 +395,45 @@ func zoneIPSetName(chainPrefix string) string {
 	return chainPrefix + "_subnets"
 }
 
+var (
+	filterRulesCacheMu   sync.Mutex
+	filterRulesCache     string
+	filterRulesCacheTime time.Time
+)
+
+func cachedFilterRules() string {
+	filterRulesCacheMu.Lock()
+	defer filterRulesCacheMu.Unlock()
+	if filterRulesCache != "" && time.Since(filterRulesCacheTime) < time.Second {
+		return filterRulesCache
+	}
+	out, err := exec.Command("iptables-save", "-t", "filter").Output()
+	if err != nil {
+		return ""
+	}
+	filterRulesCache = string(out)
+	filterRulesCacheTime = time.Now()
+	return filterRulesCache
+}
+
+func hasChainRuleIn(rules, chain, match string) bool {
+	if match == "" {
+		return strings.Contains(rules, "\n:"+chain+" ") ||
+			strings.HasPrefix(rules, ":"+chain+" ")
+	}
+	prefix := "-A " + chain + " "
+	for _, line := range strings.Split(rules, "\n") {
+		if strings.HasPrefix(line, prefix) && strings.Contains(line, match) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasChainRule(chain, match string) bool {
+	if rules := cachedFilterRules(); rules != "" {
+		return hasChainRuleIn(rules, chain, match)
+	}
 	out, err := exec.Command("iptables", "-w", "2", "-S", chain).Output()
 	if err != nil {
 		return false

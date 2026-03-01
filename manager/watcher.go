@@ -134,7 +134,7 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			enrichment := s.fetchStatusEnrichment()
+			enrichment := s.fetchStatusEnrichment(ctx)
 			integrationStatus := s.fetchIntegrationStatus()
 
 			if integrationStatus != nil && integrationStatus.Reason == "key_expired" && s.ic.HasAPIKey() {
@@ -144,6 +144,7 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 				s.manifest.ResetIntegration()
 				_ = s.manifest.Save()
 				s.integrationDegraded.Store(true)
+				s.invalidateIntegrationCache()
 				integrationStatus = s.fetchIntegrationStatus()
 			}
 
@@ -164,7 +165,6 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 			s.state.mu.Lock()
 			s.applyEnrichment(enrichment)
 			s.state.data.FirewallHealth = s.firewallHealthSnapshot()
-			s.state.data.DPIFingerprinting = syncDPIFingerprint(s.state.data.ExitNode)
 			s.state.data.IntegrationStatus = integrationStatus
 			s.state.data.UDPPort = readTailscaledPort()
 			if s.wgManager != nil {
@@ -192,11 +192,11 @@ func (s *Server) watchLoop(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		s.processNotify(&n)
+		s.processNotify(ctx, &n)
 	}
 }
 
-func (s *Server) processNotify(n *ipn.Notify) {
+func (s *Server) processNotify(ctx context.Context, n *ipn.Notify) {
 	var fetchStatus bool
 
 	s.state.mu.Lock()
@@ -246,8 +246,10 @@ func (s *Server) processNotify(n *ipn.Notify) {
 		fetchStatus = true
 	}
 
-	s.recomputeRoutes()
-	s.state.data.DPIFingerprinting = syncDPIFingerprint(s.state.data.ExitNode)
+	if n.Prefs != nil || n.NetMap != nil {
+		s.recomputeRoutes()
+		s.state.data.DPIFingerprinting = syncDPIFingerprint(s.state.data.ExitNode)
+	}
 
 	if n.Health != nil {
 		warnings := make([]string, 0, len(n.Health.Warnings))
@@ -261,7 +263,7 @@ func (s *Server) processNotify(n *ipn.Notify) {
 
 	var enrichment *statusEnrichment
 	if fetchStatus {
-		enrichment = s.fetchStatusEnrichment()
+		enrichment = s.fetchStatusEnrichment(ctx)
 	}
 
 	integrationStatus := s.fetchIntegrationStatus()
@@ -344,8 +346,10 @@ type statusEnrichment struct {
 	selfOnline bool
 }
 
-func (s *Server) fetchStatusEnrichment() *statusEnrichment {
-	st, err := s.lc.Status(context.Background())
+func (s *Server) fetchStatusEnrichment(ctx context.Context) *statusEnrichment {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	st, err := s.lc.Status(ctx)
 	if err != nil {
 		slog.Warn("lc.Status failed", "err", err)
 		return nil

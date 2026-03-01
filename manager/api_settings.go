@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"tailscale.com/ipn"
 )
@@ -349,7 +350,18 @@ func validateControlURL(raw string) error {
 
 var portRe = regexp.MustCompile(`(?m)^PORT="(\d+)"`)
 
+var cachedTailscaledPort atomic.Pointer[int]
+
 func readTailscaledPort() int {
+	if p := cachedTailscaledPort.Load(); p != nil {
+		return *p
+	}
+	port := readPortFromFile()
+	cachedTailscaledPort.Store(&port)
+	return port
+}
+
+func readPortFromFile() int {
 	data, err := os.ReadFile(tailscaledDefaultsPath)
 	if err != nil {
 		return defaultTailscalePort
@@ -369,7 +381,11 @@ func writeTailscaledPort(port int) error {
 	data, err := os.ReadFile(tailscaledDefaultsPath)
 	if err != nil {
 		data = []byte(fmt.Sprintf("PORT=\"%d\"\nFLAGS=\"\"\n", port))
-		return os.WriteFile(tailscaledDefaultsPath, data, configPerm)
+		if err := os.WriteFile(tailscaledDefaultsPath, data, configPerm); err != nil {
+			return err
+		}
+		cachedTailscaledPort.Store(&port)
+		return nil
 	}
 	content := string(data)
 	newLine := fmt.Sprintf("PORT=\"%d\"", port)
@@ -378,7 +394,11 @@ func writeTailscaledPort(port int) error {
 	} else {
 		content = newLine + "\n" + strings.TrimRight(content, "\n") + "\n"
 	}
-	return os.WriteFile(tailscaledDefaultsPath, []byte(content), configPerm)
+	if err := os.WriteFile(tailscaledDefaultsPath, []byte(content), configPerm); err != nil {
+		return err
+	}
+	cachedTailscaledPort.Store(&port)
+	return nil
 }
 
 func formatAddrPorts(addrs []netip.AddrPort) string {

@@ -58,8 +58,9 @@ const (
 )
 
 const (
-	netcheckCacheTTL = 60 * time.Second
-	netcheckTimeout  = 10 * time.Second
+	netcheckCacheTTL    = 60 * time.Second
+	netcheckTimeout     = 10 * time.Second
+	integrationCacheTTL = 30 * time.Second
 )
 
 const logReconnectDelay = 2 * time.Second

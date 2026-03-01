@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type IntegrationStatus struct {
@@ -45,6 +46,14 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 		return &IntegrationStatus{Configured: false}
 	}
 
+	s.integrationCacheMu.Lock()
+	if s.integrationCache != nil && time.Since(s.integrationCacheAt) < integrationCacheTTL {
+		cached := s.integrationCache
+		s.integrationCacheMu.Unlock()
+		return cached
+	}
+	s.integrationCacheMu.Unlock()
+
 	st := &IntegrationStatus{Configured: true}
 
 	if s.manifest != nil && s.manifest.HasSiteID() {
@@ -72,7 +81,18 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 		st.ZBFEnabled = &enabled
 	}
 
+	s.integrationCacheMu.Lock()
+	s.integrationCache = st
+	s.integrationCacheAt = time.Now()
+	s.integrationCacheMu.Unlock()
+
 	return st
+}
+
+func (s *Server) invalidateIntegrationCache() {
+	s.integrationCacheMu.Lock()
+	s.integrationCache = nil
+	s.integrationCacheMu.Unlock()
 }
 
 func (s *Server) handleIntegrationStatus(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +114,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.ic.SetAPIKey(key)
+	s.invalidateIntegrationCache()
 
 	info, err := s.ic.Validate()
 	if err != nil {
@@ -159,6 +180,7 @@ func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Reque
 	if s.ic != nil {
 		s.ic.SetAPIKey("")
 	}
+	s.invalidateIntegrationCache()
 
 	slog.Info("integration API key removed")
 

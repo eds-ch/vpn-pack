@@ -41,9 +41,12 @@ type Server struct {
 	integrationRetryCount int
 	lastIntegrationRetry  time.Time
 	logBuf                *LogBuffer
-	wgManager           *wgs2s.TunnelManager
-	vpnClientsMu       sync.Mutex
-	updater             *updateChecker
+	wgManager              *wgs2s.TunnelManager
+	vpnClientsMu          sync.Mutex
+	updater                *updateChecker
+	integrationCacheMu     sync.Mutex
+	integrationCache       *IntegrationStatus
+	integrationCacheAt     time.Time
 }
 
 func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceInfo) *Server {
