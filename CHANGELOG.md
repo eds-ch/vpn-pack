@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.12] - 2026-03-01
+
+### Fixed
+- Installer and `get.sh` now detect `unifi-native` package on UCG-Ultra devices (previously only checked for `unifi`, causing "UniFi Network Application not found" on native-stack devices)
+- Runtime device detection (`detect.go`) falls back to `unifi-native` when `unifi` package is absent
+
 ## [1.1.11] - 2026-03-01
 
 ### Added
@@ -148,7 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.11...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.12...HEAD
+[1.1.12]: https://github.com/eds-ch/vpn-pack/compare/v1.1.11...v1.1.12
 [1.1.11]: https://github.com/eds-ch/vpn-pack/compare/v1.1.10...v1.1.11
 [1.1.10]: https://github.com/eds-ch/vpn-pack/compare/v1.1.9...v1.1.10
 [1.1.9]: https://github.com/eds-ch/vpn-pack/compare/v1.1.8...v1.1.9
