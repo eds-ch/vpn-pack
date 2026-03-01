@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"net/http"
 	"net/netip"
 	"testing"
 
@@ -92,6 +94,33 @@ func TestFormatAddrPorts(t *testing.T) {
 			assert.Equal(t, tt.want, formatAddrPorts(tt.in))
 		})
 	}
+}
+
+func TestAcceptDNSGuard(t *testing.T) {
+	t.Run("acceptDNS true blocked", func(t *testing.T) {
+		req := &settingsRequest{AcceptDNS: ptr(true)}
+		s := &Server{}
+		_, err := s.validateSettingsRequest(context.Background(), req)
+		require.Error(t, err)
+		var ae *apiError
+		require.ErrorAs(t, err, &ae)
+		assert.Equal(t, http.StatusBadRequest, ae.status)
+		assert.Contains(t, ae.Error(), "AcceptDNS")
+	})
+
+	t.Run("acceptDNS false allowed", func(t *testing.T) {
+		req := &settingsRequest{AcceptDNS: ptr(false)}
+		s := &Server{}
+		_, err := s.validateSettingsRequest(context.Background(), req)
+		assert.NoError(t, err)
+	})
+
+	t.Run("acceptDNS nil allowed", func(t *testing.T) {
+		req := &settingsRequest{}
+		s := &Server{}
+		_, err := s.validateSettingsRequest(context.Background(), req)
+		assert.NoError(t, err)
+	})
 }
 
 func TestBuildMaskedPrefs(t *testing.T) {

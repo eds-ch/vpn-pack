@@ -199,6 +199,13 @@ func (m *TunnelManager) DisableTunnel(id string) error {
 	return m.save()
 }
 
+func needsRecreate(old, merged TunnelConfig) bool {
+	return old.ListenPort != merged.ListenPort ||
+		old.TunnelAddress != merged.TunnelAddress ||
+		old.MTU != merged.MTU ||
+		old.PeerPublicKey != merged.PeerPublicKey
+}
+
 func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelConfig, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -244,9 +251,6 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 	}
 
 	if wasEnabled {
-		if _, err := loadPrivateKey(m.configDir, cfg.ID); err != nil {
-			return nil, fmt.Errorf("preflight: %w", err)
-		}
 		if merged.PeerEndpoint != "" && merged.PeerEndpoint != cfg.PeerEndpoint {
 			if _, err := net.ResolveUDPAddr("udp", merged.PeerEndpoint); err != nil {
 				return nil, fmt.Errorf("preflight: cannot resolve peer endpoint %s: %w", merged.PeerEndpoint, err)
@@ -259,13 +263,19 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 		}
 	}
 
-	if wasEnabled {
+	recreate := !wasEnabled || needsRecreate(*cfg, merged)
+	oldAllowedIPs := cfg.AllowedIPs
+
+	if wasEnabled && recreate {
+		if _, err := loadPrivateKey(m.configDir, cfg.ID); err != nil {
+			return nil, fmt.Errorf("preflight: %w", err)
+		}
 		m.tearDown(*cfg)
 	}
 
 	*cfg = merged
 
-	if wasEnabled {
+	if wasEnabled && recreate {
 		privKey, err := loadPrivateKey(m.configDir, cfg.ID)
 		if err != nil {
 			cfg.Enabled = false
@@ -282,6 +292,27 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 			return nil, fmt.Errorf("bringUp after update failed (tunnel disabled): %w", err)
 		}
 		cfg.Enabled = true
+	} else if wasEnabled && !recreate {
+		if err := m.hotUpdate(*cfg, oldAllowedIPs); err != nil {
+			m.log.Warn("hot update failed, falling back to recreate", "id", cfg.ID, "err", err)
+			m.tearDown(*cfg)
+			privKey, err := loadPrivateKey(m.configDir, cfg.ID)
+			if err != nil {
+				cfg.Enabled = false
+				if saveErr := m.save(); saveErr != nil {
+					m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
+				}
+				return nil, err
+			}
+			if err := m.bringUp(*cfg, privKey); err != nil {
+				cfg.Enabled = false
+				if saveErr := m.save(); saveErr != nil {
+					m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
+				}
+				return nil, fmt.Errorf("bringUp after hot-update fallback failed (tunnel disabled): %w", err)
+			}
+			cfg.Enabled = true
+		}
 	}
 
 	if err := m.save(); err != nil {
@@ -290,6 +321,47 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 
 	result := *cfg
 	return &result, nil
+}
+
+func (m *TunnelManager) hotUpdate(cfg TunnelConfig, oldAllowedIPs []string) error {
+	peer := &peerConfig{
+		PublicKey:           cfg.PeerPublicKey,
+		Endpoint:            cfg.PeerEndpoint,
+		AllowedIPs:          cfg.AllowedIPs,
+		PersistentKeepalive: cfg.PersistentKeepalive,
+	}
+	if err := updatePeer(m.wgClient, cfg.InterfaceName, peer); err != nil {
+		return err
+	}
+
+	ifIndex, ok := getInterfaceIndex(cfg.InterfaceName)
+	if !ok {
+		return fmt.Errorf("interface %s not found", cfg.InterfaceName)
+	}
+
+	if !slicesEqual(oldAllowedIPs, cfg.AllowedIPs) {
+		if err := deleteRoutes(m.rtConn, ifIndex, oldAllowedIPs); err != nil {
+			m.log.Warn("hot update: deleteRoutes failed", "iface", cfg.InterfaceName, "err", err)
+		}
+		if err := addRoutes(m.rtConn, ifIndex, cfg.AllowedIPs, m.log); err != nil {
+			return fmt.Errorf("hot update: addRoutes: %w", err)
+		}
+	}
+
+	m.log.Info("tunnel hot-updated", "id", cfg.ID, "name", cfg.Name)
+	return nil
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *TunnelManager) RestoreAll() error {
@@ -387,7 +459,7 @@ func (m *TunnelManager) GetWanIP() string {
 		return ""
 	}
 	for _, iface := range cfg.Interfaces {
-		if iface.Identification.Type == "wan" || strings.HasPrefix(iface.Identification.ID, "eth8") {
+		if iface.Identification.Type == "wan" {
 			for _, addr := range iface.Addresses {
 				if addr.Type == "dhcp" || addr.Type == "static" {
 					return addr.Address

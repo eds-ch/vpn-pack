@@ -29,7 +29,7 @@ func (s *Server) sendFirewallRequest(req FirewallRequest) {
 	select {
 	case s.firewallCh <- req:
 	default:
-		slog.Debug("firewall request dropped", "action", req.Action, "iface", req.Interface)
+		slog.Warn("firewall request dropped", "action", req.Action, "iface", req.Interface)
 
 	}
 }

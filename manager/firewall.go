@@ -344,7 +344,10 @@ func (fm *FirewallManager) CheckTailscaleRulesPresent() (forward, input, output,
 func (fm *FirewallManager) CheckWgS2sRulesPresent(ifaces []string) map[string]bool {
 	result := make(map[string]bool, len(ifaces))
 	for _, iface := range ifaces {
-		result[iface] = hasChainRule(chainForwardInUser, "-i "+iface)
+		forward := hasChainRule(chainForwardInUser, "-i "+iface)
+		input := hasChainRule(chainInputUserHook, "-i "+iface)
+		output := hasChainRule(chainOutputUserHook, "-o "+iface)
+		result[iface] = forward && input && output
 	}
 	return result
 }

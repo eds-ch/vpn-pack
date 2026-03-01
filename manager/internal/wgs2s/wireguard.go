@@ -16,6 +16,53 @@ type peerConfig struct {
 	PersistentKeepalive int
 }
 
+func updatePeer(client *wgctrl.Client, name string, peer *peerConfig) error {
+	if peer == nil || peer.PublicKey == "" {
+		return nil
+	}
+
+	peerKey, err := wgtypes.ParseKey(peer.PublicKey)
+	if err != nil {
+		return fmt.Errorf("parse peer public key: %w", err)
+	}
+
+	pc := wgtypes.PeerConfig{
+		PublicKey:         peerKey,
+		UpdateOnly:        true,
+		ReplaceAllowedIPs: true,
+	}
+
+	if peer.Endpoint != "" {
+		endpoint, err := net.ResolveUDPAddr("udp", peer.Endpoint)
+		if err != nil {
+			return fmt.Errorf("resolve peer endpoint %s: %w", peer.Endpoint, err)
+		}
+		pc.Endpoint = endpoint
+	}
+
+	for _, cidr := range peer.AllowedIPs {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return fmt.Errorf("parse allowed IP %s: %w", cidr, err)
+		}
+		pc.AllowedIPs = append(pc.AllowedIPs, *ipNet)
+	}
+
+	if peer.PersistentKeepalive > 0 {
+		d := time.Duration(peer.PersistentKeepalive) * time.Second
+		pc.PersistentKeepaliveInterval = &d
+	}
+
+	cfg := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{pc},
+	}
+
+	if err := client.ConfigureDevice(name, cfg); err != nil {
+		return fmt.Errorf("update peer on %s: %w", name, err)
+	}
+	return nil
+}
+
 func configureDevice(client *wgctrl.Client, name string, privKey wgtypes.Key, port int, peer *peerConfig) error {
 	cfg := wgtypes.Config{
 		PrivateKey:   &privKey,

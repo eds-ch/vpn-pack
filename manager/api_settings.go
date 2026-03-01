@@ -143,6 +143,12 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsRequest) ([]netip.AddrPort, error) {
+	if req.AcceptDNS != nil && *req.AcceptDNS {
+		return nil, &apiError{http.StatusBadRequest,
+			"AcceptDNS (MagicDNS) cannot be enabled on UniFi gateways: " +
+				"it overwrites /etc/resolv.conf, breaking local DNS and UniFi DNS redirect rules"}
+	}
+
 	if req.ControlURL != nil {
 		if err := validateControlURL(*req.ControlURL); err != nil {
 			return nil, &apiError{http.StatusBadRequest, err.Error()}

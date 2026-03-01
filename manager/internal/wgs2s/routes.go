@@ -10,6 +10,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const routeMetric = 100
+
 func buildRouteMessage(cidr string, ifIndex uint32) (*rtnetlink.RouteMessage, error) {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -37,6 +39,7 @@ func buildRouteMessage(cidr string, ifIndex uint32) (*rtnetlink.RouteMessage, er
 		Attributes: rtnetlink.RouteAttributes{
 			Dst:      dst,
 			OutIface: ifIndex,
+			Priority: routeMetric,
 		},
 	}, nil
 }
