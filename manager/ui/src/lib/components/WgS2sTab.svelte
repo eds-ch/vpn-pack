@@ -23,7 +23,7 @@
                 transferRx: liveData.transferRx,
                 transferTx: liveData.transferTx,
                 endpoint: liveData.endpoint || t.endpoint,
-                forwardINRule: liveData.forwardINRule,
+                forwardINOk: liveData.forwardINOk,
             };
         });
     });

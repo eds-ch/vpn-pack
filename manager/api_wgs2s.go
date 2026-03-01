@@ -55,6 +55,19 @@ func (s *Server) handleWgS2sListTunnels(w http.ResponseWriter, r *http.Request) 
 	tunnels := s.wgManager.GetTunnels()
 	statuses := s.wgManager.GetStatuses()
 
+	if s.fw != nil {
+		var ifaces []string
+		for _, st := range statuses {
+			if st.Enabled {
+				ifaces = append(ifaces, st.InterfaceName)
+			}
+		}
+		fwPresent := s.fw.CheckWgS2sRulesPresent(ifaces)
+		for i := range statuses {
+			statuses[i].ForwardINOk = fwPresent[statuses[i].InterfaceName]
+		}
+	}
+
 	statusMap := make(map[string]*wgs2s.WgS2sStatus, len(statuses))
 	for i := range statuses {
 		statusMap[statuses[i].ID] = &statuses[i]
