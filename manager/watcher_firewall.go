@@ -209,11 +209,7 @@ func (s *Server) retryIntegrationSetup() {
 	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.integrationRetryCount)
 	s.integrationRetryCount = 0
 
-	if port := readTailscaledPort(); port > 0 {
-		if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
-			slog.Warn("WAN port open after integration retry failed", "port", port, "err", err)
-		}
-	}
+	s.openTailscaleWanPort()
 }
 
 func (s *Server) restoreTailscaleRules() {
@@ -273,8 +269,9 @@ func (s *Server) restoreWgS2sRules() {
 		return
 	}
 
+	tunnels := s.wgManager.GetTunnels()
 	var ifaces []string
-	for _, t := range s.wgManager.GetTunnels() {
+	for _, t := range tunnels {
 		if t.Enabled {
 			ifaces = append(ifaces, t.InterfaceName)
 		}
@@ -284,7 +281,7 @@ func (s *Server) restoreWgS2sRules() {
 	}
 
 	present := s.fw.CheckWgS2sRulesPresent(ifaces)
-	for _, t := range s.wgManager.GetTunnels() {
+	for _, t := range tunnels {
 		if !t.Enabled {
 			continue
 		}

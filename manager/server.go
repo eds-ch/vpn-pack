@@ -166,11 +166,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	if s.integrationReady() {
-		if port := readTailscaledPort(); port > 0 {
-			if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
-				slog.Warn("tailscale WG WAN port open failed", "port", port, "err", err)
-			}
-		}
+		s.openTailscaleWanPort()
 		go s.reconcileWanPortPolicies()
 	}
 
@@ -271,7 +267,39 @@ func isUDAPIReachable() bool {
 }
 
 func (s *Server) integrationReady() bool {
-	return s.ic != nil && s.ic.HasAPIKey() && s.manifest != nil && s.manifest.HasSiteID()
+	return s.fw != nil && s.fw.requireIntegration() == nil
+}
+
+func (s *Server) openWgS2sWanPort(port int, iface string) {
+	if s.fw == nil {
+		return
+	}
+	if err := s.fw.OpenWanPort(port, wanMarkerWgS2sPrefix+iface); err != nil {
+		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
+	} else {
+		s.schedulePostPolicyRestore()
+	}
+}
+
+func (s *Server) closeWgS2sWanPort(port int, iface string) {
+	if s.fw == nil || port <= 0 {
+		return
+	}
+	if err := s.fw.CloseWanPort(port, wanMarkerWgS2sPrefix+iface); err != nil {
+		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
+	} else {
+		s.schedulePostPolicyRestore()
+	}
+}
+
+func (s *Server) openTailscaleWanPort() {
+	port := readTailscaledPort()
+	if port <= 0 {
+		return
+	}
+	if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
+		slog.Warn("tailscale WG WAN port open failed", "port", port, "err", err)
+	}
 }
 
 func (s *Server) validateIntegration() {

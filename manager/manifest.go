@@ -152,18 +152,13 @@ func (m *Manifest) SetTailscaleZone(zoneID, zoneName string, policyIDs []string,
 	m.UpdatedAt = time.Now().UTC()
 }
 
-func (m *Manifest) SetWgS2sZone(tunnelID, zoneID, zoneName string, policyIDs []string, chainPrefix string) {
+func (m *Manifest) SetWgS2sZone(tunnelID string, zm ZoneManifest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.WgS2s == nil {
 		m.WgS2s = make(map[string]ZoneManifest)
 	}
-	m.WgS2s[tunnelID] = ZoneManifest{
-		ZoneID:      zoneID,
-		ZoneName:    zoneName,
-		PolicyIDs:   policyIDs,
-		ChainPrefix: chainPrefix,
-	}
+	m.WgS2s[tunnelID] = zm
 	m.UpdatedAt = time.Now().UTC()
 }
 

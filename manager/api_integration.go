@@ -137,11 +137,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 		if err := s.fw.SetupTailscaleFirewall(); err != nil {
 			slog.Warn("firewall setup after key save failed", "err", err)
 		}
-		if port := readTailscaledPort(); port > 0 {
-			if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
-				slog.Warn("tailscale WAN port open after key save failed", "port", port, "err", err)
-			}
-		}
+		s.openTailscaleWanPort()
 	}
 
 	s.integrationDegraded.Store(false)

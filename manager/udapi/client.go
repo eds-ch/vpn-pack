@@ -15,7 +15,6 @@ import (
 )
 
 var (
-	errSocketNotFound    = errors.New("udapi: socket not found")
 	errConnectionRefused = errors.New("udapi: connection refused")
 	errTimeout           = errors.New("udapi: request timeout")
 	errBadResponse       = errors.New("udapi: invalid response from server")

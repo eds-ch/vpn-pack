@@ -99,7 +99,7 @@ func TestUDAPIRequestSocketNotFound(t *testing.T) {
 	c := NewClient("/nonexistent/path/udapi.sock")
 	_, err := c.Request("GET", "/test", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, errSocketNotFound)
+	assert.Contains(t, err.Error(), "udapi: connect:")
 }
 
 func TestUDAPIRequestSuccess(t *testing.T) {

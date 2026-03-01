@@ -76,26 +76,8 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 		_ = udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, marker)
 	}
 
-	if chainPrefix != defaultChainPrefix {
-		fwd := hasChainRule(chainForwardInUser, "-i " + tailscaleInterface)
-		inp := hasChainRule(chainInputUserHook, "-i " + tailscaleInterface)
-		out := hasChainRule(chainOutputUserHook, "-o " + tailscaleInterface)
-		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), tailscaleCGNAT)
-		if fwd && inp && out && ipsetOK {
-			slog.Info("tailscale firewall setup complete", "chainPrefix", chainPrefix, "source", "ubios")
-			return nil
-		}
-	}
-
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, tailscaleInterface, marker, chainPrefix); err != nil {
-		slog.Warn("UDAPI tailscale rules failed", "err", err, "prefix", chainPrefix)
+	if err := fm.ensureTailscaleRules(chainPrefix); err != nil {
 		return err
-	}
-
-	ipsetName := zoneIPSetName(chainPrefix)
-	slog.Info("ensuring zone ipset entry", "ipset", ipsetName, "cidr", tailscaleCGNAT)
-	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, tailscaleCGNAT); err != nil {
-		slog.Warn("zone ipset failed", "ipset", ipsetName, "err", err)
 	}
 
 	slog.Info("tailscale firewall setup complete", "chainPrefix", chainPrefix)
@@ -111,7 +93,7 @@ func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) err
 	if zoneID != "" && zoneID != "new" {
 		for _, zm := range fm.manifest.GetWgS2sSnapshot() {
 			if zm.ZoneID == zoneID {
-				fm.manifest.SetWgS2sZone(tunnelID, zm.ZoneID, zm.ZoneName, zm.PolicyIDs, zm.ChainPrefix)
+				fm.manifest.SetWgS2sZone(tunnelID, zm)
 				if err := fm.manifest.Save(); err != nil {
 					return fmt.Errorf("save manifest: %w", err)
 				}
@@ -144,7 +126,7 @@ func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) err
 		chainPrefix = defaultChainPrefix
 	}
 
-	fm.manifest.SetWgS2sZone(tunnelID, zone.ID, zone.Name, policyIDs, chainPrefix)
+	fm.manifest.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zone.ID, ZoneName: zone.Name, PolicyIDs: policyIDs, ChainPrefix: chainPrefix})
 	if err := fm.manifest.Save(); err != nil {
 		return fmt.Errorf("save manifest: %w", err)
 	}
@@ -158,7 +140,7 @@ func (fm *FirewallManager) SetupWgS2sFirewall(tunnelID, iface string, allowedIPs
 		if zm, ok := fm.manifest.GetWgS2sZone(tunnelID); ok && zm.ZoneID != "" {
 			if rediscovered := fm.discoverChainPrefix(zm.ZoneID); rediscovered != "" {
 				chainPrefix = rediscovered
-				fm.manifest.SetWgS2sZone(tunnelID, zm.ZoneID, zm.ZoneName, zm.PolicyIDs, chainPrefix)
+				fm.manifest.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, PolicyIDs: zm.PolicyIDs, ChainPrefix: chainPrefix})
 				if err := fm.manifest.Save(); err != nil {
 					slog.Warn("manifest save failed", "err", err)
 				}
@@ -318,16 +300,21 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 		}
 	}
 
+	return fm.ensureTailscaleRules(chainPrefix)
+}
+
+func (fm *FirewallManager) ensureTailscaleRules(chainPrefix string) error {
 	if chainPrefix != defaultChainPrefix {
-		fwd := hasChainRule(chainForwardInUser, "-i " + tailscaleInterface)
-		inp := hasChainRule(chainInputUserHook, "-i " + tailscaleInterface)
-		out := hasChainRule(chainOutputUserHook, "-o " + tailscaleInterface)
+		fwd := hasChainRule(chainForwardInUser, "-i "+tailscaleInterface)
+		inp := hasChainRule(chainInputUserHook, "-i "+tailscaleInterface)
+		out := hasChainRule(chainOutputUserHook, "-o "+tailscaleInterface)
 		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), tailscaleCGNAT)
 		if fwd && inp && out && ipsetOK {
 			return nil
 		}
 	}
 
+	marker := firewallMarker
 	if err := udapi.AddInterfaceRulesForZone(fm.udapi, tailscaleInterface, marker, chainPrefix); err != nil {
 		return err
 	}
@@ -336,7 +323,6 @@ func (fm *FirewallManager) RestoreTailscaleRules() error {
 	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, tailscaleCGNAT); err != nil {
 		slog.Warn("zone ipset failed", "ipset", ipsetName, "err", err)
 	}
-
 	return nil
 }
 

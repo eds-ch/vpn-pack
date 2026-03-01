@@ -44,14 +44,8 @@ type settingsRequest struct {
 	AdvertiseTags        *[]string  `json:"advertiseTags,omitempty"`
 }
 
-func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	prefs, err := s.lc.GetPrefs(r.Context())
-	if err != nil {
-		writeError(w, http.StatusBadGateway, humanizeLocalAPIError(err))
-		return
-	}
-
-	writeJSON(w, http.StatusOK, settingsResponse{
+func toSettingsResponse(prefs *ipn.Prefs) settingsResponse {
+	return settingsResponse{
 		Hostname:             prefs.Hostname,
 		AcceptDNS:            prefs.CorpDNS,
 		AcceptRoutes:         prefs.RouteAll,
@@ -63,7 +57,17 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		RelayServerPort:      prefs.RelayServerPort,
 		RelayServerEndpoints: formatAddrPorts(prefs.RelayServerStaticEndpoints),
 		AdvertiseTags:        prefs.AdvertiseTags,
-	})
+	}
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	prefs, err := s.lc.GetPrefs(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, humanizeLocalAPIError(err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toSettingsResponse(prefs))
 }
 
 func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
@@ -128,19 +132,7 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	writeJSON(w, http.StatusOK, settingsResponse{
-		Hostname:             updated.Hostname,
-		AcceptDNS:            updated.CorpDNS,
-		AcceptRoutes:         updated.RouteAll,
-		ShieldsUp:            updated.ShieldsUp,
-		RunSSH:               updated.RunSSH,
-		ControlURL:           updated.ControlURL,
-		NoSNAT:               updated.NoSNAT,
-		UDPPort:              readTailscaledPort(),
-		RelayServerPort:      updated.RelayServerPort,
-		RelayServerEndpoints: formatAddrPorts(updated.RelayServerStaticEndpoints),
-		AdvertiseTags:        updated.AdvertiseTags,
-	})
+	writeJSON(w, http.StatusOK, toSettingsResponse(updated))
 }
 
 func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsRequest) ([]netip.AddrPort, error) {

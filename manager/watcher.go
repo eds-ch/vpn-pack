@@ -155,11 +155,7 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 						slog.Warn("firewall setup retry failed, will not retry until restart", "err", err)
 						s.integrationDegraded.Store(true)
 					} else {
-						if port := readTailscaledPort(); port > 0 {
-							if err := s.fw.OpenWanPort(port, wanMarkerTailscaleWG); err != nil {
-								slog.Warn("WAN port open failed", "port", port, "err", err)
-							}
-						}
+						s.openTailscaleWanPort()
 					}
 					integrationStatus = s.fetchIntegrationStatus()
 				}
@@ -173,18 +169,7 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 			s.state.data.UDPPort = readTailscaledPort()
 			if s.wgManager != nil {
 				tunnels := s.wgManager.GetStatuses()
-				if s.fw != nil {
-					var ifaces []string
-					for _, t := range tunnels {
-						if t.Enabled {
-							ifaces = append(ifaces, t.InterfaceName)
-						}
-					}
-					fwPresent := s.fw.CheckWgS2sRulesPresent(ifaces)
-					for i := range tunnels {
-						tunnels[i].ForwardINOk = fwPresent[tunnels[i].InterfaceName]
-					}
-				}
+				s.enrichForwardINOk(tunnels)
 				s.state.data.WgS2sTunnels = tunnels
 			}
 			s.state.mu.Unlock()

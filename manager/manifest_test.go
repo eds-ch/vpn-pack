@@ -191,7 +191,7 @@ func TestManifest_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				tunnelID := fmt.Sprintf("tunnel-%d-%d", id, j)
-				m.SetWgS2sZone(tunnelID, "zone-1", "Zone One", []string{"p1"}, "VPN")
+				m.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: "zone-1", ZoneName: "Zone One", PolicyIDs: []string{"p1"}, ChainPrefix: "VPN"})
 			}
 		}(i)
 	}
