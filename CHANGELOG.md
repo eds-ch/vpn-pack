@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-03-02
+
+### Changed
+- Decomposed god functions: `UpdateTunnel` (116→82 lines), `processNotify` (79→5 line orchestrator), `runStatusRefresh` (53→13 lines), `handleSetSettings` (64→44 lines)
+- Extracted `Server` struct sub-components: `integrationCache` and `integrationRetryState` (24→19 fields)
+- Extracted shared helpers: `buildPeerConfig`, `buildRouteStatuses`, `checkZBFEnabled`, `swapWanPort`
+- Moved UDAPI config parsing out of `internal/wgs2s` package into `manager/` (package boundary fix)
+- Replaced `"new"` sentinel zone ID with explicit `createZone` boolean in WG S2S API
+- `validateTunnelSubnets` is now a pure function (no longer writes HTTP response directly)
+- Standardized `wgManagerOrError` pattern across all WG S2S handlers
+- Extracted magic values into named constants (`maxPort`, `mongoPort`, WireGuard params, retry intervals)
+- Removed dead guard after `requireIntegration()`, unconditional `UpdatedAt` bump in `Save()`
+
+### Fixed
+- TOCTOU race in `updateChecker.check()` — replaced mutex drop/reacquire with `singleflight`
+- HTTP client reused across update checks (was creating new client per call)
+- `ListenPort` validation now caps at 65535 in both create and update WG S2S handlers
+- Enable and delete handlers return 404 for non-existent WG S2S tunnels
+- Integration cache invalidated on API key rollback (prevents stale `Configured: true`)
+- `rand.Read` error checked in tunnel ID generation (was silently ignored)
+- `EnsurePolicies` failure now treated as fatal for zone setup (was warning + continue)
+- Preflight key check in `recreateTunnel` runs before teardown (preserves running tunnel on missing key)
+
 ## [1.2.0] - 2026-03-02
 
 ### Added
@@ -206,7 +229,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/eds-ch/vpn-pack/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/eds-ch/vpn-pack/compare/v1.1.15...v1.2.0
 [1.1.15]: https://github.com/eds-ch/vpn-pack/compare/v1.1.14...v1.1.15
 [1.1.14]: https://github.com/eds-ch/vpn-pack/compare/v1.1.13...v1.1.14
