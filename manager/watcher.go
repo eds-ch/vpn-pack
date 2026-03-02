@@ -144,48 +144,63 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			enrichment := s.fetchStatusEnrichment(ctx)
-			integrationStatus := s.fetchIntegrationStatus()
-
-			if integrationStatus != nil && integrationStatus.Reason == "key_expired" && s.ic.HasAPIKey() {
-				slog.Warn("periodic check: API key rejected, clearing")
-				s.ic.SetAPIKey("")
-				_ = deleteAPIKey()
-				s.manifest.ResetIntegration()
-				_ = s.manifest.Save()
-				s.integrationDegraded.Store(true)
-				s.invalidateIntegrationCache()
-				integrationStatus = s.fetchIntegrationStatus()
-			}
-
-			if integrationStatus != nil && integrationStatus.ZBFEnabled != nil && *integrationStatus.ZBFEnabled && !s.integrationDegraded.Load() {
-				ts := s.manifest.GetTailscaleZone()
-				if ts.ZoneID != "" && len(ts.PolicyIDs) == 0 && s.fw != nil {
-					slog.Info("ZBF enabled but policies missing, retrying firewall setup")
-					if err := s.fw.SetupTailscaleFirewall(); err != nil {
-						slog.Warn("firewall setup retry failed, will not retry until restart", "err", err)
-						s.integrationDegraded.Store(true)
-					} else {
-						s.openTailscaleWanPort()
-					}
-					integrationStatus = s.fetchIntegrationStatus()
-				}
-			}
-
-			s.state.mu.Lock()
-			s.applyEnrichment(enrichment)
-			s.state.data.FirewallHealth = s.firewallHealthSnapshot()
-			s.state.data.IntegrationStatus = integrationStatus
-			s.state.data.UDPPort = readTailscaledPort()
-			if s.wgManager != nil {
-				tunnels := s.wgManager.GetStatuses()
-				s.enrichForwardINOk(tunnels)
-				s.state.data.WgS2sTunnels = tunnels
-			}
-			s.state.mu.Unlock()
-
-			s.broadcastState()
+			s.refreshTick(ctx)
 		}
+	}
+}
+
+func (s *Server) refreshTick(ctx context.Context) {
+	enrichment := s.fetchStatusEnrichment(ctx)
+	integrationStatus := s.fetchIntegrationStatus()
+	integrationStatus = s.handleAPIKeyExpiry(integrationStatus)
+	integrationStatus = s.repairMissingPolicies(integrationStatus)
+	s.applyRefreshState(enrichment, integrationStatus)
+	s.broadcastState()
+}
+
+func (s *Server) handleAPIKeyExpiry(status *IntegrationStatus) *IntegrationStatus {
+	if status == nil || status.Reason != "key_expired" || !s.ic.HasAPIKey() {
+		return status
+	}
+	slog.Warn("periodic check: API key rejected, clearing")
+	s.ic.SetAPIKey("")
+	_ = deleteAPIKey()
+	s.manifest.ResetIntegration()
+	_ = s.manifest.Save()
+	s.integrationDegraded.Store(true)
+	s.invalidateIntegrationCache()
+	return s.fetchIntegrationStatus()
+}
+
+func (s *Server) repairMissingPolicies(status *IntegrationStatus) *IntegrationStatus {
+	if status == nil || status.ZBFEnabled == nil || !*status.ZBFEnabled || s.integrationDegraded.Load() {
+		return status
+	}
+	ts := s.manifest.GetTailscaleZone()
+	if ts.ZoneID == "" || len(ts.PolicyIDs) != 0 || s.fw == nil {
+		return status
+	}
+	slog.Info("ZBF enabled but policies missing, retrying firewall setup")
+	if err := s.fw.SetupTailscaleFirewall(); err != nil {
+		slog.Warn("firewall setup retry failed, will not retry until restart", "err", err)
+		s.integrationDegraded.Store(true)
+	} else {
+		s.openTailscaleWanPort()
+	}
+	return s.fetchIntegrationStatus()
+}
+
+func (s *Server) applyRefreshState(enrichment *statusEnrichment, integrationStatus *IntegrationStatus) {
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	s.applyEnrichment(enrichment)
+	s.state.data.FirewallHealth = s.firewallHealthSnapshot()
+	s.state.data.IntegrationStatus = integrationStatus
+	s.state.data.UDPPort = readTailscaledPort()
+	if s.wgManager != nil {
+		tunnels := s.wgManager.GetStatuses()
+		s.enrichForwardINOk(tunnels)
+		s.state.data.WgS2sTunnels = tunnels
 	}
 }
 
@@ -207,50 +222,33 @@ func (s *Server) watchLoop(ctx context.Context) error {
 }
 
 func (s *Server) processNotify(ctx context.Context, n *ipn.Notify) {
-	var fetchStatus bool
+	fetchStatus := s.updateStateFromNotify(n)
+	s.refreshExternalState(ctx, fetchStatus)
+	s.broadcastState()
+}
 
+func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
 	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
 
 	if n.Version != "" {
 		s.state.data.Version = n.Version
 	}
-
 	if n.State != nil {
 		s.state.data.BackendState = n.State.String()
 	}
-
 	if n.BrowseToURL != nil {
 		s.state.data.AuthURL = *n.BrowseToURL
 	}
-
 	if n.LoginFinished != nil {
 		s.state.data.AuthURL = ""
 	}
 
 	if n.Prefs != nil && n.Prefs.Valid() {
-		s.state.data.ControlURL = n.Prefs.ControlURL()
-		ar := n.Prefs.AdvertiseRoutes()
-		s.state.advertiseRoutes = make([]netip.Prefix, ar.Len())
-		for i := range ar.Len() {
-			s.state.advertiseRoutes[i] = ar.At(i)
-		}
-
-		s.state.data.Hostname = n.Prefs.Hostname()
-		s.state.data.AcceptDNS = n.Prefs.CorpDNS()
-		s.state.data.AcceptRoutes = n.Prefs.RouteAll()
-		s.state.data.ShieldsUp = n.Prefs.ShieldsUp()
-		s.state.data.RunSSH = n.Prefs.RunSSH()
-		s.state.data.NoSNAT = n.Prefs.NoSNAT()
-		s.state.data.RelayServerPort = n.Prefs.RelayServerPort().Clone()
-		s.state.data.RelayServerEndpoints = formatAddrPorts(n.Prefs.RelayServerStaticEndpoints().AsSlice())
-		tags := n.Prefs.AdvertiseTags().AsSlice()
-		if tags == nil {
-			tags = []string{}
-		}
-		s.state.data.AdvertiseTags = tags
-		s.state.data.UDPPort = readTailscaledPort()
+		s.applyNotifyPrefs(*n.Prefs)
 	}
 
+	var fetchStatus bool
 	if n.NetMap != nil {
 		s.processNetMap(n.NetMap)
 		fetchStatus = true
@@ -269,21 +267,47 @@ func (s *Server) processNotify(ctx context.Context, n *ipn.Notify) {
 		s.state.data.Health = warnings
 	}
 
-	s.state.mu.Unlock()
+	return fetchStatus
+}
 
+func (s *Server) applyNotifyPrefs(p ipn.PrefsView) {
+	s.state.data.ControlURL = p.ControlURL()
+
+	ar := p.AdvertiseRoutes()
+	s.state.advertiseRoutes = make([]netip.Prefix, ar.Len())
+	for i := range ar.Len() {
+		s.state.advertiseRoutes[i] = ar.At(i)
+	}
+
+	s.state.data.Hostname = p.Hostname()
+	s.state.data.AcceptDNS = p.CorpDNS()
+	s.state.data.AcceptRoutes = p.RouteAll()
+	s.state.data.ShieldsUp = p.ShieldsUp()
+	s.state.data.RunSSH = p.RunSSH()
+	s.state.data.NoSNAT = p.NoSNAT()
+	s.state.data.RelayServerPort = p.RelayServerPort().Clone()
+	s.state.data.RelayServerEndpoints = formatAddrPorts(p.RelayServerStaticEndpoints().AsSlice())
+
+	tags := p.AdvertiseTags().AsSlice()
+	if tags == nil {
+		tags = []string{}
+	}
+	s.state.data.AdvertiseTags = tags
+	s.state.data.UDPPort = readTailscaledPort()
+}
+
+func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 	var enrichment *statusEnrichment
 	if fetchStatus {
 		enrichment = s.fetchStatusEnrichment(ctx)
 	}
-
 	integrationStatus := s.fetchIntegrationStatus()
+
 	s.state.mu.Lock()
 	s.applyEnrichment(enrichment)
 	s.state.data.FirewallHealth = s.firewallHealthSnapshot()
 	s.state.data.IntegrationStatus = integrationStatus
 	s.state.mu.Unlock()
-
-	s.broadcastState()
 }
 
 func (s *Server) processNetMap(nm *netmap.NetworkMap) {
