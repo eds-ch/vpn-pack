@@ -52,7 +52,7 @@
             <div class="flex flex-col gap-1.5 text-body">
                 {#if selfPeer?.hostName || deviceInfo?.model}
                     <div class="flex justify-between">
-                        <span class="text-text-secondary shrink-0">Hostname</span>
+                        <span class="text-text-secondary shrink-0">Tailscale Hostname</span>
                         <span class="text-text truncate ml-4">{selfPeer?.hostName || deviceInfo?.model || '—'}</span>
                     </div>
                 {/if}
