@@ -51,6 +51,26 @@ type RouteStatus struct {
 	Approved bool   `json:"approved"`
 }
 
+func buildRouteStatuses(routes []netip.Prefix, allowed map[string]bool) ([]RouteStatus, bool) {
+	var result []RouteStatus
+	isExit := false
+	for _, p := range routes {
+		str := p.String()
+		if str == "0.0.0.0/0" || str == "::/0" {
+			isExit = true
+			continue
+		}
+		result = append(result, RouteStatus{
+			CIDR:     str,
+			Approved: allowed[str],
+		})
+	}
+	if result == nil {
+		result = []RouteStatus{}
+	}
+	return result, isExit
+}
+
 type SelfNode struct {
 	HostName string `json:"hostName"`
 	DNSName  string `json:"dnsName"`
@@ -445,22 +465,7 @@ func (s *Server) recomputeRoutes() {
 		allowed[p.String()] = true
 	}
 
-	var routes []RouteStatus
-	isExit := false
-	for _, p := range s.state.advertiseRoutes {
-		str := p.String()
-		if str == "0.0.0.0/0" || str == "::/0" {
-			isExit = true
-			continue
-		}
-		routes = append(routes, RouteStatus{
-			CIDR:     str,
-			Approved: allowed[str],
-		})
-	}
-	if routes == nil {
-		routes = []RouteStatus{}
-	}
+	routes, isExit := buildRouteStatuses(s.state.advertiseRoutes, allowed)
 	s.state.data.ExitNode = isExit
 	s.state.data.Routes = routes
 }

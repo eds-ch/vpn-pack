@@ -76,9 +76,7 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 	}
 
 	if st.Valid && st.SiteID != "" {
-		_, _, err := s.ic.findSystemZoneIDs(st.SiteID)
-		enabled := err == nil
-		st.ZBFEnabled = &enabled
+		st.ZBFEnabled = s.checkZBFEnabled(st.SiteID)
 	}
 
 	s.integrationCacheMu.Lock()
@@ -93,6 +91,12 @@ func (s *Server) invalidateIntegrationCache() {
 	s.integrationCacheMu.Lock()
 	s.integrationCache = nil
 	s.integrationCacheMu.Unlock()
+}
+
+func (s *Server) checkZBFEnabled(siteID string) *bool {
+	_, _, err := s.ic.findSystemZoneIDs(siteID)
+	enabled := err == nil
+	return &enabled
 }
 
 func (s *Server) handleIntegrationStatus(w http.ResponseWriter, r *http.Request) {
@@ -148,9 +152,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	if siteID != "" {
-		_, _, err := s.ic.findSystemZoneIDs(siteID)
-		enabled := err == nil
-		st.ZBFEnabled = &enabled
+		st.ZBFEnabled = s.checkZBFEnabled(siteID)
 	}
 
 	slog.Info("integration API key configured", "appVersion", info.ApplicationVersion, "siteId", siteID)

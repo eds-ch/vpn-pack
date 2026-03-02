@@ -290,21 +290,18 @@ func (s *Server) applyUDPPortChange(newPort *int) (bool, error) {
 	return true, nil
 }
 
-func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {
-	if newRelayPort == nil || s.ic == nil || !s.ic.HasAPIKey() {
-		return
-	}
+func (s *Server) swapWanPort(oldPort, newPort int, marker string) {
 	var changed bool
-	if oldRelayPort != nil && *oldRelayPort > 0 {
-		if err := s.fw.CloseWanPort(int(*oldRelayPort), wanMarkerRelay); err != nil {
-			slog.Warn("relay WAN port close failed", "port", *oldRelayPort, "err", err)
+	if oldPort > 0 {
+		if err := s.fw.CloseWanPort(oldPort, marker); err != nil {
+			slog.Warn("WAN port close failed", "port", oldPort, "marker", marker, "err", err)
 		} else {
 			changed = true
 		}
 	}
-	if *newRelayPort > 0 {
-		if err := s.fw.OpenWanPort(*newRelayPort, wanMarkerRelay); err != nil {
-			slog.Warn("relay WAN port open failed", "port", *newRelayPort, "err", err)
+	if newPort > 0 {
+		if err := s.fw.OpenWanPort(newPort, marker); err != nil {
+			slog.Warn("WAN port open failed", "port", newPort, "marker", marker, "err", err)
 		} else {
 			changed = true
 		}
@@ -314,33 +311,26 @@ func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {
 	}
 }
 
+func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {
+	if newRelayPort == nil || s.ic == nil || !s.ic.HasAPIKey() {
+		return
+	}
+	oldPort := 0
+	if oldRelayPort != nil {
+		oldPort = int(*oldRelayPort)
+	}
+	s.swapWanPort(oldPort, *newRelayPort, wanMarkerRelay)
+}
+
 func (s *Server) updateTailscaleWgPortRules(newPort *int) {
 	if newPort == nil || s.ic == nil || !s.ic.HasAPIKey() {
 		return
 	}
 	entry, _ := s.manifest.GetWanPortEntry(wanMarkerTailscaleWG)
-	oldPort := entry.Port
-	if oldPort == *newPort {
+	if entry.Port == *newPort {
 		return
 	}
-	var changed bool
-	if oldPort > 0 {
-		if err := s.fw.CloseWanPort(oldPort, wanMarkerTailscaleWG); err != nil {
-			slog.Warn("tailscale WG WAN port close failed", "port", oldPort, "err", err)
-		} else {
-			changed = true
-		}
-	}
-	if *newPort > 0 {
-		if err := s.fw.OpenWanPort(*newPort, wanMarkerTailscaleWG); err != nil {
-			slog.Warn("tailscale WG WAN port open failed", "port", *newPort, "err", err)
-		} else {
-			changed = true
-		}
-	}
-	if changed {
-		s.schedulePostPolicyRestore()
-	}
+	s.swapWanPort(entry.Port, *newPort, wanMarkerTailscaleWG)
 }
 
 func validateControlURL(raw string) error {

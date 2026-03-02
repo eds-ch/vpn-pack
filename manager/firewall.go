@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os/exec"
 	"strings"
 	"sync"
@@ -162,22 +161,17 @@ func (fm *FirewallManager) SetupWgS2sFirewall(tunnelID, iface string, allowedIPs
 
 	if len(allowedIPs) > 0 {
 		ipsetName := zoneIPSetName(chainPrefix)
-		sys, sysErr := CollectSystemSubnets(iface)
+		blocked := make(map[string]bool)
+		if sys, err := CollectSystemSubnets(iface); err == nil {
+			result := ValidateAllowedIPs(allowedIPs, sys)
+			for _, b := range result.Blocked {
+				slog.Warn("skipping conflicting ipset entry", "cidr", b.CIDR, "conflictsWith", b.ConflictsWith, "iface", b.Interface)
+				blocked[b.CIDR] = true
+			}
+		}
 		for _, cidr := range allowedIPs {
-			if sysErr == nil {
-				if _, candidateNet, err := net.ParseCIDR(cidr); err == nil {
-					blocked := false
-					for _, ifSub := range sys.Interfaces {
-						if _, ifNet, err := net.ParseCIDR(ifSub.CIDR); err == nil && subnetsOverlap(candidateNet, ifNet) {
-							slog.Warn("skipping conflicting ipset entry", "cidr", cidr, "conflictsWith", ifSub.CIDR, "iface", ifSub.Interface)
-							blocked = true
-							break
-						}
-					}
-					if blocked {
-						continue
-					}
-				}
+			if blocked[cidr] {
+				continue
 			}
 			if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, cidr); err != nil {
 				slog.Warn("wg-s2s zone ipset failed", "ipset", ipsetName, "cidr", cidr, "err", err)

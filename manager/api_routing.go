@@ -58,7 +58,6 @@ func (s *Server) handleGetRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isExit := false
 	allowed := make(map[string]bool)
 	st, err := s.lc.Status(r.Context())
 	if err == nil && st.Self != nil && st.Self.AllowedIPs != nil {
@@ -67,21 +66,7 @@ func (s *Server) handleGetRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var routes []RouteStatus
-	for _, p := range prefs.AdvertiseRoutes {
-		str := p.String()
-		if str == "0.0.0.0/0" || str == "::/0" {
-			isExit = true
-			continue
-		}
-		routes = append(routes, RouteStatus{
-			CIDR:     str,
-			Approved: allowed[str],
-		})
-	}
-	if routes == nil {
-		routes = []RouteStatus{}
-	}
+	routes, isExit := buildRouteStatuses(prefs.AdvertiseRoutes, allowed)
 
 	writeJSON(w, http.StatusOK, routesResponse{
 		Routes:   routes,
