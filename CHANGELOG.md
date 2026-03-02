@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-03-02
+
+### Fixed
+- WG S2S tunnel creation rejected local subnets selected for sharing as "subnet conflict" — local and remote subnets are now separate fields in the data model and validated independently
+
 ## [1.2.1] - 2026-03-02
 
 ### Changed
@@ -229,7 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/eds-ch/vpn-pack/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/eds-ch/vpn-pack/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/eds-ch/vpn-pack/compare/v1.1.15...v1.2.0
 [1.1.15]: https://github.com/eds-ch/vpn-pack/compare/v1.1.14...v1.1.15
