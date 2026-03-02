@@ -166,16 +166,9 @@ func (m *TunnelManager) EnableTunnel(id string) error {
 		return nil
 	}
 
-	privKey, err := loadPrivateKey(m.configDir, cfg.ID)
-	if err != nil {
+	if err := m.recreateTunnel(cfg, false); err != nil {
 		return err
 	}
-
-	if err := m.bringUp(*cfg, privKey); err != nil {
-		return err
-	}
-
-	cfg.Enabled = true
 	return m.save()
 }
 
@@ -265,52 +258,18 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 	recreate := !wasEnabled || needsRecreate(*cfg, merged)
 	oldAllowedIPs := cfg.AllowedIPs
 
-	if wasEnabled && recreate {
-		if _, err := loadPrivateKey(m.configDir, cfg.ID); err != nil {
-			return nil, fmt.Errorf("preflight: %w", err)
-		}
-		m.tearDown(*cfg)
-	}
-
 	*cfg = merged
 
 	if wasEnabled && recreate {
-		privKey, err := loadPrivateKey(m.configDir, cfg.ID)
-		if err != nil {
-			cfg.Enabled = false
-			if saveErr := m.save(); saveErr != nil {
-				m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
-			}
+		if err := m.recreateTunnel(cfg, true); err != nil {
 			return nil, err
 		}
-		if err := m.bringUp(*cfg, privKey); err != nil {
-			cfg.Enabled = false
-			if saveErr := m.save(); saveErr != nil {
-				m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
-			}
-			return nil, fmt.Errorf("bringUp after update failed (tunnel disabled): %w", err)
-		}
-		cfg.Enabled = true
 	} else if wasEnabled && !recreate {
 		if err := m.hotUpdate(*cfg, oldAllowedIPs); err != nil {
 			m.log.Warn("hot update failed, falling back to recreate", "id", cfg.ID, "err", err)
-			m.tearDown(*cfg)
-			privKey, err := loadPrivateKey(m.configDir, cfg.ID)
-			if err != nil {
-				cfg.Enabled = false
-				if saveErr := m.save(); saveErr != nil {
-					m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
-				}
+			if err := m.recreateTunnel(cfg, true); err != nil {
 				return nil, err
 			}
-			if err := m.bringUp(*cfg, privKey); err != nil {
-				cfg.Enabled = false
-				if saveErr := m.save(); saveErr != nil {
-					m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
-				}
-				return nil, fmt.Errorf("bringUp after hot-update fallback failed (tunnel disabled): %w", err)
-			}
-			cfg.Enabled = true
 		}
 	}
 
@@ -514,6 +473,32 @@ func (m *TunnelManager) tearDown(cfg TunnelConfig) {
 	if err := deleteInterface(m.rtConn, idx); err != nil {
 		m.log.Warn("tearDown: deleteInterface failed", "iface", cfg.InterfaceName, "err", err)
 	}
+}
+
+func (m *TunnelManager) recreateTunnel(cfg *TunnelConfig, teardown bool) error {
+	if teardown {
+		m.tearDown(*cfg)
+	}
+
+	privKey, err := loadPrivateKey(m.configDir, cfg.ID)
+	if err != nil {
+		cfg.Enabled = false
+		if saveErr := m.save(); saveErr != nil {
+			m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
+		}
+		return err
+	}
+
+	if err := m.bringUp(*cfg, privKey); err != nil {
+		cfg.Enabled = false
+		if saveErr := m.save(); saveErr != nil {
+			m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
+		}
+		return fmt.Errorf("bringUp failed (tunnel disabled): %w", err)
+	}
+
+	cfg.Enabled = true
+	return nil
 }
 
 func (m *TunnelManager) findTunnel(id string) int {
