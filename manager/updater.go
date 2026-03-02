@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 func githubReleasesURL() string {
@@ -23,10 +25,12 @@ type UpdateInfo struct {
 }
 
 type updateChecker struct {
-	mu        sync.Mutex
-	info      *UpdateInfo
-	checkedAt time.Time
-	current   string
+	mu         sync.Mutex
+	info       *UpdateInfo
+	checkedAt  time.Time
+	current    string
+	httpClient *http.Client
+	sf         singleflight.Group
 }
 
 func newUpdateChecker() *updateChecker {
@@ -35,7 +39,8 @@ func newUpdateChecker() *updateChecker {
 		current = readVersionFile()
 	}
 	return &updateChecker{
-		current: current,
+		current:    current,
+		httpClient: &http.Client{Timeout: githubAPITimeout},
 	}
 }
 
@@ -57,13 +62,16 @@ func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 	}
 	uc.mu.Unlock()
 
-	info := uc.fetchLatest(ctx)
+	v, _, _ := uc.sf.Do("check", func() (any, error) {
+		info := uc.fetchLatest(ctx)
+		uc.mu.Lock()
+		uc.info = info
+		uc.checkedAt = time.Now()
+		uc.mu.Unlock()
+		return info, nil
+	})
 
-	uc.mu.Lock()
-	uc.info = info
-	uc.checkedAt = time.Now()
-	uc.mu.Unlock()
-
+	info, _ := v.(*UpdateInfo)
 	return info
 }
 
@@ -102,8 +110,7 @@ func (uc *updateChecker) fetchLatest(ctx context.Context) *UpdateInfo {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	client := &http.Client{Timeout: githubAPITimeout}
-	resp, err := client.Do(req)
+	resp, err := uc.httpClient.Do(req)
 	if err != nil {
 		slog.Debug("update check failed", "err", err)
 		return nil
