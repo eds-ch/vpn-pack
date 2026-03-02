@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-02
+
+### Added
+- UniFi device info card on dashboard — shows hostname, firmware, UniFi Network version, and system uptime
+- System uptime exposed via `/api/device` endpoint (Linux `sysinfo` syscall)
+- `formatUptime` utility with tests
+
+### Changed
+- Dashboard layout reorganized — UniFi card and WG S2S on the left panel, Tailscale on the right
+- TopBar hostname moved inline next to "VPN Pack" title with a vertical separator
+- Card heading text vertically centered with icons via `cap-center` CSS utility
+
+### Fixed
+- Tailscale card hostname field clarified as "Tailscale Hostname" to distinguish from device hostname
+
 ## [1.1.15] - 2026-03-01
 
 ### Fixed
@@ -191,7 +206,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.1.15...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/eds-ch/vpn-pack/compare/v1.1.15...v1.2.0
 [1.1.15]: https://github.com/eds-ch/vpn-pack/compare/v1.1.14...v1.1.15
 [1.1.14]: https://github.com/eds-ch/vpn-pack/compare/v1.1.13...v1.1.14
 [1.1.13]: https://github.com/eds-ch/vpn-pack/compare/v1.1.12...v1.1.13
