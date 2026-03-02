@@ -160,7 +160,7 @@ func (s *Server) handleGetSubnets(w http.ResponseWriter, r *http.Request) {
 	parsed := parseLocalSubnets()
 	subnets := make([]subnetEntry, len(parsed))
 	for i, sub := range parsed {
-		subnets[i] = subnetEntry{CIDR: sub.CIDR, Name: sub.Name, Type: sub.Type}
+		subnets[i] = subnetEntry(sub)
 	}
 	writeJSON(w, http.StatusOK, subnetsResponse{Subnets: subnets})
 }

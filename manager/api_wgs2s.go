@@ -166,7 +166,7 @@ func validateWgS2sCreateRequest(req *wgS2sCreateRequest) error {
 	if cfg.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if cfg.ListenPort < 1 || cfg.ListenPort > 65535 {
+	if cfg.ListenPort < 1 || cfg.ListenPort > maxPort {
 		return fmt.Errorf("listenPort must be between 1 and 65535")
 	}
 	if err := validateCIDR(cfg.TunnelAddress); err != nil {
@@ -185,7 +185,7 @@ func validateWgS2sCreateRequest(req *wgS2sCreateRequest) error {
 
 
 func validateWgS2sUpdateRequest(updates *wgs2s.TunnelConfig) error {
-	if updates.ListenPort < 0 || updates.ListenPort > 65535 {
+	if updates.ListenPort < 0 || updates.ListenPort > maxPort {
 		return fmt.Errorf("listenPort must be between 0 and 65535")
 	}
 	if updates.TunnelAddress != "" {

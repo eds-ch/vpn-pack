@@ -634,8 +634,8 @@ export default function mockApiPlugin() {
                     req.on('data', c => body += c);
                     req.on('end', () => {
                         const data = JSON.parse(body);
-                        const zoneId = data.zoneId === 'new' ? 'zone-wg-' + Date.now() : (data.zoneId || mockWgS2sZones[0]?.zoneId || '');
-                        const zoneName = data.zoneId === 'new' ? (data.zoneName || 'WireGuard S2S') : (mockWgS2sZones.find(z => z.zoneId === zoneId)?.zoneName || 'WireGuard S2S');
+                        const zoneId = data.createZone ? 'zone-wg-' + Date.now() : (data.zoneId || mockWgS2sZones[0]?.zoneId || '');
+                        const zoneName = data.createZone ? (data.zoneName || 'WireGuard S2S') : (mockWgS2sZones.find(z => z.zoneId === zoneId)?.zoneName || 'WireGuard S2S');
                         const newTunnel = { id: 'tun-' + Date.now(), interfaceName: 'wgs2s' + mockTunnels.length, ...data, enabled: true, zoneId, zoneName };
                         delete newTunnel.zoneId; delete newTunnel.zoneName;
                         newTunnel.zoneId = zoneId;

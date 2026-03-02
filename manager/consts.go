@@ -107,6 +107,8 @@ const (
 	FirewallActionApplyWgS2s      FirewallAction = "apply-wg-s2s"
 )
 
+const maxPort = 65535
+
 const (
 	wgKeyBase64Len = 44
 	wgKeyBytes     = 32

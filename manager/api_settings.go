@@ -185,14 +185,14 @@ func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsReque
 
 	if req.UDPPort != nil {
 		port := *req.UDPPort
-		if port < 1 || port > 65535 {
+		if port < 1 || port > maxPort {
 			return nil, &apiError{http.StatusBadRequest, "UDP port must be between 1 and 65535"}
 		}
 	}
 
 	if req.RelayServerPort != nil {
 		port := *req.RelayServerPort
-		if port < -1 || port > 65535 {
+		if port < -1 || port > maxPort {
 			return nil, &apiError{http.StatusBadRequest, "Relay server port must be between 0 and 65535, or -1 to disable"}
 		}
 	}
@@ -388,7 +388,7 @@ func readPortFromFile() int {
 		return defaultTailscalePort
 	}
 	port, err := strconv.Atoi(string(m[1]))
-	if err != nil || port < 1 || port > 65535 {
+	if err != nil || port < 1 || port > maxPort {
 		return defaultTailscalePort
 	}
 	return port

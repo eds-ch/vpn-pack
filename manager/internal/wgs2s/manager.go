@@ -476,17 +476,13 @@ func (m *TunnelManager) tearDown(cfg TunnelConfig) {
 }
 
 func (m *TunnelManager) recreateTunnel(cfg *TunnelConfig, teardown bool) error {
-	if teardown {
-		m.tearDown(*cfg)
-	}
-
 	privKey, err := loadPrivateKey(m.configDir, cfg.ID)
 	if err != nil {
-		cfg.Enabled = false
-		if saveErr := m.save(); saveErr != nil {
-			m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
-		}
-		return err
+		return fmt.Errorf("preflight: %w", err)
+	}
+
+	if teardown {
+		m.tearDown(*cfg)
 	}
 
 	if err := m.bringUp(*cfg, privKey); err != nil {
