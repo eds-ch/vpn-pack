@@ -51,15 +51,13 @@
         />
     </div>
 
-    <div class="flex justify-between items-center py-4">
+    <div class="flex justify-between items-center py-4 opacity-50">
         <div class="flex-1 mr-4">
             <span class="text-body text-text">Tailscale DNS</span>
-            <p class="text-caption text-text-tertiary mt-0.5">Use Tailscale's DNS configuration (MagicDNS) on this device. <span class="text-error">Enabling this may break router DNS resolution for all LAN clients.</span></p>
-            {#if staged.acceptDNS}
-                <p class="text-caption text-warning mt-1">Tailscale will overwrite this device's DNS configuration (resolv.conf). All DNS queries from LAN clients using this router as their DNS server will be routed through Tailscale. If tailscaled stops, DNS resolution will break until the device is rebooted.</p>
-            {/if}
+            <p class="text-caption text-text-tertiary mt-0.5">Use Tailscale's DNS configuration (MagicDNS) on this device.</p>
+            <p class="text-caption text-error mt-1">Disabled — MagicDNS may break DNS resolution for LAN clients and disrupt router operation.</p>
         </div>
-        <Toggle checked={staged.acceptDNS ?? false} onchange={(e) => stageChange('acceptDNS', e.target.checked)} />
+        <Toggle checked={false} disabled />
     </div>
 
     <div class="flex justify-between items-center py-4">
