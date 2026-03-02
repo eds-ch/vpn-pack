@@ -74,7 +74,7 @@ func removeWgS2sInterfaces() {
 func removeSubnetsEntries(uc *udapi.UDAPIClient) {
 	manifest, err := LoadManifest(manifestPath)
 	if err == nil && manifest.Tailscale.ChainPrefix != "" && manifest.Tailscale.ChainPrefix != defaultChainPrefix {
-		ipsetName := manifest.Tailscale.ChainPrefix + "_subnets"
+		ipsetName := zoneIPSetName(manifest.Tailscale.ChainPrefix)
 		if err := udapi.RemoveZoneSubnet(uc, ipsetName, tailscaleCGNAT); err != nil {
 			slog.Warn("cleanup: zone ipset entry removal failed", "ipset", ipsetName, "err", err)
 		} else {

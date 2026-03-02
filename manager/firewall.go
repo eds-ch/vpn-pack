@@ -44,30 +44,28 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 
 	chainPrefix := defaultChainPrefix
 
-	if fm.ic != nil && fm.ic.HasAPIKey() && fm.manifest != nil && fm.manifest.HasSiteID() {
-		siteID := fm.manifest.GetSiteID()
-		zone, err := fm.ic.EnsureZone(siteID, "VPN Pack: Tailscale")
+	siteID := fm.manifest.GetSiteID()
+	zone, err := fm.ic.EnsureZone(siteID, "VPN Pack: Tailscale")
+	if err != nil {
+		slog.Warn("Integration API zone setup failed, using UDAPI only", "err", err)
+	} else {
+		slog.Info("integration zone ready", "zoneId", zone.ID, "name", zone.Name)
+
+		policyIDs, err := fm.ic.EnsurePolicies(siteID, "Tailscale", zone.ID)
 		if err != nil {
-			slog.Warn("Integration API zone setup failed, using UDAPI only", "err", err)
+			slog.Warn("integration policy setup had errors", "err", err)
 		} else {
-			slog.Info("integration zone ready", "zoneId", zone.ID, "name", zone.Name)
+			slog.Info("integration policies ready", "count", len(policyIDs))
+		}
 
-			policyIDs, err := fm.ic.EnsurePolicies(siteID, "Tailscale", zone.ID)
-			if err != nil {
-				slog.Warn("integration policy setup had errors", "err", err)
-			} else {
-				slog.Info("integration policies ready", "count", len(policyIDs))
-			}
+		discovered := fm.discoverChainPrefix(zone.ID)
+		if discovered != "" {
+			chainPrefix = discovered
+		}
 
-			discovered := fm.discoverChainPrefix(zone.ID)
-			if discovered != "" {
-				chainPrefix = discovered
-			}
-
-			fm.manifest.SetTailscaleZone(zone.ID, zone.Name, policyIDs, chainPrefix)
-			if err := fm.manifest.Save(); err != nil {
-				slog.Warn("manifest save failed", "err", err)
-			}
+		fm.manifest.SetTailscaleZone(zone.ID, zone.Name, policyIDs, chainPrefix)
+		if err := fm.manifest.Save(); err != nil {
+			slog.Warn("manifest save failed", "err", err)
 		}
 	}
 

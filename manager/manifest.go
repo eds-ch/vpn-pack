@@ -121,7 +121,6 @@ func migrateV1(data []byte) (*Manifest, error) {
 func (m *Manifest) Save() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.UpdatedAt = time.Now().UTC()
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("manifest marshal: %w", err)

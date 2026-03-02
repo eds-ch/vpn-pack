@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -289,10 +290,10 @@ func (s *Server) restoreWgS2sRules() {
 			continue
 		}
 		slog.Info("wg-s2s firewall rules missing, restoring", "iface", t.InterfaceName)
-		s.logBuf.Add(newLogEntry("info", "firewall rules missing, restoring iface="+t.InterfaceName, "wgs2s"))
+		s.logBuf.Add(newLogEntry("info", fmt.Sprintf("firewall rules missing, restoring iface=%s", t.InterfaceName), "wgs2s"))
 		if err := s.fw.SetupWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs); err != nil {
 			slog.Warn("wg-s2s firewall restore failed", "iface", t.InterfaceName, "err", err)
-			s.logBuf.Add(newLogEntry("warn", "firewall restore failed iface="+t.InterfaceName+" err="+err.Error(), "wgs2s"))
+			s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall restore failed iface=%s err=%v", t.InterfaceName, err), "wgs2s"))
 		}
 	}
 }
@@ -351,7 +352,7 @@ func (s *Server) handleFirewallRequest(req FirewallRequest) {
 		if req.Interface != "" {
 			if err := s.fw.SetupWgS2sFirewall(req.TunnelID, req.Interface, req.AllowedIPs); err != nil {
 				slog.Warn("wg-s2s firewall rules failed", "iface", req.Interface, "err", err)
-				s.logBuf.Add(newLogEntry("warn", "firewall rules failed iface="+req.Interface+" err="+err.Error(), "wgs2s"))
+				s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", req.Interface, err), "wgs2s"))
 			}
 		}
 	default:
