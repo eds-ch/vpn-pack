@@ -383,8 +383,8 @@ func (s *Server) handleWgS2sGetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wanIP := s.wgManager.GetWanIP()
-	localSubnets := wgs2s.ParseLocalSubnets()
+	wanIP := getWanIP()
+	localSubnets := parseLocalSubnets()
 
 	var allowedIPs []string
 	for _, sub := range localSubnets {
@@ -422,7 +422,7 @@ func (s *Server) handleWgS2sWanIP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"ip": ""})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"ip": s.wgManager.GetWanIP()})
+	writeJSON(w, http.StatusOK, map[string]string{"ip": getWanIP()})
 }
 
 func (s *Server) handleWgS2sLocalSubnets(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +430,7 @@ func (s *Server) handleWgS2sLocalSubnets(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	subnets := wgs2s.ParseLocalSubnets()
+	subnets := parseLocalSubnets()
 	if subnets == nil {
 		writeJSON(w, http.StatusOK, []any{})
 		return

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"tailscale.com/ipn"
-	"unifi-tailscale/manager/internal/wgs2s"
 )
 
 type setRoutesRequest struct {
@@ -158,7 +157,7 @@ func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSubnets(w http.ResponseWriter, r *http.Request) {
-	parsed := wgs2s.ParseLocalSubnets()
+	parsed := parseLocalSubnets()
 	subnets := make([]subnetEntry, len(parsed))
 	for i, sub := range parsed {
 		subnets[i] = subnetEntry{CIDR: sub.CIDR, Name: sub.Name, Type: sub.Type}

@@ -1,7 +1,6 @@
 package wgs2s
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -415,98 +414,6 @@ func (m *TunnelManager) GetPublicKey(id string) (string, error) {
 		return "", fmt.Errorf("read public key: %w", err)
 	}
 	return strings.TrimSpace(string(data)), nil
-}
-
-const udapiNetCfgPath = "/data/udapi-config/udapi-net-cfg.json"
-
-type udapiNetCfg struct {
-	Interfaces []udapiInterface `json:"interfaces"`
-}
-
-type udapiInterface struct {
-	Identification struct {
-		Type string `json:"type"`
-		ID   string `json:"id"`
-	} `json:"identification"`
-	Addresses []udapiAddress `json:"addresses"`
-	Status    struct {
-		Comment string `json:"comment"`
-	} `json:"status"`
-}
-
-type udapiAddress struct {
-	Type    string `json:"type"`
-	Address string `json:"address"`
-	CIDR    string `json:"cidr"`
-	Version string `json:"version"`
-}
-
-func loadUDAPICfg() (*udapiNetCfg, error) {
-	data, err := os.ReadFile(udapiNetCfgPath)
-	if err != nil {
-		return nil, err
-	}
-	var cfg udapiNetCfg
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-func (m *TunnelManager) GetWanIP() string {
-	cfg, err := loadUDAPICfg()
-	if err != nil {
-		return ""
-	}
-	for _, iface := range cfg.Interfaces {
-		if iface.Identification.Type == "wan" {
-			for _, addr := range iface.Addresses {
-				if addr.Type == "dhcp" || addr.Type == "static" {
-					return addr.Address
-				}
-			}
-		}
-	}
-	return ""
-}
-
-type SubnetInfo struct {
-	CIDR string `json:"cidr"`
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-
-func ParseLocalSubnets() []SubnetInfo {
-	cfg, err := loadUDAPICfg()
-	if err != nil {
-		return nil
-	}
-	var subnets []SubnetInfo
-	for _, iface := range cfg.Interfaces {
-		ifType := iface.Identification.Type
-		if ifType != "bridge" && ifType != "vlan" {
-			continue
-		}
-		for _, addr := range iface.Addresses {
-			if addr.Version != "v4" || addr.Type != "static" {
-				continue
-			}
-			_, ipNet, err := net.ParseCIDR(addr.CIDR)
-			if err != nil {
-				continue
-			}
-			name := iface.Status.Comment
-			if name == "" {
-				name = iface.Identification.ID
-			}
-			subnets = append(subnets, SubnetInfo{
-				CIDR: ipNet.String(),
-				Name: fmt.Sprintf("%s (%s)", name, iface.Identification.ID),
-				Type: ifType,
-			})
-		}
-	}
-	return subnets
 }
 
 func (m *TunnelManager) cleanupExistingInterface(cfg TunnelConfig) error {
