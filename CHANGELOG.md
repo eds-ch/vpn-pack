@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-03-02
+
+### Changed
+- Tailscale DNS (MagicDNS) toggle permanently disabled in UI with warning — may break router DNS for LAN clients
+- Tailscale patches updated to v1.94.2 headers
+
 ## [1.2.2] - 2026-03-02
 
 ### Fixed
@@ -234,7 +240,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/eds-ch/vpn-pack/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/eds-ch/vpn-pack/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/eds-ch/vpn-pack/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/eds-ch/vpn-pack/compare/v1.1.15...v1.2.0
