@@ -36,17 +36,17 @@ type settingsResponse struct {
 }
 
 type settingsRequest struct {
-	Hostname             *string    `json:"hostname,omitempty"`
-	AcceptDNS            *bool      `json:"acceptDNS,omitempty"`
-	AcceptRoutes         *bool      `json:"acceptRoutes,omitempty"`
-	ShieldsUp            *bool      `json:"shieldsUp,omitempty"`
-	RunSSH               *bool      `json:"runSSH,omitempty"`
-	ControlURL           *string    `json:"controlURL,omitempty"`
-	NoSNAT               *bool      `json:"noSNAT,omitempty"`
-	UDPPort              *int       `json:"udpPort,omitempty"`
-	RelayServerPort      *int       `json:"relayServerPort"`
-	RelayServerEndpoints *string    `json:"relayServerEndpoints,omitempty"`
-	AdvertiseTags        *[]string  `json:"advertiseTags,omitempty"`
+	Hostname             *string   `json:"hostname,omitempty"`
+	AcceptDNS            *bool     `json:"acceptDNS,omitempty"`
+	AcceptRoutes         *bool     `json:"acceptRoutes,omitempty"`
+	ShieldsUp            *bool     `json:"shieldsUp,omitempty"`
+	RunSSH               *bool     `json:"runSSH,omitempty"`
+	ControlURL           *string   `json:"controlURL,omitempty"`
+	NoSNAT               *bool     `json:"noSNAT,omitempty"`
+	UDPPort              *int      `json:"udpPort,omitempty"`
+	RelayServerPort      *int      `json:"relayServerPort"`
+	RelayServerEndpoints *string   `json:"relayServerEndpoints,omitempty"`
+	AdvertiseTags        *[]string `json:"advertiseTags,omitempty"`
 }
 
 func toSettingsResponse(prefs *ipn.Prefs) settingsResponse {
@@ -84,6 +84,8 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
+
+	dnsForwardingTouched := req.AcceptDNS != nil
 
 	relayEndpoints, err := s.validateSettingsRequest(r.Context(), &req)
 	if err != nil {
@@ -129,8 +131,16 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		s.restartTailscaled()
 	}
 
+	acceptDNSEnabled := s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
+	if dnsForwardingTouched {
+		s.state.mu.Lock()
+		s.state.data.AcceptDNS = acceptDNSEnabled
+		s.state.mu.Unlock()
+		s.broadcastState()
+	}
+
 	resp := toSettingsResponse(updated)
-	resp.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
+	resp.AcceptDNS = acceptDNSEnabled
 	writeJSON(w, http.StatusOK, resp)
 }
 

@@ -26,18 +26,18 @@ type TailscaleState struct {
 }
 
 type stateData struct {
-	BackendState   string              `json:"backendState"`
-	TailscaleIPs   []string            `json:"tailscaleIPs"`
-	TailnetName    string              `json:"tailnetName"`
-	AuthURL        string              `json:"authURL"`
-	ControlURL     string              `json:"controlURL"`
-	Version        string              `json:"version"`
-	Self           *SelfNode           `json:"self,omitempty"`
-	Health         []string            `json:"health,omitempty"`
-	ExitNode       bool                `json:"exitNode"`
-	Routes         []RouteStatus       `json:"routes"`
-	Peers          []PeerInfo          `json:"peers"`
-	DERP              []DERPInfo           `json:"derp,omitempty"`
+	BackendState      string              `json:"backendState"`
+	TailscaleIPs      []string            `json:"tailscaleIPs"`
+	TailnetName       string              `json:"tailnetName"`
+	AuthURL           string              `json:"authURL"`
+	ControlURL        string              `json:"controlURL"`
+	Version           string              `json:"version"`
+	Self              *SelfNode           `json:"self,omitempty"`
+	Health            []string            `json:"health,omitempty"`
+	ExitNode          bool                `json:"exitNode"`
+	Routes            []RouteStatus       `json:"routes"`
+	Peers             []PeerInfo          `json:"peers"`
+	DERP              []DERPInfo          `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth     `json:"firewallHealth,omitempty"`
 	DPIFingerprinting *bool               `json:"dpiFingerprinting,omitempty"`
 	IntegrationStatus *IntegrationStatus  `json:"integrationStatus,omitempty"`
@@ -196,6 +196,7 @@ func (s *Server) applyRefreshState(enrichment *statusEnrichment, integrationStat
 	s.applyEnrichment(enrichment)
 	s.state.data.FirewallHealth = s.firewallHealthSnapshot()
 	s.state.data.IntegrationStatus = integrationStatus
+	s.state.data.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
 	s.state.data.UDPPort = readTailscaledPort()
 	if s.wgManager != nil {
 		tunnels := s.wgManager.GetStatuses()
