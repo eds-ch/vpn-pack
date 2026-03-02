@@ -119,6 +119,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	info, err := s.ic.Validate()
 	if err != nil {
 		s.ic.SetAPIKey("")
+		s.invalidateIntegrationCache()
 		writeError(w, http.StatusBadRequest, "API key validation failed: "+err.Error())
 		return
 	}

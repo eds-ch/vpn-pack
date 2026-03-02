@@ -169,8 +169,8 @@ func validateWgS2sCreateRequest(req *wgS2sCreateRequest) error {
 	if cfg.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if cfg.ListenPort <= 0 {
-		return fmt.Errorf("listenPort must be positive")
+	if cfg.ListenPort < 1 || cfg.ListenPort > 65535 {
+		return fmt.Errorf("listenPort must be between 1 and 65535")
 	}
 	if err := validateCIDR(cfg.TunnelAddress); err != nil {
 		return fmt.Errorf("invalid tunnelAddress: %s", err)
@@ -188,8 +188,8 @@ func validateWgS2sCreateRequest(req *wgS2sCreateRequest) error {
 
 
 func validateWgS2sUpdateRequest(updates *wgs2s.TunnelConfig) error {
-	if updates.ListenPort < 0 {
-		return fmt.Errorf("listenPort must be non-negative")
+	if updates.ListenPort < 0 || updates.ListenPort > 65535 {
+		return fmt.Errorf("listenPort must be between 0 and 65535")
 	}
 	if updates.TunnelAddress != "" {
 		if err := validateCIDR(updates.TunnelAddress); err != nil {
@@ -286,6 +286,10 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 
 	id := r.PathValue("id")
 	t := s.findTunnelByID(id)
+	if t == nil {
+		writeError(w, http.StatusNotFound, "tunnel not found")
+		return
+	}
 
 	if err := s.wgManager.DeleteTunnel(id); err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeWgS2sError(err))
@@ -308,6 +312,10 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	id := r.PathValue("id")
+	if s.findTunnelByID(id) == nil {
+		writeError(w, http.StatusNotFound, "tunnel not found")
+		return
+	}
 	if err := s.wgManager.EnableTunnel(id); err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeWgS2sError(err))
 		return
@@ -328,6 +336,10 @@ func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request
 
 	id := r.PathValue("id")
 	t := s.findTunnelByID(id)
+	if t == nil {
+		writeError(w, http.StatusNotFound, "tunnel not found")
+		return
+	}
 
 	if err := s.wgManager.DisableTunnel(id); err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeWgS2sError(err))

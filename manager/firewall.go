@@ -42,6 +42,7 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 		return nil
 	}
 
+	var setupErr error
 	chainPrefix := defaultChainPrefix
 
 	siteID := fm.manifest.GetSiteID()
@@ -51,9 +52,11 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 	} else {
 		slog.Info("integration zone ready", "zoneId", zone.ID, "name", zone.Name)
 
+		var policyErr error
 		policyIDs, err := fm.ic.EnsurePolicies(siteID, "Tailscale", zone.ID)
 		if err != nil {
-			slog.Warn("integration policy setup had errors", "err", err)
+			slog.Warn("integration policy setup had errors, will retry on next restart", "err", err)
+			policyErr = err
 		} else {
 			slog.Info("integration policies ready", "count", len(policyIDs))
 		}
@@ -66,6 +69,10 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 		fm.manifest.SetTailscaleZone(zone.ID, zone.Name, policyIDs, chainPrefix)
 		if err := fm.manifest.Save(); err != nil {
 			slog.Warn("manifest save failed", "err", err)
+		}
+
+		if policyErr != nil {
+			setupErr = fmt.Errorf("firewall policies incomplete (UDAPI rules will be applied): %w", policyErr)
 		}
 	}
 
@@ -81,7 +88,7 @@ func (fm *FirewallManager) SetupTailscaleFirewall() error {
 	}
 
 	slog.Info("tailscale firewall setup complete", "chainPrefix", chainPrefix)
-	return nil
+	return setupErr
 }
 
 func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) error {
