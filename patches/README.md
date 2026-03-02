@@ -2,7 +2,7 @@
 
 Patches applied to upstream Tailscale source before cross-compiling for UniFi devices.
 
-**Current target version: 1.94.1**
+**Current target version: 1.94.2**
 
 ## Patch Files
 
@@ -27,7 +27,7 @@ Runs a dry-run application against the reference source. No files are modified. 
 
 ## Updating Tailscale Version
 
-1. Edit `TAILSCALE_VERSION` in `Makefile` (e.g. `1.94.1` -> `1.96.0`)
+1. Edit `TAILSCALE_VERSION` in `Makefile` (e.g. `1.94.2` -> `1.96.0`)
 2. Clean old artifacts:
    ```bash
    make clean
@@ -65,7 +65,7 @@ Runs a dry-run application against the reference source. No files are modified. 
    Use the next sequential number (e.g. `005-...`).
 4. Add a version header as the first two lines of the patch file:
    ```
-   # Tailscale-Version: 1.94.1
+   # Tailscale-Version: 1.94.2
    # Description: Brief description of what this patch does
    ```
 5. Verify:
