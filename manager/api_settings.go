@@ -89,21 +89,7 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var oldRelayPort *uint16
-	if req.RelayServerPort != nil && s.deviceInfo.HasUDAPISocket {
-		prefs, err := s.lc.GetPrefs(r.Context())
-		if err == nil {
-			oldRelayPort = prefs.RelayServerPort
-		}
-	}
-
-	var oldControlURL string
-	if req.ControlURL != nil {
-		if prefs, err := s.lc.GetPrefs(r.Context()); err == nil {
-			oldControlURL = prefs.ControlURL
-		}
-	}
-
+	old := s.fetchPreEditPrefs(r.Context(), &req)
 	mp := buildMaskedPrefs(&req, relayEndpoints)
 
 	updated, err := s.lc.EditPrefs(r.Context(), mp)
@@ -113,7 +99,7 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var needsRestart bool
-	if req.ControlURL != nil && *req.ControlURL != oldControlURL {
+	if req.ControlURL != nil && *req.ControlURL != old.controlURL {
 		needsRestart = true
 	}
 
@@ -126,20 +112,49 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		needsRestart = true
 	}
 
-	s.updateRelayPortRules(req.RelayServerPort, oldRelayPort)
+	s.updateRelayPortRules(req.RelayServerPort, old.relayPort)
 	s.updateTailscaleWgPortRules(req.UDPPort)
 
 	if needsRestart {
-		go func() {
-			if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
-				slog.Warn("tailscaled restart failed", "err", err, "output", string(out))
-			} else {
-				slog.Info("tailscaled restarted for settings change")
-			}
-		}()
+		s.restartTailscaled()
 	}
 
 	writeJSON(w, http.StatusOK, toSettingsResponse(updated))
+}
+
+type preEditPrefs struct {
+	controlURL string
+	relayPort  *uint16
+}
+
+func (s *Server) fetchPreEditPrefs(ctx context.Context, req *settingsRequest) preEditPrefs {
+	needControlURL := req.ControlURL != nil
+	needRelayPort := req.RelayServerPort != nil && s.deviceInfo.HasUDAPISocket
+	if !needControlURL && !needRelayPort {
+		return preEditPrefs{}
+	}
+	prefs, err := s.lc.GetPrefs(ctx)
+	if err != nil {
+		return preEditPrefs{}
+	}
+	var p preEditPrefs
+	if needControlURL {
+		p.controlURL = prefs.ControlURL
+	}
+	if needRelayPort {
+		p.relayPort = prefs.RelayServerPort
+	}
+	return p
+}
+
+func (s *Server) restartTailscaled() {
+	go func() {
+		if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
+			slog.Warn("tailscaled restart failed", "err", err, "output", string(out))
+		} else {
+			slog.Info("tailscaled restarted for settings change")
+		}
+	}()
 }
 
 func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsRequest) ([]netip.AddrPort, error) {
