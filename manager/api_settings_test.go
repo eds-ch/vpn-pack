@@ -97,7 +97,7 @@ func TestFormatAddrPorts(t *testing.T) {
 }
 
 func TestAcceptDNSGuard(t *testing.T) {
-	t.Run("acceptDNS true blocked", func(t *testing.T) {
+	t.Run("acceptDNS true without integration rejected", func(t *testing.T) {
 		req := &settingsRequest{AcceptDNS: ptr(true)}
 		s := &Server{}
 		_, err := s.validateSettingsRequest(context.Background(), req)
@@ -105,7 +105,7 @@ func TestAcceptDNSGuard(t *testing.T) {
 		var ae *apiError
 		require.ErrorAs(t, err, &ae)
 		assert.Equal(t, http.StatusBadRequest, ae.status)
-		assert.Contains(t, ae.Error(), "AcceptDNS")
+		assert.Contains(t, ae.Error(), "Integration API")
 	})
 
 	t.Run("acceptDNS false allowed", func(t *testing.T) {
@@ -150,17 +150,32 @@ func TestBuildMaskedPrefs(t *testing.T) {
 		assert.True(t, mp.ShieldsUp)
 	})
 
-	t.Run("acceptDNS enabled", func(t *testing.T) {
+	t.Run("acceptDNS never maps to CorpDNS", func(t *testing.T) {
 		req := &settingsRequest{AcceptDNS: ptr(true)}
 		mp := buildMaskedPrefs(req, nil)
-		assert.True(t, mp.CorpDNSSet)
-		assert.True(t, mp.CorpDNS)
+		assert.False(t, mp.CorpDNSSet, "CorpDNS must never be set via settings API")
 	})
+}
 
-	t.Run("acceptDNS disabled", func(t *testing.T) {
-		req := &settingsRequest{AcceptDNS: ptr(false)}
-		mp := buildMaskedPrefs(req, nil)
-		assert.True(t, mp.CorpDNSSet)
-		assert.False(t, mp.CorpDNS)
-	})
+func TestManifestDNSPolicy(t *testing.T) {
+	m := &Manifest{Version: 2}
+
+	assert.False(t, m.HasDNSPolicy("test"))
+	_, ok := m.GetDNSPolicy("test")
+	assert.False(t, ok)
+
+	m.SetDNSPolicy("test", "pol-123", "example.ts.net", "100.100.100.100")
+	assert.True(t, m.HasDNSPolicy("test"))
+	entry, ok := m.GetDNSPolicy("test")
+	require.True(t, ok)
+	assert.Equal(t, "pol-123", entry.PolicyID)
+	assert.Equal(t, "example.ts.net", entry.Domain)
+	assert.Equal(t, "100.100.100.100", entry.IPAddress)
+
+	m.RemoveDNSPolicy("test")
+	assert.False(t, m.HasDNSPolicy("test"))
+
+	m.SetDNSPolicy("test2", "pol-456", "other.ts.net", "100.100.100.100")
+	m.ResetIntegration()
+	assert.False(t, m.HasDNSPolicy("test2"))
 }

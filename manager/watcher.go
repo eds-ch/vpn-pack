@@ -280,7 +280,7 @@ func (s *Server) applyNotifyPrefs(p ipn.PrefsView) {
 	}
 
 	s.state.data.Hostname = p.Hostname()
-	s.state.data.AcceptDNS = p.CorpDNS()
+	s.state.data.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
 	s.state.data.AcceptRoutes = p.RouteAll()
 	s.state.data.ShieldsUp = p.ShieldsUp()
 	s.state.data.RunSSH = p.RunSSH()

@@ -1,7 +1,7 @@
 <script>
     import Toggle from './Toggle.svelte';
 
-    let { staged, original, stageChange, onValidation = () => {} } = $props();
+    let { staged, original, stageChange, onValidation = () => {}, status } = $props();
 
     let controlURLChanged = $derived(
         staged.controlURL !== original.controlURL
@@ -19,6 +19,12 @@
         }
         return '';
     });
+
+    let integrationReady = $derived(
+        status?.integrationStatus?.configured && status?.integrationStatus?.valid
+    );
+    let tailscaleConnected = $derived(status?.backendState === 'Running');
+    let dnsToggleDisabled = $derived(!integrationReady || !tailscaleConnected);
 
     $effect(() => { onValidation(!!controlURLError); });
 </script>
@@ -51,13 +57,21 @@
         />
     </div>
 
-    <div class="flex justify-between items-center py-4 opacity-50">
+    <div class="flex justify-between items-center py-4" class:opacity-50={dnsToggleDisabled}>
         <div class="flex-1 mr-4">
             <span class="text-body text-text">Tailscale DNS</span>
-            <p class="text-caption text-text-tertiary mt-0.5">Use Tailscale's DNS configuration (MagicDNS) on this device.</p>
-            <p class="text-caption text-error mt-1">Disabled — MagicDNS may break DNS resolution for LAN clients and disrupt router operation.</p>
+            <p class="text-caption text-text-tertiary mt-0.5">Forward your tailnet domain to Tailscale's DNS resolver so all LAN clients can reach Tailscale devices by name.</p>
+            {#if !integrationReady}
+                <p class="text-caption text-warning mt-1">Requires Integration API key.</p>
+            {:else if !tailscaleConnected}
+                <p class="text-caption text-warning mt-1">Requires Tailscale to be connected.</p>
+            {/if}
         </div>
-        <Toggle checked={false} disabled />
+        <Toggle
+            checked={staged.acceptDNS ?? false}
+            disabled={dnsToggleDisabled}
+            onchange={(e) => stageChange('acceptDNS', e.target.checked)}
+        />
     </div>
 
     <div class="flex justify-between items-center py-4">

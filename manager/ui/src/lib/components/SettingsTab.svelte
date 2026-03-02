@@ -180,7 +180,7 @@
                 {#if subTab === 'general'}
                     <SettingsGeneral staged={displaySettings} original={serverSettings} {stageChange} effectiveHostname={status.self?.hostName || ''} onValidation={(v) => generalHasErrors = v} />
                 {:else}
-                    <SettingsAdvanced staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => advancedHasErrors = v} />
+                    <SettingsAdvanced staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => advancedHasErrors = v} {status} />
                 {/if}
             {/if}
         {:else if subTab === 'routing'}

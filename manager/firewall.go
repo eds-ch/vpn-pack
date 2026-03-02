@@ -279,6 +279,59 @@ func (fm *FirewallManager) resolveSystemZones(siteID string) (string, string, er
 	return extID, gwID, nil
 }
 
+func (fm *FirewallManager) EnsureDNSForwarding(magicDNSSuffix string) error {
+	if err := fm.requireIntegration(); err != nil {
+		return err
+	}
+
+	if entry, ok := fm.manifest.GetDNSPolicy(dnsMarkerTailscale); ok {
+		if entry.Domain == magicDNSSuffix {
+			return nil
+		}
+		siteID := fm.manifest.GetSiteID()
+		if err := fm.ic.DeleteDNSPolicy(siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
+			slog.Warn("failed to delete old DNS forwarding policy", "domain", entry.Domain, "err", err)
+		}
+		fm.manifest.RemoveDNSPolicy(dnsMarkerTailscale)
+	}
+
+	siteID := fm.manifest.GetSiteID()
+	pol, err := fm.ic.EnsureDNSForwardDomain(siteID, magicDNSSuffix, tailscaleDNSResolverIP)
+	if err != nil {
+		return fmt.Errorf("create DNS forward domain: %w", err)
+	}
+
+	fm.manifest.SetDNSPolicy(dnsMarkerTailscale, pol.ID, magicDNSSuffix, tailscaleDNSResolverIP)
+	if err := fm.manifest.Save(); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
+
+	slog.Info("DNS forwarding policy created", "domain", magicDNSSuffix, "resolver", tailscaleDNSResolverIP, "policyId", pol.ID)
+	return nil
+}
+
+func (fm *FirewallManager) RemoveDNSForwarding() error {
+	entry, ok := fm.manifest.GetDNSPolicy(dnsMarkerTailscale)
+	if !ok {
+		return nil
+	}
+
+	if err := fm.requireIntegration(); err == nil {
+		siteID := fm.manifest.GetSiteID()
+		if err := fm.ic.DeleteDNSPolicy(siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
+			slog.Warn("failed to delete DNS forwarding policy from API", "policyId", entry.PolicyID, "err", err)
+		}
+	}
+
+	fm.manifest.RemoveDNSPolicy(dnsMarkerTailscale)
+	if err := fm.manifest.Save(); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
+
+	slog.Info("DNS forwarding policy removed", "domain", entry.Domain)
+	return nil
+}
+
 func (fm *FirewallManager) RestoreTailscaleRules() error {
 	if err := fm.requireIntegration(); err != nil {
 		return nil

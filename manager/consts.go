@@ -96,6 +96,11 @@ const (
 )
 
 const (
+	dnsMarkerTailscale     = "tailscale-dns"
+	tailscaleDNSResolverIP = "100.100.100.100"
+)
+
+const (
 	deviceInfoCmd   = "ubnt-device-info"
 	vpnClientPrefix = "wgclt"
 )

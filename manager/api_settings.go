@@ -74,7 +74,9 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toSettingsResponse(prefs))
+	resp := toSettingsResponse(prefs)
+	resp.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +89,14 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeAPIError(w, err)
 		return
+	}
+
+	if req.AcceptDNS != nil {
+		if err := s.applyDNSForwarding(r.Context(), *req.AcceptDNS); err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		req.AcceptDNS = nil
 	}
 
 	old := s.fetchPreEditPrefs(r.Context(), &req)
@@ -119,7 +129,36 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		s.restartTailscaled()
 	}
 
-	writeJSON(w, http.StatusOK, toSettingsResponse(updated))
+	resp := toSettingsResponse(updated)
+	resp.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) applyDNSForwarding(ctx context.Context, enable bool) error {
+	if enable {
+		st, err := s.lc.Status(ctx)
+		if err != nil {
+			return &apiError{http.StatusBadGateway, humanizeLocalAPIError(err)}
+		}
+		var suffix string
+		if st.CurrentTailnet != nil {
+			suffix = st.CurrentTailnet.MagicDNSSuffix
+		}
+		if suffix == "" {
+			return &apiError{http.StatusBadRequest,
+				"Cannot determine tailnet DNS suffix. Ensure Tailscale is connected."}
+		}
+		if err := s.fw.EnsureDNSForwarding(suffix); err != nil {
+			return &apiError{http.StatusInternalServerError,
+				"Failed to create DNS forwarding: " + err.Error()}
+		}
+		return nil
+	}
+	if err := s.fw.RemoveDNSForwarding(); err != nil {
+		return &apiError{http.StatusInternalServerError,
+			"Failed to remove DNS forwarding: " + err.Error()}
+	}
+	return nil
 }
 
 type preEditPrefs struct {
@@ -159,9 +198,10 @@ func (s *Server) restartTailscaled() {
 
 func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsRequest) ([]netip.AddrPort, error) {
 	if req.AcceptDNS != nil && *req.AcceptDNS {
-		return nil, &apiError{http.StatusBadRequest,
-			"AcceptDNS (MagicDNS) cannot be enabled on UniFi gateways: " +
-				"it overwrites /etc/resolv.conf, breaking local DNS and UniFi DNS redirect rules"}
+		if s.fw == nil || s.fw.requireIntegration() != nil {
+			return nil, &apiError{http.StatusBadRequest,
+				"DNS forwarding requires Integration API. Configure in Settings > Integration."}
+		}
 	}
 
 	if req.ControlURL != nil {
@@ -244,10 +284,6 @@ func buildMaskedPrefs(req *settingsRequest, relayEndpoints []netip.AddrPort) *ip
 	if req.Hostname != nil {
 		mp.Hostname = *req.Hostname
 		mp.HostnameSet = true
-	}
-	if req.AcceptDNS != nil {
-		mp.CorpDNS = *req.AcceptDNS
-		mp.CorpDNSSet = true
 	}
 	if req.AcceptRoutes != nil {
 		mp.RouteAll = *req.AcceptRoutes

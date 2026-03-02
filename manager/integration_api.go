@@ -469,6 +469,84 @@ func (c *IntegrationClient) EnsureWanPortPolicy(siteID string, port int, name, e
 	return pol.ID, nil
 }
 
+type DNSPolicy struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Domain    string `json:"domain"`
+	IPAddress string `json:"ipAddress"`
+	Enabled   bool   `json:"enabled"`
+}
+
+type createDNSPolicyRequest struct {
+	Type      string `json:"type"`
+	Domain    string `json:"domain"`
+	IPAddress string `json:"ipAddress"`
+	Enabled   bool   `json:"enabled"`
+}
+
+func (c *IntegrationClient) ListDNSPolicies(siteID string) ([]DNSPolicy, error) {
+	return doListRequest[DNSPolicy](c, fmt.Sprintf("/v1/sites/%s/dns/policies?limit=%d", siteID, paginationLimit))
+}
+
+func (c *IntegrationClient) CreateDNSPolicy(siteID string, req createDNSPolicyRequest) (*DNSPolicy, error) {
+	body, status, err := c.doRequest("POST", fmt.Sprintf("/v1/sites/%s/dns/policies", siteID), req)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("%w: create DNS policy returned %d: %s", ErrIntegrationAPI, status, body)
+	}
+	var pol DNSPolicy
+	if err := json.Unmarshal(body, &pol); err != nil {
+		return nil, fmt.Errorf("parse DNS policy: %w", err)
+	}
+	return &pol, nil
+}
+
+func (c *IntegrationClient) DeleteDNSPolicy(siteID, policyID string) error {
+	path := fmt.Sprintf("/v1/sites/%s/dns/policies/%s", siteID, policyID)
+	body, status, err := c.doRequest("DELETE", path, nil)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("%w: delete DNS policy returned %d: %s", ErrIntegrationAPI, status, body)
+	}
+	return nil
+}
+
+func (c *IntegrationClient) findDNSPolicyByDomain(siteID, domain string) (*DNSPolicy, error) {
+	policies, err := c.ListDNSPolicies(siteID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range policies {
+		if p.Domain == domain {
+			return &p, nil
+		}
+	}
+	return nil, nil
+}
+
+func (c *IntegrationClient) EnsureDNSForwardDomain(siteID, domain, ipAddress string) (*DNSPolicy, error) {
+	existing, err := c.findDNSPolicyByDomain(siteID, domain)
+	if err != nil {
+		return nil, fmt.Errorf("check existing DNS policy: %w", err)
+	}
+	if existing != nil {
+		return existing, nil
+	}
+	return c.CreateDNSPolicy(siteID, createDNSPolicyRequest{
+		Type:      "FORWARD_DOMAIN",
+		Domain:    domain,
+		IPAddress: ipAddress,
+		Enabled:   true,
+	})
+}
+
 func wanPortPolicyName(port int, marker string) string {
 	if strings.HasPrefix(marker, wanMarkerWgS2sPrefix) {
 		iface := strings.TrimPrefix(marker, wanMarkerWgS2sPrefix)

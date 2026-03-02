@@ -21,12 +21,19 @@ type Manifest struct {
 	WanPorts       map[string]WanPortEntry  `json:"wanPorts,omitempty"`
 	ExternalZoneID string                   `json:"externalZoneId,omitempty"`
 	GatewayZoneID  string                   `json:"gatewayZoneId,omitempty"`
+	DNSPolicies    map[string]DNSPolicyEntry `json:"dnsPolicies,omitempty"`
 }
 
 type WanPortEntry struct {
 	PolicyID   string `json:"policyId"`
 	PolicyName string `json:"policyName"`
 	Port       int    `json:"port"`
+}
+
+type DNSPolicyEntry struct {
+	PolicyID  string `json:"policyId"`
+	Domain    string `json:"domain"`
+	IPAddress string `json:"ipAddress"`
 }
 
 type ZoneManifest struct {
@@ -286,6 +293,43 @@ func (m *Manifest) GetWanPortEntry(marker string) (WanPortEntry, bool) {
 	return e, ok
 }
 
+func (m *Manifest) SetDNSPolicy(marker, policyID, domain, ipAddress string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.DNSPolicies == nil {
+		m.DNSPolicies = make(map[string]DNSPolicyEntry)
+	}
+	m.DNSPolicies[marker] = DNSPolicyEntry{PolicyID: policyID, Domain: domain, IPAddress: ipAddress}
+	m.UpdatedAt = time.Now().UTC()
+}
+
+func (m *Manifest) RemoveDNSPolicy(marker string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.DNSPolicies, marker)
+	m.UpdatedAt = time.Now().UTC()
+}
+
+func (m *Manifest) GetDNSPolicy(marker string) (DNSPolicyEntry, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.DNSPolicies == nil {
+		return DNSPolicyEntry{}, false
+	}
+	e, ok := m.DNSPolicies[marker]
+	return e, ok
+}
+
+func (m *Manifest) HasDNSPolicy(marker string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.DNSPolicies == nil {
+		return false
+	}
+	_, ok := m.DNSPolicies[marker]
+	return ok
+}
+
 func (m *Manifest) GetTailscaleZone() ZoneManifest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -304,6 +348,7 @@ func (m *Manifest) ResetIntegration() {
 	m.Tailscale = ZoneManifest{}
 	m.WgS2s = nil
 	m.WanPorts = nil
+	m.DNSPolicies = nil
 	m.ExternalZoneID = ""
 	m.GatewayZoneID = ""
 	m.UpdatedAt = time.Now().UTC()

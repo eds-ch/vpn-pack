@@ -195,6 +195,12 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Request) {
+	if s.fw != nil {
+		if err := s.fw.RemoveDNSForwarding(); err != nil {
+			slog.Warn("DNS forwarding cleanup failed during key removal", "err", err)
+		}
+	}
+
 	if err := deleteAPIKey(); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to remove API key")
 		return
