@@ -22,6 +22,7 @@ type DeviceInfo struct {
 	HasUDAPISocket   bool     `json:"hasUDAPISocket"`
 	PersistentFree   int64    `json:"persistentFree"`
 	ActiveVPNClients []string `json:"activeVPNClients"`
+	Uptime           int64    `json:"uptime"`
 }
 
 func detectDevice() DeviceInfo {

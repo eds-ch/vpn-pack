@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { getDiagnostics } from '../api.js';
     import DashboardTailscaleCard from './DashboardTailscaleCard.svelte';
+    import DashboardUnifiCard from './DashboardUnifiCard.svelte';
     import DashboardWgS2sCard from './DashboardWgS2sCard.svelte';
     import ConnectionFlow from './ConnectionFlow.svelte';
     import SetupRequired from './SetupRequired.svelte';
@@ -61,8 +62,9 @@
 {#if status.backendState === 'Running'}
     <!-- Mobile: scrollable stacked cards -->
     <div class="md:hidden flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto">
-        <DashboardTailscaleCard {status} {deviceInfo} {diagnostics} />
+        <DashboardUnifiCard {deviceInfo} />
         <DashboardWgS2sCard tunnels={status.wgS2sTunnels ?? []} wgDiag={diagnostics?.wgS2s ?? null} />
+        <DashboardTailscaleCard {status} {deviceInfo} {diagnostics} />
     </div>
 
     <!-- Desktop: resizable side-by-side -->
@@ -71,8 +73,9 @@
         class:select-none={dragging}
         bind:this={container}
     >
-        <div style="flex: {ratio}" class="min-w-0 min-h-0 flex flex-col overflow-y-auto">
-            <DashboardTailscaleCard {status} {deviceInfo} {diagnostics} />
+        <div style="flex: {ratio}" class="min-w-0 min-h-0 flex flex-col overflow-y-auto gap-3">
+            <DashboardUnifiCard {deviceInfo} />
+            <DashboardWgS2sCard tunnels={status.wgS2sTunnels ?? []} wgDiag={diagnostics?.wgS2s ?? null} />
         </div>
 
         <div
@@ -102,7 +105,7 @@
         </div>
 
         <div style="flex: {1 - ratio}" class="min-w-0 min-h-0 flex flex-col overflow-y-auto">
-            <DashboardWgS2sCard tunnels={status.wgS2sTunnels ?? []} wgDiag={diagnostics?.wgS2s ?? null} />
+            <DashboardTailscaleCard {status} {deviceInfo} {diagnostics} />
         </div>
     </div>
 {:else if status.backendState === 'NeedsLogin'}

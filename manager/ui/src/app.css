@@ -112,6 +112,12 @@ html.light {
 
     --text-micro: 0.625rem;
     --text-micro--line-height: 0.875rem;
+
+    --font-cap-offset: 0.08em;
+}
+
+@utility cap-center {
+    transform: translateY(var(--font-cap-offset));
 }
 
 html, body {

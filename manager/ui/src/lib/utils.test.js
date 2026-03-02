@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-    formatBytes, relativeTime, isValidCIDR,
+    formatBytes, relativeTime, formatUptime, isValidCIDR,
     isValidBase64Key, isValidPort, isValidEndpoint,
     isValidMTU, isValidKeepalive, validateTunnelFields,
 } from './utils.js';
@@ -84,6 +84,30 @@ describe('relativeTime', () => {
     it('returns just now for future timestamps', () => {
         const date = new Date(Date.now() + 60000).toISOString();
         expect(relativeTime(date)).toBe('just now');
+    });
+});
+
+describe('formatUptime', () => {
+    it('formats days, hours, and minutes', () => {
+        expect(formatUptime(90061)).toBe('1d 1h 1m');
+        expect(formatUptime(864000)).toBe('10d 0h 0m');
+    });
+
+    it('formats hours and minutes when under 1 day', () => {
+        expect(formatUptime(3661)).toBe('1h 1m');
+        expect(formatUptime(7200)).toBe('2h 0m');
+    });
+
+    it('formats minutes when under 1 hour', () => {
+        expect(formatUptime(120)).toBe('2m');
+        expect(formatUptime(60)).toBe('1m');
+    });
+
+    it('handles edge cases', () => {
+        expect(formatUptime(0)).toBe('N/A');
+        expect(formatUptime(null)).toBe('N/A');
+        expect(formatUptime(undefined)).toBe('N/A');
+        expect(formatUptime(30)).toBe('< 1m');
     });
 });
 

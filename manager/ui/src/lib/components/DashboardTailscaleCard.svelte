@@ -41,7 +41,7 @@
         <div class="p-4 flex flex-col">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="flex items-center gap-1.5 text-caption font-bold text-text-secondary uppercase tracking-wider">
-                    <Icon name="tailscale" size={14} class="shrink-0" /><span>Tailscale</span>
+                    <Icon name="tailscale" size={14} class="shrink-0" /><span class="cap-center">Tailscale</span>
                 </h3>
                 <span class="flex items-center gap-1.5">
                     <span class="w-2 h-2 rounded-full shrink-0 {dotColor}"></span>
@@ -108,19 +108,6 @@
                     </div>
                 {/if}
 
-                {#if deviceInfo?.model}
-                    <div class="flex justify-between">
-                        <span class="text-text-secondary shrink-0">Device</span>
-                        <span class="text-text">{deviceInfo.model}</span>
-                    </div>
-                {/if}
-
-                {#if deviceInfo?.firmware}
-                    <div class="flex justify-between">
-                        <span class="text-text-secondary shrink-0">Firmware</span>
-                        <span class="text-text">{deviceInfo.firmware}</span>
-                    </div>
-                {/if}
             </div>
 
             {#if selfPeer && (selfPeer.rxBytes != null || selfPeer.txBytes != null)}

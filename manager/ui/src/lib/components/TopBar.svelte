@@ -27,25 +27,25 @@
     }
 </script>
 
-<header class="bg-panel border-b border-border h-[50px] px-3 md:px-4 grid grid-cols-[auto_1fr_auto] items-center shrink-0">
+<header class="bg-panel border-b border-border h-[50px] px-3 md:px-4 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-2">
         <svg class="w-5 h-5" viewBox="0 0 128 128">
             <line x1="36" y1="92" x2="92" y2="36" stroke="#4797FF" stroke-width="16" stroke-linecap="round" />
             <circle cx="92" cy="36" r="20" fill="#4797FF" />
-            <circle cx="36" cy="92" r="20" fill="#4797FF" />
+            <circle cx="36" cy="92" r="20" fill="#006FFF" />
             <rect x="16" y="16" width="40" height="40" rx="12" fill="#006FFF" />
             <rect x="72" y="72" width="40" height="40" rx="12" fill="#006FFF" />
         </svg>
         <span class="text-body font-bold text-text-heading">VPN Pack</span>
-    </div>
-
-    <div class="flex justify-center">
         {#if hostname}
-            <span class="text-caption text-text-secondary hidden md:inline truncate max-w-48">{hostname}</span>
+            <span class="w-px h-4 bg-border self-center"></span>
+            <span class="text-body text-text-secondary hidden md:inline truncate max-w-48">{hostname}</span>
         {/if}
     </div>
 
-    <div class="flex items-center gap-2 md:gap-3 justify-end">
+    
+
+    <div class="flex items-center gap-2 md:gap-3">
         <WgS2sPill tunnels={status.wgS2sTunnels ?? []} />
         {#if (status.wgS2sTunnels ?? []).length > 0}
             <span class="w-px h-3.5 bg-border"></span>

@@ -306,7 +306,8 @@ const mockStatus = {
 
 const mockDevice = {
     hostname: 'UDM-SE-TEST-US-OFFICE',
-    model: 'UDM-SE',
+    model: 'UniFi Dream Machine SE',
+    modelShort: 'UDM-SE',
     firmware: '4.1.13',
     unifiVersion: '9.0.114',
     mac: 'f4:e2:c6:ab:cd:ef',

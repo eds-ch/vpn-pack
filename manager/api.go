@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"syscall"
 
 	"tailscale.com/ipn"
 )
@@ -94,5 +95,9 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	s.vpnClientsMu.Lock()
 	info := s.deviceInfo
 	s.vpnClientsMu.Unlock()
+	var si syscall.Sysinfo_t
+	if err := syscall.Sysinfo(&si); err == nil {
+		info.Uptime = si.Uptime
+	}
 	writeJSON(w, http.StatusOK, info)
 }

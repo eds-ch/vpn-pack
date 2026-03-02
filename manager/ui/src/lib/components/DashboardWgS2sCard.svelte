@@ -48,7 +48,7 @@
         <div class="p-4 flex flex-col">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="flex items-center gap-1.5 text-caption font-bold text-text-secondary uppercase tracking-wider">
-                    <Icon name="wireguard" size={14} class="shrink-0" /><span>WireGuard S2S</span>
+                    <Icon name="wireguard" size={14} class="shrink-0" /><span class="cap-center">WireGuard S2S</span>
                 </h3>
                 <span class="flex items-center gap-2.5">
                     <span class="flex items-center gap-1.5">

@@ -142,6 +142,17 @@ export const stateLabels = {
     Unavailable: 'Unavailable',
 };
 
+export function formatUptime(seconds) {
+    if (seconds == null || seconds <= 0) return 'N/A';
+    const days = Math.floor(seconds / SECONDS_PER_DAY);
+    const hours = Math.floor((seconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR);
+    const minutes = Math.floor((seconds % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m`;
+    return '< 1m';
+}
+
 export function sortPeers(peers) {
     return [...peers].sort((a, b) => {
         if (a.online !== b.online) return a.online ? -1 : 1;
