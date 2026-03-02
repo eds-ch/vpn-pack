@@ -54,21 +54,14 @@ func (s *Server) teardownTunnelFirewall(t *wgs2s.TunnelConfig) {
 	s.closeWgS2sWanPort(t.ListenPort, t.InterfaceName)
 }
 
-func (s *Server) validateTunnelSubnets(w http.ResponseWriter, allowedIPs []string, excludeIfaces ...string) (warnings []SubnetConflict, blocked bool) {
+func validateTunnelSubnets(allowedIPs []string, excludeIfaces ...string) (warnings, blocks []SubnetConflict) {
 	sys, err := CollectSystemSubnets(excludeIfaces...)
 	if err != nil {
 		slog.Warn("subnet collection failed, skipping validation", "err", err)
-		return nil, false
+		return nil, nil
 	}
 	vr := ValidateAllowedIPs(allowedIPs, sys)
-	if vr.HasBlocks() {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":     fmt.Sprintf("Subnet conflict: %s", vr.Blocked[0].Message),
-			"conflicts": vr.Blocked,
-		})
-		return nil, true
-	}
-	return vr.Warnings, false
+	return vr.Warnings, vr.Blocked
 }
 
 type wgS2sTunnelResponse struct {
@@ -85,11 +78,11 @@ type wgS2sCreateRequest struct {
 	PrivateKey string `json:"privateKey,omitempty"`
 	ZoneID     string `json:"zoneId,omitempty"`
 	ZoneName   string `json:"zoneName,omitempty"`
+	CreateZone bool   `json:"createZone,omitempty"`
 }
 
 func (s *Server) handleWgS2sListTunnels(w http.ResponseWriter, r *http.Request) {
-	if s.wgManager == nil {
-		writeJSON(w, http.StatusOK, []any{})
+	if !s.wgManagerOrError(w) {
 		return
 	}
 
@@ -136,8 +129,12 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	warnings, blocked := s.validateTunnelSubnets(w, req.AllowedIPs)
-	if blocked {
+	warnings, blocks := validateTunnelSubnets(req.AllowedIPs)
+	if len(blocks) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":     fmt.Sprintf("Subnet conflict: %s", blocks[0].Message),
+			"conflicts": blocks,
+		})
 		return
 	}
 
@@ -147,7 +144,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.setupTunnelZone(tunnel.ID, req.ZoneID, req.ZoneName)
+	s.setupTunnelZone(tunnel.ID, req.CreateZone, req.ZoneID, req.ZoneName)
 
 	s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID, Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs})
 	s.openWgS2sWanPort(tunnel.ListenPort, tunnel.InterfaceName)
@@ -208,22 +205,21 @@ func validateWgS2sUpdateRequest(updates *wgs2s.TunnelConfig) error {
 	}
 	return nil
 }
-func (s *Server) setupTunnelZone(tunnelID, reqZoneID, reqZoneName string) {
+func (s *Server) setupTunnelZone(tunnelID string, createZone bool, zoneID, zoneName string) {
 	if !s.integrationReady() {
 		return
 	}
-	existingZones := s.manifest.GetWgS2sZones()
 	switch {
-	case reqZoneID == "new":
-		if err := s.fw.SetupWgS2sZone(tunnelID, "new", reqZoneName); err != nil {
+	case createZone:
+		if err := s.fw.SetupWgS2sZone(tunnelID, "", zoneName); err != nil {
 			slog.Warn("wg-s2s zone setup failed", "err", err)
 		}
-	case reqZoneID != "":
-		if err := s.fw.SetupWgS2sZone(tunnelID, reqZoneID, ""); err != nil {
+	case zoneID != "":
+		if err := s.fw.SetupWgS2sZone(tunnelID, zoneID, ""); err != nil {
 			slog.Warn("wg-s2s zone assignment failed", "err", err)
 		}
-	case len(existingZones) == 0:
-		if err := s.fw.SetupWgS2sZone(tunnelID, "new", "WireGuard S2S"); err != nil {
+	case len(s.manifest.GetWgS2sZones()) == 0:
+		if err := s.fw.SetupWgS2sZone(tunnelID, "", "WireGuard S2S"); err != nil {
 			slog.Warn("wg-s2s auto zone setup failed", "err", err)
 		}
 	}
@@ -250,9 +246,13 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 
 	var warnings []SubnetConflict
 	if updates.AllowedIPs != nil && existing != nil {
-		var blocked bool
-		warnings, blocked = s.validateTunnelSubnets(w, updates.AllowedIPs, existing.InterfaceName)
-		if blocked {
+		var blocks []SubnetConflict
+		warnings, blocks = validateTunnelSubnets(updates.AllowedIPs, existing.InterfaceName)
+		if len(blocks) > 0 {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":     fmt.Sprintf("Subnet conflict: %s", blocks[0].Message),
+				"conflicts": blocks,
+			})
 			return
 		}
 	}
@@ -418,18 +418,10 @@ func (s *Server) handleWgS2sGetConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWgS2sWanIP(w http.ResponseWriter, r *http.Request) {
-	if s.wgManager == nil {
-		writeJSON(w, http.StatusOK, map[string]string{"ip": ""})
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]string{"ip": getWanIP()})
 }
 
 func (s *Server) handleWgS2sLocalSubnets(w http.ResponseWriter, r *http.Request) {
-	if s.wgManager == nil {
-		writeJSON(w, http.StatusOK, []any{})
-		return
-	}
 	subnets := parseLocalSubnets()
 	if subnets == nil {
 		writeJSON(w, http.StatusOK, []any{})

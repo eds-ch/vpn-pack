@@ -96,7 +96,7 @@ func (fm *FirewallManager) SetupWgS2sZone(tunnelID, zoneID, zoneName string) err
 	}
 	siteID := fm.manifest.GetSiteID()
 
-	if zoneID != "" && zoneID != "new" {
+	if zoneID != "" {
 		for _, zm := range fm.manifest.GetWgS2sSnapshot() {
 			if zm.ZoneID == zoneID {
 				fm.manifest.SetWgS2sZone(tunnelID, zm)

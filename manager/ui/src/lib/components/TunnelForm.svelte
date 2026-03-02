@@ -142,8 +142,12 @@
             privateKey: keypair?.privateKey || undefined,
         };
         if (integrationConfigured && zones.length > 0) {
-            payload.zoneId = selectedZone || zones[0].zoneId;
-            if (selectedZone === 'new') payload.zoneName = newZoneName.trim() || 'WireGuard S2S';
+            if (selectedZone === 'new') {
+                payload.createZone = true;
+                payload.zoneName = newZoneName.trim() || 'WireGuard S2S';
+            } else {
+                payload.zoneId = selectedZone || zones[0].zoneId;
+            }
         }
         const result = await wgS2sCreateTunnel(payload);
         loading = false;
