@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-03-02
+
+### Fixed
+- DNS forwarding toggle reverted in UI after successful save — SSE was not broadcasting the updated AcceptDNS state because no Tailscale pref actually changed (DNS forwarding is managed via Integration API, not Tailscale prefs)
+
 ## [1.3.0] - 2026-03-02
 
 ### Added
@@ -245,7 +250,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/eds-ch/vpn-pack/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/eds-ch/vpn-pack/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/eds-ch/vpn-pack/compare/v1.2.1...v1.2.2
