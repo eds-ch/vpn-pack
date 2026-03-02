@@ -36,17 +36,13 @@ type Server struct {
 	firewallCh          chan FirewallRequest
 	watcherRunning      atomic.Bool
 	lastRestore         atomic.Pointer[time.Time]
-	postPolicyRestore   atomic.Bool
-	integrationDegraded    atomic.Bool
-	integrationRetryCount int
-	lastIntegrationRetry  time.Time
-	logBuf                *LogBuffer
+	postPolicyRestore atomic.Bool
+	intRetry          integrationRetryState
+	logBuf            *LogBuffer
 	wgManager              *wgs2s.TunnelManager
 	vpnClientsMu          sync.Mutex
-	updater                *updateChecker
-	integrationCacheMu     sync.Mutex
-	integrationCache       *IntegrationStatus
-	integrationCacheAt     time.Time
+	updater  *updateChecker
+	intCache integrationCache
 }
 
 func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceInfo) *Server {
@@ -318,7 +314,7 @@ func (s *Server) validateIntegration() {
 			_ = deleteAPIKey()
 			s.manifest.ResetIntegration()
 			_ = s.manifest.Save()
-			s.integrationDegraded.Store(true)
+			s.intRetry.markDegraded()
 			return
 		}
 		slog.Warn("integration validation failed", "err", err)

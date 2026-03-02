@@ -7,8 +7,37 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+type integrationCache struct {
+	mu    sync.Mutex
+	data  *IntegrationStatus
+	setAt time.Time
+}
+
+func (c *integrationCache) get(ttl time.Duration) *IntegrationStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.data != nil && time.Since(c.setAt) < ttl {
+		return c.data
+	}
+	return nil
+}
+
+func (c *integrationCache) set(st *IntegrationStatus) {
+	c.mu.Lock()
+	c.data = st
+	c.setAt = time.Now()
+	c.mu.Unlock()
+}
+
+func (c *integrationCache) invalidate() {
+	c.mu.Lock()
+	c.data = nil
+	c.mu.Unlock()
+}
 
 type IntegrationStatus struct {
 	Configured bool   `json:"configured"`
@@ -46,13 +75,9 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 		return &IntegrationStatus{Configured: false}
 	}
 
-	s.integrationCacheMu.Lock()
-	if s.integrationCache != nil && time.Since(s.integrationCacheAt) < integrationCacheTTL {
-		cached := s.integrationCache
-		s.integrationCacheMu.Unlock()
+	if cached := s.intCache.get(integrationCacheTTL); cached != nil {
 		return cached
 	}
-	s.integrationCacheMu.Unlock()
 
 	st := &IntegrationStatus{Configured: true}
 
@@ -79,18 +104,13 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 		st.ZBFEnabled = s.checkZBFEnabled(st.SiteID)
 	}
 
-	s.integrationCacheMu.Lock()
-	s.integrationCache = st
-	s.integrationCacheAt = time.Now()
-	s.integrationCacheMu.Unlock()
+	s.intCache.set(st)
 
 	return st
 }
 
 func (s *Server) invalidateIntegrationCache() {
-	s.integrationCacheMu.Lock()
-	s.integrationCache = nil
-	s.integrationCacheMu.Unlock()
+	s.intCache.invalidate()
 }
 
 func (s *Server) checkZBFEnabled(siteID string) *bool {
@@ -164,7 +184,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 		s.openTailscaleWanPort()
 	}
 
-	s.integrationDegraded.Store(false)
+	s.intRetry.clearDegraded()
 
 	s.state.mu.Lock()
 	s.state.data.IntegrationStatus = st

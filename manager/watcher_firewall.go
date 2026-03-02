@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,6 +26,42 @@ type FirewallRequest struct {
 	AllowedIPs []string
 }
 
+type integrationRetryState struct {
+	degraded   atomic.Bool
+	retryCount int
+	lastRetry  time.Time
+}
+
+func (r *integrationRetryState) isDegraded() bool  { return r.degraded.Load() }
+func (r *integrationRetryState) markDegraded()      { r.degraded.Store(true) }
+func (r *integrationRetryState) clearDegraded()     { r.degraded.Store(false) }
+
+func (r *integrationRetryState) interval() time.Duration {
+	switch r.retryCount {
+	case 0:
+		return 0
+	case 1:
+		return 5 * time.Second
+	default:
+		return 10 * time.Second
+	}
+}
+
+func (r *integrationRetryState) shouldRetry() bool {
+	if r.degraded.Load() {
+		return false
+	}
+	iv := r.interval()
+	return iv == 0 || time.Since(r.lastRetry) >= iv
+}
+
+func (r *integrationRetryState) recordAttempt() {
+	r.lastRetry = time.Now()
+	r.retryCount++
+}
+
+func (r *integrationRetryState) reset() { r.retryCount = 0 }
+func (r *integrationRetryState) count() int { return r.retryCount }
 
 func (s *Server) sendFirewallRequest(req FirewallRequest) {
 	select {
@@ -160,45 +197,26 @@ func (s *Server) checkAndRestoreRules() {
 	s.restoreWgS2sRules()
 }
 
-func (s *Server) integrationRetryInterval() time.Duration {
-	switch s.integrationRetryCount {
-	case 0:
-		return 0
-	case 1:
-		return 5 * time.Second
-	default:
-		return 10 * time.Second
-	}
-}
-
 func (s *Server) retryIntegrationSetup() {
 	if !s.integrationReady() {
-		return
-	}
-	if s.integrationDegraded.Load() {
 		return
 	}
 
 	ts := s.manifest.GetTailscaleZone()
 	if ts.ZoneID != "" {
-		if s.integrationRetryCount > 0 {
-			s.integrationRetryCount = 0
-		}
+		s.intRetry.reset()
 		return
 	}
 
-	interval := s.integrationRetryInterval()
-	if interval > 0 && time.Since(s.lastIntegrationRetry) < interval {
+	if !s.intRetry.shouldRetry() {
 		return
 	}
+	s.intRetry.recordAttempt()
 
-	s.lastIntegrationRetry = time.Now()
-	s.integrationRetryCount++
-
-	slog.Info("retrying integration zone/policy setup", "attempt", s.integrationRetryCount)
+	slog.Info("retrying integration zone/policy setup", "attempt", s.intRetry.count())
 
 	if err := s.fw.SetupTailscaleFirewall(); err != nil {
-		slog.Warn("integration setup retry failed", "attempt", s.integrationRetryCount, "err", err)
+		slog.Warn("integration setup retry failed", "attempt", s.intRetry.count(), "err", err)
 		return
 	}
 
@@ -207,8 +225,8 @@ func (s *Server) retryIntegrationSetup() {
 		return
 	}
 
-	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.integrationRetryCount)
-	s.integrationRetryCount = 0
+	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.intRetry.count())
+	s.intRetry.reset()
 
 	s.openTailscaleWanPort()
 }
@@ -217,7 +235,7 @@ func (s *Server) restoreTailscaleRules() {
 	if !s.integrationReady() {
 		return
 	}
-	if s.integrationDegraded.Load() {
+	if s.intRetry.isDegraded() {
 		return
 	}
 	if !interfaceExists(tailscaleInterface) {
@@ -266,7 +284,7 @@ func (s *Server) restoreWgS2sRules() {
 	if s.wgManager == nil {
 		return
 	}
-	if s.integrationDegraded.Load() {
+	if s.intRetry.isDegraded() {
 		return
 	}
 
@@ -299,7 +317,7 @@ func (s *Server) restoreWgS2sRules() {
 }
 
 func (s *Server) reconcileWanPortPolicies() {
-	if s.integrationDegraded.Load() {
+	if s.intRetry.isDegraded() {
 		return
 	}
 	wanPorts := s.manifest.GetWanPortsSnapshot()

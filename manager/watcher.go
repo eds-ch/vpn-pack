@@ -167,13 +167,13 @@ func (s *Server) handleAPIKeyExpiry(status *IntegrationStatus) *IntegrationStatu
 	_ = deleteAPIKey()
 	s.manifest.ResetIntegration()
 	_ = s.manifest.Save()
-	s.integrationDegraded.Store(true)
+	s.intRetry.markDegraded()
 	s.invalidateIntegrationCache()
 	return s.fetchIntegrationStatus()
 }
 
 func (s *Server) repairMissingPolicies(status *IntegrationStatus) *IntegrationStatus {
-	if status == nil || status.ZBFEnabled == nil || !*status.ZBFEnabled || s.integrationDegraded.Load() {
+	if status == nil || status.ZBFEnabled == nil || !*status.ZBFEnabled || s.intRetry.isDegraded() {
 		return status
 	}
 	ts := s.manifest.GetTailscaleZone()
@@ -183,7 +183,7 @@ func (s *Server) repairMissingPolicies(status *IntegrationStatus) *IntegrationSt
 	slog.Info("ZBF enabled but policies missing, retrying firewall setup")
 	if err := s.fw.SetupTailscaleFirewall(); err != nil {
 		slog.Warn("firewall setup retry failed, will not retry until restart", "err", err)
-		s.integrationDegraded.Store(true)
+		s.intRetry.markDegraded()
 	} else {
 		s.openTailscaleWanPort()
 	}
