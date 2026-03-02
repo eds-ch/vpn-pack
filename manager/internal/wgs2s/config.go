@@ -17,6 +17,7 @@ type TunnelConfig struct {
 	PeerPublicKey       string    `json:"peerPublicKey"`
 	PeerEndpoint        string    `json:"peerEndpoint"`
 	AllowedIPs          []string  `json:"allowedIPs"`
+	LocalSubnets        []string  `json:"localSubnets,omitempty"`
 	PersistentKeepalive int       `json:"persistentKeepalive"`
 	MTU                 int       `json:"mtu"`
 	Enabled             bool      `json:"enabled"`

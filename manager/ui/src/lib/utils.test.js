@@ -370,4 +370,19 @@ describe('validateTunnelFields', () => {
         const errors = validateTunnelFields({ ...validData, allowedIPs: ['10.0.0.0/24', '192.168.1.0/24'] });
         expect(errors.allowedIPs).toBeUndefined();
     });
+
+    it('catches invalid CIDR in localSubnets string', () => {
+        const errors = validateTunnelFields({ ...validData, localSubnets: '192.168.1.0/24, bad' });
+        expect(errors.localSubnets).toMatch(/Invalid CIDR/);
+    });
+
+    it('passes with valid localSubnets', () => {
+        const errors = validateTunnelFields({ ...validData, localSubnets: ['192.168.1.0/24'] });
+        expect(errors.localSubnets).toBeUndefined();
+    });
+
+    it('skips localSubnets validation when null', () => {
+        const errors = validateTunnelFields({ ...validData, localSubnets: null });
+        expect(errors.localSubnets).toBeUndefined();
+    });
 });

@@ -180,6 +180,11 @@ func validateWgS2sCreateRequest(req *wgS2sCreateRequest) error {
 			return fmt.Errorf("invalid allowedIP %q: %s", cidr, err)
 		}
 	}
+	for _, cidr := range cfg.LocalSubnets {
+		if err := validateCIDR(cidr); err != nil {
+			return fmt.Errorf("invalid localSubnet %q: %s", cidr, err)
+		}
+	}
 	return nil
 }
 
@@ -201,6 +206,11 @@ func validateWgS2sUpdateRequest(updates *wgs2s.TunnelConfig) error {
 	for _, cidr := range updates.AllowedIPs {
 		if err := validateCIDR(cidr); err != nil {
 			return fmt.Errorf("invalid allowedIP %q: %s", cidr, err)
+		}
+	}
+	for _, cidr := range updates.LocalSubnets {
+		if err := validateCIDR(cidr); err != nil {
+			return fmt.Errorf("invalid localSubnet %q: %s", cidr, err)
 		}
 	}
 	return nil
@@ -384,11 +394,14 @@ func (s *Server) handleWgS2sGetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wanIP := getWanIP()
-	localSubnets := parseLocalSubnets()
 
 	var allowedIPs []string
-	for _, sub := range localSubnets {
-		allowedIPs = append(allowedIPs, sub.CIDR)
+	if len(tunnel.LocalSubnets) > 0 {
+		allowedIPs = append(allowedIPs, tunnel.LocalSubnets...)
+	} else {
+		for _, sub := range parseLocalSubnets() {
+			allowedIPs = append(allowedIPs, sub.CIDR)
+		}
 	}
 	if tunnel.TunnelAddress != "" {
 		ip, _, err := net.ParseCIDR(tunnel.TunnelAddress)

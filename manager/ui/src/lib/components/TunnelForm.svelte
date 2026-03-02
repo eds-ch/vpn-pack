@@ -127,7 +127,6 @@
         if (Object.keys(fieldErrors).length > 0) return;
 
         const customList = customCIDRs.split(',').map(s => s.trim()).filter(Boolean);
-        const allowedIPs = [...selectedSubnets, ...customList];
 
         loading = true;
         const payload = {
@@ -136,7 +135,8 @@
             tunnelAddress: tunnelAddress.trim(),
             peerPublicKey: peerPublicKey.trim(),
             peerEndpoint: peerEndpoint.trim() || undefined,
-            allowedIPs: allowedIPs,
+            allowedIPs: customList,
+            localSubnets: Array.from(selectedSubnets),
             persistentKeepalive: Number(persistentKeepalive),
             mtu: Number(mtu),
             privateKey: keypair?.privateKey || undefined,

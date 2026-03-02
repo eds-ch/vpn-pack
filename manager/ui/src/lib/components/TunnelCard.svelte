@@ -40,6 +40,7 @@
             peerPublicKey: tunnel.peerPublicKey ?? '',
             peerEndpoint: tunnel.peerEndpoint ?? '',
             allowedIPs: (tunnel.allowedIPs ?? []).join(', '),
+            localSubnets: (tunnel.localSubnets ?? []).join(', '),
             persistentKeepalive: tunnel.persistentKeepalive ?? WG_DEFAULT_KEEPALIVE,
             mtu: tunnel.mtu ?? WG_DEFAULT_MTU,
         };
@@ -58,6 +59,7 @@
             peerPublicKey: editData.peerPublicKey,
             peerEndpoint: editData.peerEndpoint,
             allowedIPs: editData.allowedIPs.split(',').map(s => s.trim()).filter(Boolean),
+            localSubnets: editData.localSubnets.split(',').map(s => s.trim()).filter(Boolean),
             persistentKeepalive: Number(editData.persistentKeepalive),
             mtu: Number(editData.mtu),
         };
@@ -177,12 +179,22 @@
                         <span class="text-text-secondary">Keepalive</span>
                         <span class="ml-2 text-text">{tunnel.persistentKeepalive ?? WG_DEFAULT_KEEPALIVE}s</span>
                     </div>
-                    <div class="md:col-span-2">
-                        <span class="text-text-secondary">Allowed IPs</span>
-                        <span class="ml-2 text-text font-mono text-caption break-all">
-                            {(tunnel.allowedIPs ?? []).join(', ')}
-                        </span>
-                    </div>
+                    {#if (tunnel.localSubnets ?? []).length > 0}
+                        <div class="md:col-span-2">
+                            <span class="text-text-secondary">Local Subnets</span>
+                            <span class="ml-2 text-text font-mono text-caption break-all">
+                                {tunnel.localSubnets.join(', ')}
+                            </span>
+                        </div>
+                    {/if}
+                    {#if (tunnel.allowedIPs ?? []).length > 0}
+                        <div class="md:col-span-2">
+                            <span class="text-text-secondary">Remote Subnets</span>
+                            <span class="ml-2 text-text font-mono text-caption break-all">
+                                {tunnel.allowedIPs.join(', ')}
+                            </span>
+                        </div>
+                    {/if}
                 </div>
 
                 <div class="flex flex-wrap gap-2 pt-2">
@@ -281,7 +293,14 @@
                         </div>
                     </div>
                     <div>
-                        <span class="text-caption text-text-secondary">Allowed IPs (comma-separated)</span>
+                        <span class="text-caption text-text-secondary">Local Subnets (comma-separated)</span>
+                        <input type="text" bind:value={editData.localSubnets}
+                            oninput={() => clearError('localSubnets')}
+                            class="{inputClass('localSubnets')} font-mono text-caption" />
+                        {#if fieldErrors.localSubnets}<p class="text-caption text-error mt-0.5">{fieldErrors.localSubnets}</p>{/if}
+                    </div>
+                    <div>
+                        <span class="text-caption text-text-secondary">Remote Subnets (comma-separated)</span>
                         <input type="text" bind:value={editData.allowedIPs}
                             oninput={() => clearError('allowedIPs')}
                             class="{inputClass('allowedIPs')} font-mono text-caption" />

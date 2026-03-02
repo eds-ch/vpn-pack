@@ -123,6 +123,18 @@ export function validateTunnelFields(data) {
             break;
         }
     }
+
+    if (data.localSubnets != null) {
+        const subs = typeof data.localSubnets === 'string'
+            ? data.localSubnets.split(',').map(s => s.trim()).filter(Boolean)
+            : Array.isArray(data.localSubnets) ? data.localSubnets : [];
+        for (const c of subs) {
+            if (!isValidCIDR(c)) {
+                errors.localSubnets = `Invalid CIDR: ${c}`;
+                break;
+            }
+        }
+    }
     return errors;
 }
 

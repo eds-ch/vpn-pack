@@ -21,6 +21,7 @@ function makeTunnel(overrides = {}) {
         peerPublicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         peerEndpoint: '85.12.34.56:51820',
         allowedIPs: ['10.20.0.0/24'],
+        localSubnets: ['192.168.1.0/24'],
         persistentKeepalive: 25,
         mtu: 1420,
         connected: true,

@@ -229,6 +229,9 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 	if updates.AllowedIPs != nil {
 		merged.AllowedIPs = updates.AllowedIPs
 	}
+	if updates.LocalSubnets != nil {
+		merged.LocalSubnets = updates.LocalSubnets
+	}
 	if updates.PersistentKeepalive != 0 {
 		merged.PersistentKeepalive = updates.PersistentKeepalive
 	}

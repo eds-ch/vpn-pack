@@ -65,6 +65,7 @@ func TestSaveConfigRoundtrip(t *testing.T) {
 				PeerPublicKey:       "cGVlcmtleQ==",
 				PeerEndpoint:        "1.2.3.4:51820",
 				AllowedIPs:          []string{"10.0.0.0/24", "192.168.1.0/24"},
+				LocalSubnets:        []string{"172.16.0.0/24"},
 				PersistentKeepalive: 25,
 				MTU:                 1420,
 				Enabled:             true,
@@ -89,6 +90,7 @@ func TestSaveConfigRoundtrip(t *testing.T) {
 	assert.Equal(t, "cGVlcmtleQ==", got.PeerPublicKey)
 	assert.Equal(t, "1.2.3.4:51820", got.PeerEndpoint)
 	assert.Equal(t, []string{"10.0.0.0/24", "192.168.1.0/24"}, got.AllowedIPs)
+	assert.Equal(t, []string{"172.16.0.0/24"}, got.LocalSubnets)
 	assert.Equal(t, 25, got.PersistentKeepalive)
 	assert.Equal(t, 1420, got.MTU)
 	assert.Equal(t, true, got.Enabled)
