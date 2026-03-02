@@ -141,7 +141,7 @@ func (s *Server) handleSetRoutes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
 	if !s.integrationReady() {
-		writeError(w, http.StatusPreconditionFailed, "Integration API key required before activating Tailscale")
+		writeError(w, http.StatusPreconditionFailed, errIntegrationKeyRequired)
 		return
 	}
 

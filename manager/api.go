@@ -16,7 +16,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
 	if !s.integrationReady() {
-		writeError(w, http.StatusPreconditionFailed, "Integration API key required before activating Tailscale")
+		writeError(w, http.StatusPreconditionFailed, errIntegrationKeyRequired)
 		return
 	}
 
@@ -60,7 +60,7 @@ func (s *Server) handleDown(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !s.integrationReady() {
-		writeError(w, http.StatusPreconditionFailed, "Integration API key required before activating Tailscale")
+		writeError(w, http.StatusPreconditionFailed, errIntegrationKeyRequired)
 		return
 	}
 

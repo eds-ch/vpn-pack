@@ -336,8 +336,8 @@ func (s *Server) schedulePostPolicyRestore() {
 	}
 	go func() {
 		defer s.postPolicyRestore.Store(false)
-		for range 10 {
-			time.Sleep(2 * time.Second)
+		for range postPolicyRestoreRetries {
+			time.Sleep(postPolicyRestoreInterval)
 			s.sendFirewallRequest(FirewallRequest{Action: FirewallActionCheckAndRestore})
 		}
 	}()

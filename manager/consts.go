@@ -46,6 +46,11 @@ const (
 )
 
 const (
+	postPolicyRestoreRetries  = 10
+	postPolicyRestoreInterval = 2 * time.Second
+)
+
+const (
 	updateCheckPeriod  = 24 * time.Hour
 	updateInitialDelay = 30 * time.Second
 	githubAPITimeout   = 15 * time.Second
@@ -66,6 +71,10 @@ const (
 const logReconnectDelay = 2 * time.Second
 
 const tailscaleInterface = "tailscale0"
+
+const errIntegrationKeyRequired = "Integration API key required before activating Tailscale"
+
+const mongoPort = "27117"
 
 const (
 	tailscaleCGNAT       = "100.64.0.0/10"

@@ -21,8 +21,9 @@ var (
 )
 
 const (
-	defaultSocketPath = "/run/ubnt-udapi-server.sock"
-	requestTimeout    = 10 * time.Second
+	defaultSocketPath    = "/run/ubnt-udapi-server.sock"
+	requestTimeout       = 10 * time.Second
+	bindPathTemplate     = "/tmp/vpn-pack-manager-udapi-%d"
 )
 
 type UDAPIClient struct {
@@ -126,7 +127,7 @@ func (c *UDAPIClient) connect() (net.Conn, string, error) {
 		return conn, "", nil
 	}
 
-	bindPath := fmt.Sprintf("/tmp/vpn-pack-manager-udapi-%d", os.Getpid())
+	bindPath := fmt.Sprintf(bindPathTemplate, os.Getpid())
 	_ = os.Remove(bindPath)
 
 	local := &net.UnixAddr{Name: bindPath, Net: "unix"}

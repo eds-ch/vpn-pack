@@ -96,10 +96,10 @@ func (m *TunnelManager) CreateTunnel(cfg TunnelConfig, privateKey string) (*Tunn
 	cfg.Enabled = true
 
 	if cfg.PersistentKeepalive == 0 {
-		cfg.PersistentKeepalive = 25
+		cfg.PersistentKeepalive = defaultPersistentKeepalive
 	}
 	if cfg.MTU == 0 {
-		cfg.MTU = 1420
+		cfg.MTU = defaultMTU
 	}
 
 	var privKey wgtypes.Key

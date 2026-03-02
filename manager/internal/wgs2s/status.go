@@ -55,7 +55,7 @@ func getAllStatuses(wgClient *wgctrl.Client, tunnels []TunnelConfig, log *slog.L
 			st.LastHandshake = p.LastHandshakeTime
 			st.TransferRx = p.ReceiveBytes
 			st.TransferTx = p.TransmitBytes
-			st.Connected = !p.LastHandshakeTime.IsZero() && time.Since(p.LastHandshakeTime) < 3*time.Minute
+			st.Connected = !p.LastHandshakeTime.IsZero() && time.Since(p.LastHandshakeTime) < handshakeTimeout
 			if p.Endpoint != nil {
 				st.Endpoint = p.Endpoint.String()
 			}

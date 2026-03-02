@@ -372,7 +372,7 @@ func (fm *FirewallManager) discoverChainPrefix(zoneID string) string {
 
 func discoverChainPrefixFromMongo(zoneID string) string {
 	script := `db.getSiblingDB("ace").firewall_zone.find({default_zone:false}).sort({_id:1}).forEach(function(z){print(z.external_id.toString())})`
-	out, err := exec.Command("mongo", "--port", "27117", "--quiet", "--eval", script).Output()
+	out, err := exec.Command("mongo", "--port", mongoPort, "--quiet", "--eval", script).Output()
 	if err != nil {
 		slog.Debug("mongo chain prefix query failed", "err", err)
 		return ""
