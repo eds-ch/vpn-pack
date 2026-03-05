@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
 )
 
@@ -105,7 +106,7 @@ func listWgS2sInterfaces() ([]string, error) {
 }
 
 func removeIntegrationResources() {
-	apiKey := loadAPIKey()
+	apiKey := service.LoadAPIKey()
 	if apiKey == "" {
 		slog.Warn("cleanup: no Integration API key, skipping zone/policy cleanup")
 		return

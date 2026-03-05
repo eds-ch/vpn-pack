@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"unifi-tailscale/manager/service"
 )
 
 func main() {
@@ -52,7 +54,7 @@ func main() {
 		os.Exit(78)
 	}
 
-	apiKey := loadAPIKey()
+	apiKey := service.LoadAPIKey()
 	ic := NewIntegrationClient(apiKey)
 
 	manifest, err := LoadManifest(manifestPath)

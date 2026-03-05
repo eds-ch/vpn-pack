@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"unifi-tailscale/manager/service"
 )
 
 func TestWriteJSON(t *testing.T) {
@@ -79,6 +80,9 @@ func newTestServer(opts ...func(*Server)) *Server {
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.integration = service.NewIntegrationService(
+		integrationICAdapter{s.ic}, s.manifest,
+	)
 	return s
 }
 
@@ -122,7 +126,7 @@ func TestHandleIntegrationStatusWithMocks(t *testing.T) {
 	s.handleIntegrationStatus(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var body IntegrationStatus
+	var body service.IntegrationStatus
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.False(t, body.Configured)
 }

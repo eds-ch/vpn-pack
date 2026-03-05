@@ -40,7 +40,7 @@ type stateData struct {
 	DERP              []DERPInfo          `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth     `json:"firewallHealth,omitempty"`
 	DPIFingerprinting *bool               `json:"dpiFingerprinting,omitempty"`
-	IntegrationStatus *IntegrationStatus  `json:"integrationStatus,omitempty"`
+	IntegrationStatus *service.IntegrationStatus `json:"integrationStatus,omitempty"`
 	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
 
 	service.SettingsFields
@@ -151,27 +151,27 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 
 func (s *Server) refreshTick(ctx context.Context) {
 	enrichment := s.fetchStatusEnrichment(ctx)
-	integrationStatus := s.fetchIntegrationStatus(ctx)
+	integrationStatus := s.integration.GetStatus(ctx)
 	integrationStatus = s.handleAPIKeyExpiry(ctx, integrationStatus)
 	integrationStatus = s.repairMissingPolicies(ctx, integrationStatus)
 	s.applyRefreshState(ctx, enrichment, integrationStatus)
 	s.broadcastState()
 }
 
-func (s *Server) handleAPIKeyExpiry(ctx context.Context, status *IntegrationStatus) *IntegrationStatus {
+func (s *Server) handleAPIKeyExpiry(ctx context.Context, status *service.IntegrationStatus) *service.IntegrationStatus {
 	if status == nil || status.Reason != "key_expired" || !s.ic.HasAPIKey() {
 		return status
 	}
 	slog.Warn("periodic check: API key rejected, clearing")
 	s.ic.SetAPIKey("")
-	_ = deleteAPIKey()
+	_ = service.DeleteAPIKey()
 	_ = s.manifest.ResetIntegration()
 	s.intRetry.markDegraded()
-	s.invalidateIntegrationCache()
-	return s.fetchIntegrationStatus(ctx)
+	s.integration.InvalidateCache()
+	return s.integration.GetStatus(ctx)
 }
 
-func (s *Server) repairMissingPolicies(ctx context.Context, status *IntegrationStatus) *IntegrationStatus {
+func (s *Server) repairMissingPolicies(ctx context.Context, status *service.IntegrationStatus) *service.IntegrationStatus {
 	if status == nil || status.ZBFEnabled == nil || !*status.ZBFEnabled || s.intRetry.isDegraded() {
 		return status
 	}
@@ -186,10 +186,10 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *IntegrationS
 	} else {
 		s.openTailscaleWanPort(ctx)
 	}
-	return s.fetchIntegrationStatus(ctx)
+	return s.integration.GetStatus(ctx)
 }
 
-func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *IntegrationStatus) {
+func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *service.IntegrationStatus) {
 	s.state.mu.Lock()
 	defer s.state.mu.Unlock()
 	s.applyEnrichment(enrichment)
@@ -301,7 +301,7 @@ func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 	if fetchStatus {
 		enrichment = s.fetchStatusEnrichment(ctx)
 	}
-	integrationStatus := s.fetchIntegrationStatus(ctx)
+	integrationStatus := s.integration.GetStatus(ctx)
 
 	s.state.mu.Lock()
 	s.applyEnrichment(enrichment)

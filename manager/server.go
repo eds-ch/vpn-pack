@@ -56,9 +56,9 @@ type Server struct {
 	wgManager         WgS2sControl
 	vpnClientsMu     sync.Mutex
 	updater           *updateChecker
-	intCache          integrationCache
 	settings          *service.SettingsService
 	diagnostics       *service.DiagnosticsService
+	integration       *service.IntegrationService
 }
 
 type settingsManifestAdapter struct {
@@ -72,6 +72,29 @@ func (a settingsManifestAdapter) HasDNSPolicy(marker string) bool {
 func (a settingsManifestAdapter) WanPort(marker string) (int, bool) {
 	entry, ok := a.ms.GetWanPortEntry(marker)
 	return entry.Port, ok
+}
+
+type integrationICAdapter struct {
+	ic IntegrationAPI
+}
+
+func (a integrationICAdapter) SetAPIKey(key string)    { a.ic.SetAPIKey(key) }
+func (a integrationICAdapter) HasAPIKey() bool         { return a.ic.HasAPIKey() }
+func (a integrationICAdapter) DiscoverSiteID(ctx context.Context) (string, error) {
+	return a.ic.DiscoverSiteID(ctx)
+}
+func (a integrationICAdapter) FindSystemZoneIDs(ctx context.Context, siteID string) (string, string, error) {
+	return a.ic.FindSystemZoneIDs(ctx, siteID)
+}
+func (a integrationICAdapter) Validate(ctx context.Context) (string, error) {
+	info, err := a.ic.Validate(ctx)
+	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			return "", service.ErrUnauthorized
+		}
+		return "", err
+	}
+	return info.ApplicationVersion, nil
 }
 
 func NewServer(ctx context.Context, opts ServerOptions) *Server {
@@ -93,6 +116,9 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		settingsManifestAdapter{opts.Manifest}, opts.DeviceInfo.HasUDAPISocket,
 	)
 	s.diagnostics = service.NewDiagnosticsService(opts.Tailscale, opts.Firewall, nil)
+	s.integration = service.NewIntegrationService(
+		integrationICAdapter{opts.Integration}, opts.Manifest,
+	)
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	s.mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
@@ -366,6 +392,67 @@ func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"marker": marker})
 }
 
+func (s *Server) handleIntegrationStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.integration.GetStatus(r.Context()))
+}
+
+func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		APIKey string `json:"apiKey"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		return
+	}
+
+	st, err := s.integration.SetKey(r.Context(), req.APIKey)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	if s.fw != nil && st.SiteID != "" {
+		if result := s.fw.SetupTailscaleFirewall(r.Context()); result.Err() != nil {
+			slog.Warn("firewall setup after key save failed", "err", result.Err())
+		}
+		s.openTailscaleWanPort(r.Context())
+	}
+
+	s.intRetry.clearDegraded()
+
+	s.state.mu.Lock()
+	s.state.data.IntegrationStatus = st
+	s.state.mu.Unlock()
+	s.broadcastState()
+
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Request) {
+	if s.fw != nil {
+		if err := s.fw.RemoveDNSForwarding(r.Context()); err != nil {
+			slog.Warn("DNS forwarding cleanup failed during key removal", "err", err)
+		}
+	}
+
+	if err := s.integration.DeleteKey(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to remove API key")
+		return
+	}
+
+	slog.Info("integration API key removed")
+
+	s.state.mu.Lock()
+	s.state.data.IntegrationStatus = &service.IntegrationStatus{Configured: false}
+	s.state.mu.Unlock()
+	s.broadcastState()
+
+	writeOK(w)
+}
+
+func (s *Server) handleTestIntegrationKey(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.integration.TestKey(r.Context()))
+}
+
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	entries := s.logBuf.Snapshot()
 	writeJSON(w, http.StatusOK, map[string]any{"lines": entries})
@@ -427,7 +514,7 @@ func (s *Server) validateIntegration(ctx context.Context) {
 		if errors.Is(err, ErrUnauthorized) {
 			slog.Warn("API key invalid (likely factory reset), clearing")
 			s.ic.SetAPIKey("")
-			_ = deleteAPIKey()
+			_ = service.DeleteAPIKey()
 			_ = s.manifest.ResetIntegration()
 			s.intRetry.markDegraded()
 			return

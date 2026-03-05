@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"unifi-tailscale/manager/service"
 )
 
 type StepError struct {
@@ -111,7 +113,7 @@ type SSEStatusEvent = stateData
 
 type SSEHealthEvent struct {
 	FirewallHealth *FirewallHealth    `json:"firewallHealth,omitempty"`
-	Integration    *IntegrationStatus `json:"integrationStatus,omitempty"`
+	Integration    *service.IntegrationStatus `json:"integrationStatus,omitempty"`
 }
 
 type SSEDNSEvent struct {
