@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"math"
 	"net/netip"
@@ -153,8 +152,8 @@ func (s *Server) refreshTick(ctx context.Context) {
 	enrichment := s.fetchStatusEnrichment(ctx)
 	integrationStatus := s.fetchIntegrationStatus()
 	integrationStatus = s.handleAPIKeyExpiry(integrationStatus)
-	integrationStatus = s.repairMissingPolicies(integrationStatus)
-	s.applyRefreshState(enrichment, integrationStatus)
+	integrationStatus = s.repairMissingPolicies(ctx, integrationStatus)
+	s.applyRefreshState(ctx, enrichment, integrationStatus)
 	s.broadcastState()
 }
 
@@ -172,7 +171,7 @@ func (s *Server) handleAPIKeyExpiry(status *IntegrationStatus) *IntegrationStatu
 	return s.fetchIntegrationStatus()
 }
 
-func (s *Server) repairMissingPolicies(status *IntegrationStatus) *IntegrationStatus {
+func (s *Server) repairMissingPolicies(ctx context.Context, status *IntegrationStatus) *IntegrationStatus {
 	if status == nil || status.ZBFEnabled == nil || !*status.ZBFEnabled || s.intRetry.isDegraded() {
 		return status
 	}
@@ -181,8 +180,8 @@ func (s *Server) repairMissingPolicies(status *IntegrationStatus) *IntegrationSt
 		return status
 	}
 	slog.Info("ZBF enabled but policies missing, retrying firewall setup")
-	if err := s.fw.SetupTailscaleFirewall(); err != nil {
-		slog.Warn("firewall setup retry failed, will not retry until restart", "err", err)
+	if result := s.fw.SetupTailscaleFirewall(ctx); result.Err() != nil {
+		slog.Warn("firewall setup retry failed, will not retry until restart", "err", result.Err())
 		s.intRetry.markDegraded()
 	} else {
 		s.openTailscaleWanPort()
@@ -190,17 +189,17 @@ func (s *Server) repairMissingPolicies(status *IntegrationStatus) *IntegrationSt
 	return s.fetchIntegrationStatus()
 }
 
-func (s *Server) applyRefreshState(enrichment *statusEnrichment, integrationStatus *IntegrationStatus) {
+func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *IntegrationStatus) {
 	s.state.mu.Lock()
 	defer s.state.mu.Unlock()
 	s.applyEnrichment(enrichment)
-	s.state.data.FirewallHealth = s.firewallHealthSnapshot()
+	s.state.data.FirewallHealth = s.firewallHealthSnapshot(ctx)
 	s.state.data.IntegrationStatus = integrationStatus
 	s.state.data.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
 	s.state.data.UDPPort = readTailscaledPort()
 	if s.wgManager != nil {
 		tunnels := s.wgManager.GetStatuses()
-		s.enrichForwardINOk(tunnels)
+		s.enrichForwardINOk(ctx, tunnels)
 		s.state.data.WgS2sTunnels = tunnels
 	}
 }
@@ -306,7 +305,7 @@ func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 
 	s.state.mu.Lock()
 	s.applyEnrichment(enrichment)
-	s.state.data.FirewallHealth = s.firewallHealthSnapshot()
+	s.state.data.FirewallHealth = s.firewallHealthSnapshot(ctx)
 	s.state.data.IntegrationStatus = integrationStatus
 	s.state.mu.Unlock()
 }
@@ -453,14 +452,14 @@ func extractPeers(st *ipnstate.Status) []PeerInfo {
 	return peers
 }
 
-func (s *Server) firewallHealthSnapshot() *FirewallHealth {
+func (s *Server) firewallHealthSnapshot(ctx context.Context) *FirewallHealth {
 	if !s.deviceInfo.HasUDAPISocket {
 		return nil
 	}
 
 	var forward bool
 	if s.fw != nil {
-		forward, _, _, _ = s.fw.CheckTailscaleRulesPresent()
+		forward, _, _, _ = s.fw.CheckTailscaleRulesPresent(ctx)
 	}
 
 	udapiReachable := isUDAPIReachable()
@@ -496,13 +495,7 @@ func (s *Server) recomputeRoutes() {
 }
 
 func (s *Server) broadcastState() {
-	snap := s.state.snapshot()
-	data, err := json.Marshal(snap)
-	if err != nil {
-		slog.Error("failed to marshal state", "err", err)
-		return
-	}
-	s.hub.Broadcast(data)
+	BroadcastEvent(s.hub, "", s.state.snapshot())
 }
 
 func (s *Server) setUnavailable() {

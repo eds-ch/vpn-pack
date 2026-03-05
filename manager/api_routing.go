@@ -168,7 +168,7 @@ func (s *Server) handleGetSubnets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFirewallStatus(w http.ResponseWriter, r *http.Request) {
 	forward, input, output, ipset := false, false, false, false
 	if s.fw != nil {
-		forward, input, output, ipset = s.fw.CheckTailscaleRulesPresent()
+		forward, input, output, ipset = s.fw.CheckTailscaleRulesPresent(r.Context())
 	}
 
 	udapiReachable := isUDAPIReachable()

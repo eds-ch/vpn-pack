@@ -130,7 +130,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wgDiag = s.gatherWgS2sDiagnostics()
+			wgDiag = s.gatherWgS2sDiagnostics(ctx)
 		}()
 	}
 
@@ -215,7 +215,7 @@ func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"marker": marker})
 }
 
-func (s *Server) gatherWgS2sDiagnostics() *wgS2sDiagnostics {
+func (s *Server) gatherWgS2sDiagnostics(ctx context.Context) *wgS2sDiagnostics {
 	_, modErr := os.Stat("/sys/module/wireguard")
 
 	tunnels := s.wgManager.GetTunnels()
@@ -232,7 +232,7 @@ func (s *Server) gatherWgS2sDiagnostics() *wgS2sDiagnostics {
 			enabledIfaces = append(enabledIfaces, t.InterfaceName)
 		}
 	}
-	fwPresent := s.fw.CheckWgS2sRulesPresent(enabledIfaces)
+	fwPresent := s.fw.CheckWgS2sRulesPresent(ctx, enabledIfaces)
 
 	diags := make([]wgS2sTunnelDiag, 0, len(tunnels))
 	for _, t := range tunnels {

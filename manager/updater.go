@@ -166,11 +166,7 @@ func (s *Server) runUpdateChecker(ctx context.Context) {
 }
 
 func (s *Server) broadcastUpdate(info *UpdateInfo) {
-	data, err := json.Marshal(info)
-	if err != nil {
-		return
-	}
-	s.hub.BroadcastNamed("update-available", data)
+	BroadcastEvent(s.hub, "update-available", info)
 }
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {

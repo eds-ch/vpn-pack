@@ -124,8 +124,8 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		needsRestart = true
 	}
 
-	s.updateRelayPortRules(req.RelayServerPort, old.relayPort)
-	s.updateTailscaleWgPortRules(req.UDPPort)
+	s.updateRelayPortRules(r.Context(), req.RelayServerPort, old.relayPort)
+	s.updateTailscaleWgPortRules(r.Context(), req.UDPPort)
 
 	if needsRestart {
 		s.restartTailscaled()
@@ -158,13 +158,13 @@ func (s *Server) applyDNSForwarding(ctx context.Context, enable bool) error {
 			return &apiError{http.StatusBadRequest,
 				"Cannot determine tailnet DNS suffix. Ensure Tailscale is connected."}
 		}
-		if err := s.fw.EnsureDNSForwarding(suffix); err != nil {
+		if err := s.fw.EnsureDNSForwarding(ctx, suffix); err != nil {
 			return &apiError{http.StatusInternalServerError,
 				"Failed to create DNS forwarding: " + err.Error()}
 		}
 		return nil
 	}
-	if err := s.fw.RemoveDNSForwarding(); err != nil {
+	if err := s.fw.RemoveDNSForwarding(ctx); err != nil {
 		return &apiError{http.StatusInternalServerError,
 			"Failed to remove DNS forwarding: " + err.Error()}
 	}
@@ -351,17 +351,17 @@ func (s *Server) applyUDPPortChange(newPort *int) (bool, error) {
 	return true, nil
 }
 
-func (s *Server) swapWanPort(oldPort, newPort int, marker string) {
+func (s *Server) swapWanPort(ctx context.Context, oldPort, newPort int, marker string) {
 	var changed bool
 	if oldPort > 0 {
-		if err := s.fw.CloseWanPort(oldPort, marker); err != nil {
+		if err := s.fw.CloseWanPort(ctx, oldPort, marker); err != nil {
 			slog.Warn("WAN port close failed", "port", oldPort, "marker", marker, "err", err)
 		} else {
 			changed = true
 		}
 	}
 	if newPort > 0 {
-		if err := s.fw.OpenWanPort(newPort, marker); err != nil {
+		if err := s.fw.OpenWanPort(ctx, newPort, marker); err != nil {
 			slog.Warn("WAN port open failed", "port", newPort, "marker", marker, "err", err)
 		} else {
 			changed = true
@@ -372,7 +372,7 @@ func (s *Server) swapWanPort(oldPort, newPort int, marker string) {
 	}
 }
 
-func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {
+func (s *Server) updateRelayPortRules(ctx context.Context, newRelayPort *int, oldRelayPort *uint16) {
 	if newRelayPort == nil || s.ic == nil || !s.ic.HasAPIKey() {
 		return
 	}
@@ -380,10 +380,10 @@ func (s *Server) updateRelayPortRules(newRelayPort *int, oldRelayPort *uint16) {
 	if oldRelayPort != nil {
 		oldPort = int(*oldRelayPort)
 	}
-	s.swapWanPort(oldPort, *newRelayPort, wanMarkerRelay)
+	s.swapWanPort(ctx, oldPort, *newRelayPort, wanMarkerRelay)
 }
 
-func (s *Server) updateTailscaleWgPortRules(newPort *int) {
+func (s *Server) updateTailscaleWgPortRules(ctx context.Context, newPort *int) {
 	if newPort == nil || s.ic == nil || !s.ic.HasAPIKey() {
 		return
 	}
@@ -391,7 +391,7 @@ func (s *Server) updateTailscaleWgPortRules(newPort *int) {
 	if entry.Port == *newPort {
 		return
 	}
-	s.swapWanPort(entry.Port, *newPort, wanMarkerTailscaleWG)
+	s.swapWanPort(ctx, entry.Port, *newPort, wanMarkerTailscaleWG)
 }
 
 func validateControlURL(raw string) error {

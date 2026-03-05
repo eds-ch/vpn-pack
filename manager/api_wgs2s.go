@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -30,7 +31,7 @@ func (s *Server) wgManagerOrError(w http.ResponseWriter) bool {
 	return true
 }
 
-func (s *Server) enrichForwardINOk(statuses []wgs2s.WgS2sStatus) {
+func (s *Server) enrichForwardINOk(ctx context.Context, statuses []wgs2s.WgS2sStatus) {
 	if s.fw == nil {
 		return
 	}
@@ -40,17 +41,17 @@ func (s *Server) enrichForwardINOk(statuses []wgs2s.WgS2sStatus) {
 			ifaces = append(ifaces, st.InterfaceName)
 		}
 	}
-	fwPresent := s.fw.CheckWgS2sRulesPresent(ifaces)
+	fwPresent := s.fw.CheckWgS2sRulesPresent(ctx, ifaces)
 	for i := range statuses {
 		statuses[i].ForwardINOk = fwPresent[statuses[i].InterfaceName]
 	}
 }
 
-func (s *Server) teardownTunnelFirewall(t *wgs2s.TunnelConfig) {
+func (s *Server) teardownTunnelFirewall(ctx context.Context, t *wgs2s.TunnelConfig) {
 	if s.fw == nil || t == nil {
 		return
 	}
-	s.fw.RemoveWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs)
+	s.fw.RemoveWgS2sFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs)
 	s.closeWgS2sWanPort(t.ListenPort, t.InterfaceName)
 }
 
@@ -88,7 +89,7 @@ func (s *Server) handleWgS2sListTunnels(w http.ResponseWriter, r *http.Request) 
 
 	tunnels := s.wgManager.GetTunnels()
 	statuses := s.wgManager.GetStatuses()
-	s.enrichForwardINOk(statuses)
+	s.enrichForwardINOk(r.Context(), statuses)
 
 	statusMap := make(map[string]*wgs2s.WgS2sStatus, len(statuses))
 	for i := range statuses {
@@ -144,7 +145,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.setupTunnelZone(tunnel.ID, req.CreateZone, req.ZoneID, req.ZoneName)
+	s.setupTunnelZone(r.Context(), tunnel.ID, req.CreateZone, req.ZoneID, req.ZoneName)
 
 	s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID, Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs})
 	s.openWgS2sWanPort(tunnel.ListenPort, tunnel.InterfaceName)
@@ -215,22 +216,22 @@ func validateWgS2sUpdateRequest(updates *wgs2s.TunnelConfig) error {
 	}
 	return nil
 }
-func (s *Server) setupTunnelZone(tunnelID string, createZone bool, zoneID, zoneName string) {
+func (s *Server) setupTunnelZone(ctx context.Context, tunnelID string, createZone bool, zoneID, zoneName string) {
 	if !s.integrationReady() {
 		return
 	}
 	switch {
 	case createZone:
-		if err := s.fw.SetupWgS2sZone(tunnelID, "", zoneName); err != nil {
-			slog.Warn("wg-s2s zone setup failed", "err", err)
+		if result := s.fw.SetupWgS2sZone(ctx, tunnelID, "", zoneName); result.Err() != nil {
+			slog.Warn("wg-s2s zone setup failed", "err", result.Err())
 		}
 	case zoneID != "":
-		if err := s.fw.SetupWgS2sZone(tunnelID, zoneID, ""); err != nil {
-			slog.Warn("wg-s2s zone assignment failed", "err", err)
+		if result := s.fw.SetupWgS2sZone(ctx, tunnelID, zoneID, ""); result.Err() != nil {
+			slog.Warn("wg-s2s zone assignment failed", "err", result.Err())
 		}
 	case len(s.manifest.GetWgS2sZones()) == 0:
-		if err := s.fw.SetupWgS2sZone(tunnelID, "", "WireGuard S2S"); err != nil {
-			slog.Warn("wg-s2s auto zone setup failed", "err", err)
+		if result := s.fw.SetupWgS2sZone(ctx, tunnelID, "", "WireGuard S2S"); result.Err() != nil {
+			slog.Warn("wg-s2s auto zone setup failed", "err", result.Err())
 		}
 	}
 }
@@ -274,7 +275,7 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	if updates.AllowedIPs != nil && tunnel.Enabled && existing != nil {
-		s.fw.RemoveWgS2sIPSetEntries(id, existing.AllowedIPs)
+		s.fw.RemoveWgS2sIPSetEntries(r.Context(), id, existing.AllowedIPs)
 		s.sendFirewallRequest(FirewallRequest{
 			Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID,
 			Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs,
@@ -306,7 +307,7 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.teardownTunnelFirewall(t)
+	s.teardownTunnelFirewall(r.Context(), t)
 
 	s.manifest.RemoveWgS2sTunnel(id)
 	if err := s.manifest.Save(); err != nil {
@@ -356,7 +357,7 @@ func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.teardownTunnelFirewall(t)
+	s.teardownTunnelFirewall(r.Context(), t)
 
 	writeOK(w)
 }

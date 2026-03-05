@@ -93,19 +93,19 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 				debounced = nil
 				continue
 			}
-			s.checkAndRestoreRules()
+			s.checkAndRestoreRules(ctx)
 
 		case <-ticker.C:
-			s.checkAndRestoreRules()
+			s.checkAndRestoreRules(ctx)
 
 		case <-sighup:
 			slog.Info("SIGHUP received, forcing reapply")
-			if err := s.fw.SetupTailscaleFirewall(); err != nil {
-				slog.Warn("SIGHUP reapply failed", "err", err)
+			if result := s.fw.SetupTailscaleFirewall(ctx); result.Err() != nil {
+				slog.Warn("SIGHUP reapply failed", "err", result.Err())
 			}
 
 		case req := <-s.firewallCh:
-			s.handleFirewallRequest(req)
+			s.handleFirewallRequest(ctx, req)
 		}
 	}
 }
@@ -191,13 +191,13 @@ func (s *Server) handleFsEvent(event fsnotify.Event) bool {
 	return base == filepath.Base(udapiConfigPath) && event.Has(fsnotify.Write)
 }
 
-func (s *Server) checkAndRestoreRules() {
-	s.retryIntegrationSetup()
-	s.restoreTailscaleRules()
-	s.restoreWgS2sRules()
+func (s *Server) checkAndRestoreRules(ctx context.Context) {
+	s.retryIntegrationSetup(ctx)
+	s.restoreTailscaleRules(ctx)
+	s.restoreWgS2sRules(ctx)
 }
 
-func (s *Server) retryIntegrationSetup() {
+func (s *Server) retryIntegrationSetup(ctx context.Context) {
 	if !s.integrationReady() {
 		return
 	}
@@ -215,8 +215,9 @@ func (s *Server) retryIntegrationSetup() {
 
 	slog.Info("retrying integration zone/policy setup", "attempt", s.intRetry.count())
 
-	if err := s.fw.SetupTailscaleFirewall(); err != nil {
-		slog.Warn("integration setup retry failed", "attempt", s.intRetry.count(), "err", err)
+	result := s.fw.SetupTailscaleFirewall(ctx)
+	if result.Err() != nil {
+		slog.Warn("integration setup retry failed", "attempt", s.intRetry.count(), "err", result.Err())
 		return
 	}
 
@@ -231,7 +232,7 @@ func (s *Server) retryIntegrationSetup() {
 	s.openTailscaleWanPort()
 }
 
-func (s *Server) restoreTailscaleRules() {
+func (s *Server) restoreTailscaleRules(ctx context.Context) {
 	if !s.integrationReady() {
 		return
 	}
@@ -242,7 +243,7 @@ func (s *Server) restoreTailscaleRules() {
 		return
 	}
 
-	forward, input, output, ipset := s.fw.CheckTailscaleRulesPresent()
+	forward, input, output, ipset := s.fw.CheckTailscaleRulesPresent(ctx)
 
 	ts := s.manifest.GetTailscaleZone()
 	noZone := ts.ZoneID == ""
@@ -270,7 +271,7 @@ func (s *Server) restoreTailscaleRules() {
 
 	slog.Info("firewall rules missing, restoring", "missing", missing)
 
-	if err := s.fw.RestoreTailscaleRules(); err != nil {
+	if err := s.fw.RestoreTailscaleRules(ctx); err != nil {
 		slog.Warn("firewall restore failed", "err", err)
 		return
 	}
@@ -280,7 +281,7 @@ func (s *Server) restoreTailscaleRules() {
 	slog.Info("firewall rules restored")
 }
 
-func (s *Server) restoreWgS2sRules() {
+func (s *Server) restoreWgS2sRules(ctx context.Context) {
 	if s.wgManager == nil {
 		return
 	}
@@ -299,7 +300,7 @@ func (s *Server) restoreWgS2sRules() {
 		return
 	}
 
-	present := s.fw.CheckWgS2sRulesPresent(ifaces)
+	present := s.fw.CheckWgS2sRulesPresent(ctx, ifaces)
 	for _, t := range tunnels {
 		if !t.Enabled {
 			continue
@@ -309,14 +310,14 @@ func (s *Server) restoreWgS2sRules() {
 		}
 		slog.Info("wg-s2s firewall rules missing, restoring", "iface", t.InterfaceName)
 		s.logBuf.Add(newLogEntry("info", fmt.Sprintf("firewall rules missing, restoring iface=%s", t.InterfaceName), "wgs2s"))
-		if err := s.fw.SetupWgS2sFirewall(t.ID, t.InterfaceName, t.AllowedIPs); err != nil {
+		if err := s.fw.SetupWgS2sFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs); err != nil {
 			slog.Warn("wg-s2s firewall restore failed", "iface", t.InterfaceName, "err", err)
 			s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall restore failed iface=%s err=%v", t.InterfaceName, err), "wgs2s"))
 		}
 	}
 }
 
-func (s *Server) reconcileWanPortPolicies() {
+func (s *Server) reconcileWanPortPolicies(ctx context.Context) {
 	if s.intRetry.isDegraded() {
 		return
 	}
@@ -343,7 +344,7 @@ func (s *Server) reconcileWanPortPolicies() {
 		}
 		slog.Info("WAN port policy missing from API, recreating", "marker", marker, "port", entry.Port)
 		s.manifest.RemoveWanPort(marker)
-		if err := s.fw.OpenWanPort(entry.Port, marker); err != nil {
+		if err := s.fw.OpenWanPort(ctx, entry.Port, marker); err != nil {
 			slog.Warn("WAN port policy recreation failed", "marker", marker, "err", err)
 		}
 	}
@@ -362,13 +363,13 @@ func (s *Server) schedulePostPolicyRestore() {
 	}()
 }
 
-func (s *Server) handleFirewallRequest(req FirewallRequest) {
+func (s *Server) handleFirewallRequest(ctx context.Context, req FirewallRequest) {
 	switch req.Action {
 	case FirewallActionCheckAndRestore:
-		s.checkAndRestoreRules()
+		s.checkAndRestoreRules(ctx)
 	case FirewallActionApplyWgS2s:
 		if req.Interface != "" {
-			if err := s.fw.SetupWgS2sFirewall(req.TunnelID, req.Interface, req.AllowedIPs); err != nil {
+			if err := s.fw.SetupWgS2sFirewall(ctx, req.TunnelID, req.Interface, req.AllowedIPs); err != nil {
 				slog.Warn("wg-s2s firewall rules failed", "iface", req.Interface, "err", err)
 				s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", req.Interface, err), "wgs2s"))
 			}

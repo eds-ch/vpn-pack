@@ -178,8 +178,8 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	slog.Info("integration API key configured", "appVersion", info.ApplicationVersion, "siteId", siteID)
 
 	if s.fw != nil && siteID != "" {
-		if err := s.fw.SetupTailscaleFirewall(); err != nil {
-			slog.Warn("firewall setup after key save failed", "err", err)
+		if result := s.fw.SetupTailscaleFirewall(r.Context()); result.Err() != nil {
+			slog.Warn("firewall setup after key save failed", "err", result.Err())
 		}
 		s.openTailscaleWanPort()
 	}
@@ -196,7 +196,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Request) {
 	if s.fw != nil {
-		if err := s.fw.RemoveDNSForwarding(); err != nil {
+		if err := s.fw.RemoveDNSForwarding(r.Context()); err != nil {
 			slog.Warn("DNS forwarding cleanup failed during key removal", "err", err)
 		}
 	}
