@@ -58,6 +58,7 @@ type Server struct {
 	updater           *updateChecker
 	intCache          integrationCache
 	settings          *service.SettingsService
+	diagnostics       *service.DiagnosticsService
 }
 
 type settingsManifestAdapter struct {
@@ -91,6 +92,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		opts.Tailscale, opts.Firewall, opts.Integration,
 		settingsManifestAdapter{opts.Manifest}, opts.DeviceInfo.HasUDAPISocket,
 	)
+	s.diagnostics = service.NewDiagnosticsService(opts.Tailscale, opts.Firewall, nil)
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	s.mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
@@ -213,6 +215,7 @@ func (s *Server) initWgS2s(ctx context.Context) {
 		return
 	}
 	s.wgManager = wgMgr
+	s.diagnostics.SetWgS2s(wgMgr)
 	if restoreErr := wgMgr.RestoreAll(); restoreErr != nil {
 		slog.Warn("wg-s2s restore failed", "err", restoreErr)
 	}
@@ -335,6 +338,37 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusInternalServerError, err.Error())
+}
+
+func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.diagnostics.GetDiagnostics(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Note string `json:"note"`
+	}
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := readJSON(w, r, &req); err != nil {
+			return
+		}
+	}
+	marker, err := s.diagnostics.BugReport(r.Context(), req.Note)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"marker": marker})
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	entries := s.logBuf.Snapshot()
+	writeJSON(w, http.StatusOK, map[string]any{"lines": entries})
 }
 
 func (s *Server) restartTailscaled() {
