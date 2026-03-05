@@ -456,6 +456,7 @@ type mockFirewallService struct {
 	setupWgS2sFirewallFn        func(ctx context.Context, tunnelID, iface string, allowedIPs []string) error
 	removeWgS2sFirewallFn       func(ctx context.Context, tunnelID, iface string, allowedIPs []string)
 	removeWgS2sIPSetEntriesFn   func(ctx context.Context, tunnelID string, cidrs []string)
+	teardownWgS2sZoneFn         func(ctx context.Context, tunnelID string)
 	openWanPortFn               func(ctx context.Context, port int, marker string) error
 	closeWanPortFn              func(ctx context.Context, port int, marker string) error
 	ensureDNSForwardingFn       func(ctx context.Context, magicDNSSuffix string) error
@@ -493,6 +494,11 @@ func (m *mockFirewallService) RemoveWgS2sFirewall(ctx context.Context, tunnelID,
 func (m *mockFirewallService) RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID string, cidrs []string) {
 	if m.removeWgS2sIPSetEntriesFn != nil {
 		m.removeWgS2sIPSetEntriesFn(ctx, tunnelID, cidrs)
+	}
+}
+func (m *mockFirewallService) TeardownWgS2sZone(ctx context.Context, tunnelID string) {
+	if m.teardownWgS2sZoneFn != nil {
+		m.teardownWgS2sZoneFn(ctx, tunnelID)
 	}
 }
 func (m *mockFirewallService) OpenWanPort(ctx context.Context, port int, marker string) error {

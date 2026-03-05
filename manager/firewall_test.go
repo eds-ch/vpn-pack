@@ -111,10 +111,12 @@ func newTestFWWithSocket(t *testing.T, sockPath string, ic *IntegrationClient, m
 }
 
 type integrationMockOpts struct {
-	zones        []Zone
-	policies     []Policy
-	zoneFail     bool
-	policyFail   bool
+	zones          []Zone
+	policies       []Policy
+	zoneFail       bool
+	policyFail     bool
+	deleteZoneFn   func(zoneID string)
+	deletePolicyFn func(policyID string)
 }
 
 func newIntegrationMockHandler(opts integrationMockOpts) http.Handler {
@@ -122,6 +124,15 @@ func newIntegrationMockHandler(opts integrationMockOpts) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(r.URL.Path, "/firewall/zones"):
+			if r.Method == "DELETE" {
+				parts := strings.Split(r.URL.Path, "/")
+				zoneID := parts[len(parts)-1]
+				if opts.deleteZoneFn != nil {
+					opts.deleteZoneFn(zoneID)
+				}
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			if opts.zoneFail {
 				http.Error(w, `{"error":"zone error"}`, http.StatusInternalServerError)
 				return
@@ -143,6 +154,15 @@ func newIntegrationMockHandler(opts integrationMockOpts) http.Handler {
 			json.NewEncoder(w).Encode(map[string]json.RawMessage{"data": data})
 
 		case strings.Contains(r.URL.Path, "/firewall/policies"):
+			if r.Method == "DELETE" {
+				parts := strings.Split(r.URL.Path, "/")
+				policyID := parts[len(parts)-1]
+				if opts.deletePolicyFn != nil {
+					opts.deletePolicyFn(policyID)
+				}
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			if opts.policyFail {
 				http.Error(w, `{"error":"policy error"}`, http.StatusInternalServerError)
 				return
@@ -175,6 +195,15 @@ func newMockIC(t *testing.T, opts integrationMockOpts) *IntegrationClient {
 	ic := NewIntegrationClient("test-api-key")
 	ic.baseURL = ts.URL
 	return ic
+}
+
+func hasStepError(r *FirewallSetupResult, step string) bool {
+	for _, e := range r.Errors {
+		if e.Step == step {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSetupTailscaleFirewall_IntegrationNotConfigured(t *testing.T) {
@@ -212,29 +241,32 @@ func TestSetupTailscaleFirewall_ZoneFail(t *testing.T) {
 	assert.True(t, hasZoneErr, "expected zone error in result")
 }
 
-func TestSetupTailscaleFirewall_PolicyFail(t *testing.T) {
+func TestSetupTailscaleFirewall_PolicyFail_RollbackZone(t *testing.T) {
 	zones := []Zone{
 		{ID: "zone-ts", Name: "VPN Pack: Tailscale"},
 		{ID: "zone-int", Name: "Internal"},
 	}
-	ic := newMockIC(t, integrationMockOpts{zones: zones, policyFail: true})
+	var deletedZoneID string
+	ic := newMockIC(t, integrationMockOpts{
+		zones:      zones,
+		policyFail: true,
+		deleteZoneFn: func(zoneID string) {
+			deletedZoneID = zoneID
+		},
+	})
 	m := newTestManifest(t)
 	fm := newTestFW(t, ic, m)
 
 	result := fm.SetupTailscaleFirewall(context.Background())
 
-	assert.True(t, result.ZoneCreated)
-	assert.Equal(t, "zone-ts", result.ZoneID)
+	assert.False(t, result.ZoneCreated, "zone should be rolled back")
+	assert.Empty(t, result.ZoneID)
 	assert.False(t, result.PoliciesReady)
 	assert.False(t, result.OK())
+	assert.Equal(t, "zone-ts", deletedZoneID, "rollback should delete the zone")
 
-	hasPolicyErr := false
-	for _, e := range result.Errors {
-		if e.Step == "policies" {
-			hasPolicyErr = true
-		}
-	}
-	assert.True(t, hasPolicyErr, "expected policies error in result")
+	assert.True(t, hasStepError(result, "policies"))
+	assert.Equal(t, "", m.GetTailscaleZone().ZoneID, "manifest should not contain zone")
 }
 
 func TestSetupTailscaleFirewall_UDAPIFail(t *testing.T) {
@@ -284,4 +316,176 @@ func TestSetupTailscaleFirewall_Success(t *testing.T) {
 	assert.True(t, result.OK())
 	assert.False(t, result.Degraded())
 	assert.Empty(t, result.Errors)
+}
+
+func TestSetupTailscaleFirewall_ManifestFail_RollbackZone(t *testing.T) {
+	zones := []Zone{
+		{ID: "zone-ts", Name: "VPN Pack: Tailscale"},
+		{ID: "zone-int", Name: "Internal"},
+	}
+	var deletedZoneID string
+	ic := newMockIC(t, integrationMockOpts{
+		zones: zones,
+		deleteZoneFn: func(zoneID string) {
+			deletedZoneID = zoneID
+		},
+	})
+	m := newTestManifest(t)
+	// Make manifest save fail by making path unwritable
+	m.path = "/nonexistent-dir/manifest.json"
+	fm := newTestFW(t, ic, m)
+
+	result := fm.SetupTailscaleFirewall(context.Background())
+
+	assert.False(t, result.ZoneCreated, "zone should be rolled back")
+	assert.Empty(t, result.ZoneID)
+	assert.False(t, result.PoliciesReady)
+	assert.Nil(t, result.PolicyIDs)
+	assert.False(t, result.OK())
+	assert.Equal(t, "zone-ts", deletedZoneID, "rollback should delete the zone")
+	assert.True(t, hasStepError(result, "manifest"))
+}
+
+func TestSetupTailscaleFirewall_RollbackFails_NoError(t *testing.T) {
+	zones := []Zone{
+		{ID: "zone-ts", Name: "VPN Pack: Tailscale"},
+		{ID: "zone-int", Name: "Internal"},
+	}
+	// deleteZoneFn not set — mock handler returns 404 on DELETE which triggers an error
+	// but rollback is best-effort: should not panic
+	ic := newMockIC(t, integrationMockOpts{zones: zones, policyFail: true})
+	m := newTestManifest(t)
+	fm := newTestFW(t, ic, m)
+
+	result := fm.SetupTailscaleFirewall(context.Background())
+
+	assert.False(t, result.ZoneCreated)
+	assert.True(t, hasStepError(result, "policies"))
+}
+
+func TestSetupWgS2sZone_PolicyFail_RollbackZone(t *testing.T) {
+	zones := []Zone{
+		{ID: "zone-int", Name: "Internal"},
+	}
+	var deletedZoneID string
+	ic := newMockIC(t, integrationMockOpts{
+		zones:      zones,
+		policyFail: true,
+		deleteZoneFn: func(zoneID string) {
+			deletedZoneID = zoneID
+		},
+	})
+	m := newTestManifest(t)
+	fm := newTestFW(t, ic, m)
+
+	result := fm.SetupWgS2sZone(context.Background(), "tun-1", "", "Test Tunnel")
+
+	assert.False(t, result.ZoneCreated, "zone should be rolled back")
+	assert.Empty(t, result.ZoneID)
+	assert.False(t, result.PoliciesReady)
+	assert.True(t, hasStepError(result, "policies"))
+	assert.Equal(t, "zone-created", deletedZoneID, "rollback should delete the zone")
+
+	_, ok := m.GetWgS2sZone("tun-1")
+	assert.False(t, ok, "manifest should not contain tunnel zone")
+}
+
+func TestSetupWgS2sZone_ManifestFail_RollbackZone(t *testing.T) {
+	zones := []Zone{
+		{ID: "zone-int", Name: "Internal"},
+	}
+	var deletedZoneID string
+	ic := newMockIC(t, integrationMockOpts{
+		zones: zones,
+		deleteZoneFn: func(zoneID string) {
+			deletedZoneID = zoneID
+		},
+	})
+	m := newTestManifest(t)
+	fm := newTestFW(t, ic, m)
+	// Break manifest after siteID is set
+	m.path = "/nonexistent-dir/manifest.json"
+
+	result := fm.SetupWgS2sZone(context.Background(), "tun-1", "", "Test Tunnel")
+
+	assert.False(t, result.ZoneCreated, "zone should be rolled back")
+	assert.Empty(t, result.ZoneID)
+	assert.False(t, result.PoliciesReady)
+	assert.Nil(t, result.PolicyIDs)
+	assert.True(t, hasStepError(result, "manifest"))
+	assert.Equal(t, "zone-created", deletedZoneID, "rollback should delete the zone")
+}
+
+func TestSetupWgS2sZone_ZoneReuse_NoRollback(t *testing.T) {
+	ic := newMockIC(t, integrationMockOpts{})
+	m := newTestManifest(t)
+	require.NoError(t, m.SetWgS2sZone("tun-existing", ZoneManifest{
+		ZoneID: "zone-shared", ZoneName: "Shared", PolicyIDs: []string{"pol-1"}, ChainPrefix: "VPN",
+	}))
+	fm := newTestFW(t, ic, m)
+
+	result := fm.SetupWgS2sZone(context.Background(), "tun-2", "zone-shared", "")
+
+	assert.True(t, result.ZoneCreated)
+	assert.Equal(t, "zone-shared", result.ZoneID)
+	assert.True(t, result.PoliciesReady)
+	zm, ok := m.GetWgS2sZone("tun-2")
+	assert.True(t, ok)
+	assert.Equal(t, "zone-shared", zm.ZoneID)
+}
+
+func TestTeardownWgS2sZone_LastTunnel_DeletesZoneAndPolicies(t *testing.T) {
+	var deletedPolicies []string
+	var deletedZoneID string
+	ic := newMockIC(t, integrationMockOpts{
+		deleteZoneFn: func(zoneID string) {
+			deletedZoneID = zoneID
+		},
+		deletePolicyFn: func(policyID string) {
+			deletedPolicies = append(deletedPolicies, policyID)
+		},
+	})
+	m := newTestManifest(t)
+	require.NoError(t, m.SetWgS2sZone("tun-1", ZoneManifest{
+		ZoneID: "zone-wg", ZoneName: "WG S2S", PolicyIDs: []string{"pol-a", "pol-b"}, ChainPrefix: "CUSTOM1",
+	}))
+	fm := newTestFW(t, ic, m)
+
+	fm.TeardownWgS2sZone(context.Background(), "tun-1")
+
+	_, ok := m.GetWgS2sZone("tun-1")
+	assert.False(t, ok, "tunnel should be removed from manifest")
+	assert.Equal(t, "zone-wg", deletedZoneID, "zone should be deleted")
+	assert.ElementsMatch(t, []string{"pol-a", "pol-b"}, deletedPolicies, "all policies should be deleted")
+}
+
+func TestTeardownWgS2sZone_SharedZone_KeepsZone(t *testing.T) {
+	var deletedZoneID string
+	ic := newMockIC(t, integrationMockOpts{
+		deleteZoneFn: func(zoneID string) {
+			deletedZoneID = zoneID
+		},
+	})
+	m := newTestManifest(t)
+	zm := ZoneManifest{ZoneID: "zone-shared", ZoneName: "Shared", PolicyIDs: []string{"pol-1"}, ChainPrefix: "VPN"}
+	require.NoError(t, m.SetWgS2sZone("tun-1", zm))
+	require.NoError(t, m.SetWgS2sZone("tun-2", zm))
+	fm := newTestFW(t, ic, m)
+
+	fm.TeardownWgS2sZone(context.Background(), "tun-1")
+
+	_, ok := m.GetWgS2sZone("tun-1")
+	assert.False(t, ok, "tun-1 should be removed from manifest")
+	_, ok = m.GetWgS2sZone("tun-2")
+	assert.True(t, ok, "tun-2 should remain")
+	assert.Empty(t, deletedZoneID, "shared zone should NOT be deleted")
+}
+
+func TestTeardownWgS2sZone_NotFound_Noop(t *testing.T) {
+	ic := newMockIC(t, integrationMockOpts{})
+	m := newTestManifest(t)
+	fm := newTestFW(t, ic, m)
+
+	// Should not panic
+	fm.TeardownWgS2sZone(context.Background(), "nonexistent")
 }

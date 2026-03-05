@@ -93,6 +93,7 @@ type FirewallService interface {
 	SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error
 	RemoveWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string)
 	RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID string, cidrs []string)
+	TeardownWgS2sZone(ctx context.Context, tunnelID string)
 	OpenWanPort(ctx context.Context, port int, marker string) error
 	CloseWanPort(ctx context.Context, port int, marker string) error
 	EnsureDNSForwarding(ctx context.Context, magicDNSSuffix string) error
