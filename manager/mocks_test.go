@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"io"
+	"strings"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
@@ -352,6 +354,7 @@ type mockTailscaleControl struct {
 	checkIPForwardingFn    func(ctx context.Context) error
 	currentDERPMapFn       func(ctx context.Context) (*tailcfg.DERPMap, error)
 	watchIPNBusFn          func(ctx context.Context, mask ipn.NotifyWatchOpt) (IPNWatcher, error)
+	tailDaemonLogsFn       func(ctx context.Context) (io.Reader, error)
 }
 
 func (m *mockTailscaleControl) Status(ctx context.Context) (*ipnstate.Status, error) {
@@ -419,6 +422,12 @@ func (m *mockTailscaleControl) WatchIPNBus(ctx context.Context, mask ipn.NotifyW
 		return m.watchIPNBusFn(ctx, mask)
 	}
 	return &mockIPNWatcher{}, nil
+}
+func (m *mockTailscaleControl) TailDaemonLogs(ctx context.Context) (io.Reader, error) {
+	if m.tailDaemonLogsFn != nil {
+		return m.tailDaemonLogsFn(ctx)
+	}
+	return strings.NewReader(""), nil
 }
 
 type mockIPNWatcher struct {

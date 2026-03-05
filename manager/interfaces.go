@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
@@ -82,6 +83,7 @@ type TailscaleControl interface {
 	CheckIPForwarding(ctx context.Context) error
 	CurrentDERPMap(ctx context.Context) (*tailcfg.DERPMap, error)
 	WatchIPNBus(ctx context.Context, mask ipn.NotifyWatchOpt) (IPNWatcher, error)
+	TailDaemonLogs(ctx context.Context) (io.Reader, error)
 }
 
 type FirewallService interface {

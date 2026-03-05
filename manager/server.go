@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"tailscale.com/client/local"
 	"unifi-tailscale/manager/internal/wgs2s"
 )
 
@@ -57,7 +56,6 @@ type Server struct {
 	vpnClientsMu     sync.Mutex
 	updater           *updateChecker
 	intCache          integrationCache
-	rawLC             *local.Client
 }
 
 func NewServer(ctx context.Context, opts ServerOptions) *Server {
@@ -75,10 +73,6 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		logBuf:     opts.LogBuf,
 		updater:    opts.Updater,
 	}
-	if tc, ok := opts.Tailscale.(*tailscaleClient); ok {
-		s.rawLC = tc.lc
-	}
-
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	s.mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
@@ -131,7 +125,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		},
 	}
 
-	s.validateIntegration()
+	s.validateIntegration(ctx)
 
 	return s
 }
@@ -160,9 +154,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	go s.runWatcher(ctx)
-	if s.rawLC != nil {
-		go runLogCollector(ctx, s.rawLC, s.logBuf)
-	}
+	go runLogCollector(ctx, s.ts, s.logBuf)
 	go s.runUpdateChecker(ctx)
 
 	errCh := make(chan error, 1)
@@ -311,12 +303,12 @@ func (s *Server) openTailscaleWanPort(ctx context.Context) {
 	}
 }
 
-func (s *Server) validateIntegration() {
+func (s *Server) validateIntegration(ctx context.Context) {
 	if !s.ic.HasAPIKey() {
 		return
 	}
 
-	_, err := s.ic.Validate(context.Background())
+	_, err := s.ic.Validate(ctx)
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) {
 			slog.Warn("API key invalid (likely factory reset), clearing")
@@ -330,7 +322,7 @@ func (s *Server) validateIntegration() {
 		return
 	}
 
-	siteID, err := s.ic.DiscoverSiteID(context.Background())
+	siteID, err := s.ic.DiscoverSiteID(ctx)
 	if err != nil {
 		slog.Warn("site discovery failed", "err", err)
 		return
@@ -344,15 +336,15 @@ func (s *Server) validateIntegration() {
 		_ = s.manifest.ResetIntegration()
 	}
 
-	s.validateManifestZones(siteID)
+	s.validateManifestZones(ctx, siteID)
 }
 
-func (s *Server) validateManifestZones(siteID string) {
+func (s *Server) validateManifestZones(ctx context.Context, siteID string) {
 	ts := s.manifest.GetTailscaleZone()
 	if ts.ZoneID == "" {
 		return
 	}
-	zones, err := s.ic.ListZones(context.Background(), siteID)
+	zones, err := s.ic.ListZones(ctx, siteID)
 	if err != nil {
 		slog.Warn("zone validation failed", "err", err)
 		return
@@ -371,7 +363,7 @@ func (s *Server) validateManifestZones(siteID string) {
 	}
 
 	if len(ts.PolicyIDs) > 0 {
-		policies, err := s.ic.ListPolicies(context.Background(), siteID)
+		policies, err := s.ic.ListPolicies(ctx, siteID)
 		if err != nil {
 			slog.Warn("policy validation failed", "err", err)
 			return

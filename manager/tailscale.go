@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"time"
 
@@ -66,6 +67,10 @@ func (t *tailscaleClient) CurrentDERPMap(ctx context.Context) (*tailcfg.DERPMap,
 
 func (t *tailscaleClient) WatchIPNBus(ctx context.Context, mask ipn.NotifyWatchOpt) (IPNWatcher, error) {
 	return t.lc.WatchIPNBus(ctx, mask)
+}
+
+func (t *tailscaleClient) TailDaemonLogs(ctx context.Context) (io.Reader, error) {
+	return t.lc.TailDaemonLogs(ctx)
 }
 
 func connectWithBackoff(ctx context.Context, ts TailscaleControl) error {

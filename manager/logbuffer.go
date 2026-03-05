@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"tailscale.com/client/local"
 )
 
 type logEntry struct {
@@ -65,12 +63,12 @@ func (lb *LogBuffer) Snapshot() []logEntry {
 	return out
 }
 
-func runLogCollector(ctx context.Context, lc *local.Client, buf *LogBuffer) {
+func runLogCollector(ctx context.Context, ts TailscaleControl, buf *LogBuffer) {
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := tailLogs(ctx, lc, buf); err != nil {
+		if err := tailLogs(ctx, ts, buf); err != nil {
 			if ctx.Err() != nil {
 				return
 			}
@@ -84,8 +82,8 @@ func runLogCollector(ctx context.Context, lc *local.Client, buf *LogBuffer) {
 	}
 }
 
-func tailLogs(ctx context.Context, lc *local.Client, buf *LogBuffer) error {
-	reader, err := lc.TailDaemonLogs(ctx)
+func tailLogs(ctx context.Context, ts TailscaleControl, buf *LogBuffer) error {
+	reader, err := ts.TailDaemonLogs(ctx)
 	if err != nil {
 		return err
 	}
