@@ -73,9 +73,8 @@ func TestManifestSaveRoundtrip(t *testing.T) {
 	m, err := LoadManifest(path)
 	require.NoError(t, err)
 
-	m.SiteID = "my-site"
-	m.SetTailscaleZone("z1", "VPN Pack: Tailscale", []string{"p1"}, "TS")
-	require.NoError(t, m.Save())
+	require.NoError(t, m.SetSiteID("my-site"))
+	require.NoError(t, m.SetTailscaleZone("z1", "VPN Pack: Tailscale", []string{"p1"}, "TS"))
 
 	m2, err := LoadManifest(path)
 	require.NoError(t, err)
@@ -130,43 +129,45 @@ func TestGetTailscaleChainPrefix(t *testing.T) {
 }
 
 func TestWanPortCycle(t *testing.T) {
-	m := &Manifest{}
+	dir := t.TempDir()
+	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	require.NoError(t, err)
 
-	m.SetWanPort("test-marker", "pol-1", "Test Policy", 8080)
+	require.NoError(t, m.SetWanPort("test-marker", "pol-1", "Test Policy", 8080))
 	assert.Equal(t, "pol-1", m.GetWanPortPolicyID("test-marker"))
 
-	m.RemoveWanPort("test-marker")
+	require.NoError(t, m.RemoveWanPort("test-marker"))
 	assert.Equal(t, "", m.GetWanPortPolicyID("test-marker"))
 }
 
-func TestManifestSave_ReturnsError(t *testing.T) {
+func TestManifest_SetterPersistence(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		dir := t.TempDir()
 		m := &Manifest{path: filepath.Join(dir, "manifest.json"), Version: 2}
-		require.NoError(t, m.Save())
+		require.NoError(t, m.SetSiteID("test-site"))
 		data, err := os.ReadFile(m.path)
 		require.NoError(t, err)
 		var loaded Manifest
 		require.NoError(t, json.Unmarshal(data, &loaded))
 		assert.Equal(t, 2, loaded.Version)
+		assert.Equal(t, "test-site", loaded.SiteID)
 	})
 
 	t.Run("unwritable path", func(t *testing.T) {
 		m := &Manifest{path: "/proc/nonexistent/manifest.json", Version: 2}
-		err := m.Save()
+		err := m.SetSiteID("test-site")
 		assert.Error(t, err)
 	})
 }
 
-func TestManifestSave_Atomic(t *testing.T) {
+func TestManifest_AtomicPersistence(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "manifest.json")
 
-	m := &Manifest{path: path, Version: 2, SiteID: "initial"}
-	require.NoError(t, m.Save())
+	m := &Manifest{path: path, Version: 2}
+	require.NoError(t, m.SetSiteID("initial"))
 
-	m.SiteID = "updated"
-	require.NoError(t, m.Save())
+	require.NoError(t, m.SetSiteID("updated"))
 
 	_, err := os.Stat(path + ".tmp")
 	assert.True(t, os.IsNotExist(err))
@@ -191,7 +192,7 @@ func TestManifest_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				tunnelID := fmt.Sprintf("tunnel-%d-%d", id, j)
-				m.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: "zone-1", ZoneName: "Zone One", PolicyIDs: []string{"p1"}, ChainPrefix: "VPN"})
+				_ = m.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: "zone-1", ZoneName: "Zone One", PolicyIDs: []string{"p1"}, ChainPrefix: "VPN"})
 			}
 		}(i)
 	}
@@ -214,10 +215,10 @@ func TestManifest_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			marker := fmt.Sprintf("marker-%d", id)
 			for j := 0; j < iterations; j++ {
-				m.SetWanPort(marker, "pol-1", "Test", 8080+id)
+				_ = m.SetWanPort(marker, "pol-1", "Test", 8080+id)
 				_ = m.GetWanPortPolicyID(marker)
 				_, _ = m.GetWanPortEntry(marker)
-				m.RemoveWanPort(marker)
+				_ = m.RemoveWanPort(marker)
 			}
 		}(i)
 	}
@@ -227,37 +228,35 @@ func TestManifest_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				m.SetSiteID(fmt.Sprintf("site-%d", id))
+				_ = m.SetSiteID(fmt.Sprintf("site-%d", id))
 				_ = m.GetSiteID()
 				_ = m.HasSiteID()
 			}
 		}(i)
 	}
 
-	for i := 0; i < goroutines/2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations/10; j++ {
-				_ = m.Save()
-			}
-		}()
-	}
-
 	wg.Wait()
 }
 
 func TestManifest_SnapshotIsolation(t *testing.T) {
-	m := &Manifest{
-		WanPorts: map[string]WanPortEntry{
-			"a": {PolicyID: "p1", Port: 80},
-			"b": {PolicyID: "p2", Port: 443},
-		},
-	}
+	dir := t.TempDir()
+	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	require.NoError(t, err)
+
+	require.NoError(t, m.SetWanPort("a", "p1", "A", 80))
+	require.NoError(t, m.SetWanPort("b", "p2", "B", 443))
 
 	snap := m.GetWanPortsSnapshot()
-	m.RemoveWanPort("a")
+	require.NoError(t, m.RemoveWanPort("a"))
 
 	assert.Contains(t, snap, "a")
 	assert.Equal(t, "", m.GetWanPortPolicyID("a"))
+}
+
+func TestManifest_RemoveNonExistingTunnel(t *testing.T) {
+	dir := t.TempDir()
+	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	require.NoError(t, err)
+
+	require.NoError(t, m.RemoveWgS2sTunnel("nonexistent-tunnel"))
 }

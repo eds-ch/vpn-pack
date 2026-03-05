@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -125,9 +126,7 @@ func migrateV1(data []byte) (*Manifest, error) {
 	return m, nil
 }
 
-func (m *Manifest) Save() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *Manifest) saveLocked() error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("manifest marshal: %w", err)
@@ -146,7 +145,7 @@ func (m *Manifest) Save() error {
 	return nil
 }
 
-func (m *Manifest) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) {
+func (m *Manifest) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Tailscale = ZoneManifest{
@@ -156,9 +155,10 @@ func (m *Manifest) SetTailscaleZone(zoneID, zoneName string, policyIDs []string,
 		ChainPrefix: chainPrefix,
 	}
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
-func (m *Manifest) SetWgS2sZone(tunnelID string, zm ZoneManifest) {
+func (m *Manifest) SetWgS2sZone(tunnelID string, zm ZoneManifest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.WgS2s == nil {
@@ -166,13 +166,18 @@ func (m *Manifest) SetWgS2sZone(tunnelID string, zm ZoneManifest) {
 	}
 	m.WgS2s[tunnelID] = zm
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
-func (m *Manifest) RemoveWgS2sTunnel(tunnelID string) {
+func (m *Manifest) RemoveWgS2sTunnel(tunnelID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, ok := m.WgS2s[tunnelID]; !ok {
+		slog.Debug("removing non-existing wg-s2s tunnel from manifest", "tunnelID", tunnelID)
+	}
 	delete(m.WgS2s, tunnelID)
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
 func (m *Manifest) GetWgS2sZones() []WgS2sZoneInfo {
@@ -220,7 +225,7 @@ func (m *Manifest) GetWgS2sChainPrefix(tunnelID string) string {
 	return "VPN"
 }
 
-func (m *Manifest) SetWanPort(marker, policyID, policyName string, port int) {
+func (m *Manifest) SetWanPort(marker, policyID, policyName string, port int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.WanPorts == nil {
@@ -228,13 +233,15 @@ func (m *Manifest) SetWanPort(marker, policyID, policyName string, port int) {
 	}
 	m.WanPorts[marker] = WanPortEntry{PolicyID: policyID, PolicyName: policyName, Port: port}
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
-func (m *Manifest) RemoveWanPort(marker string) {
+func (m *Manifest) RemoveWanPort(marker string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.WanPorts, marker)
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
 func (m *Manifest) GetWanPortPolicyID(marker string) string {
@@ -249,12 +256,13 @@ func (m *Manifest) GetWanPortPolicyID(marker string) string {
 	return ""
 }
 
-func (m *Manifest) SetSystemZoneIDs(externalID, gatewayID string) {
+func (m *Manifest) SetSystemZoneIDs(externalID, gatewayID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ExternalZoneID = externalID
 	m.GatewayZoneID = gatewayID
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
 func (m *Manifest) GetSiteID() string {
@@ -263,11 +271,12 @@ func (m *Manifest) GetSiteID() string {
 	return m.SiteID
 }
 
-func (m *Manifest) SetSiteID(siteID string) {
+func (m *Manifest) SetSiteID(siteID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.SiteID = siteID
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
 func (m *Manifest) HasSiteID() bool {
@@ -293,7 +302,7 @@ func (m *Manifest) GetWanPortEntry(marker string) (WanPortEntry, bool) {
 	return e, ok
 }
 
-func (m *Manifest) SetDNSPolicy(marker, policyID, domain, ipAddress string) {
+func (m *Manifest) SetDNSPolicy(marker, policyID, domain, ipAddress string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.DNSPolicies == nil {
@@ -301,13 +310,15 @@ func (m *Manifest) SetDNSPolicy(marker, policyID, domain, ipAddress string) {
 	}
 	m.DNSPolicies[marker] = DNSPolicyEntry{PolicyID: policyID, Domain: domain, IPAddress: ipAddress}
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
-func (m *Manifest) RemoveDNSPolicy(marker string) {
+func (m *Manifest) RemoveDNSPolicy(marker string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.DNSPolicies, marker)
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
 func (m *Manifest) GetDNSPolicy(marker string) (DNSPolicyEntry, bool) {
@@ -342,7 +353,7 @@ func (m *Manifest) GetSystemZoneIDs() (string, string) {
 	return m.ExternalZoneID, m.GatewayZoneID
 }
 
-func (m *Manifest) ResetIntegration() {
+func (m *Manifest) ResetIntegration() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Tailscale = ZoneManifest{}
@@ -352,6 +363,7 @@ func (m *Manifest) ResetIntegration() {
 	m.ExternalZoneID = ""
 	m.GatewayZoneID = ""
 	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
 func (m *Manifest) GetWanPortsSnapshot() map[string]WanPortEntry {
@@ -380,75 +392,3 @@ func (m *Manifest) GetWgS2sSnapshot() map[string]ZoneManifest {
 	return cp
 }
 
-type manifestAdapter struct {
-	m *Manifest
-}
-
-func NewManifestStore(m *Manifest) ManifestStore {
-	return &manifestAdapter{m: m}
-}
-
-func (a *manifestAdapter) GetSiteID() string                                  { return a.m.GetSiteID() }
-func (a *manifestAdapter) HasSiteID() bool                                    { return a.m.HasSiteID() }
-func (a *manifestAdapter) GetTailscaleZone() ZoneManifest                     { return a.m.GetTailscaleZone() }
-func (a *manifestAdapter) GetTailscaleChainPrefix() string                    { return a.m.GetTailscaleChainPrefix() }
-func (a *manifestAdapter) GetWgS2sZone(id string) (ZoneManifest, bool)        { return a.m.GetWgS2sZone(id) }
-func (a *manifestAdapter) GetWgS2sZones() []WgS2sZoneInfo                    { return a.m.GetWgS2sZones() }
-func (a *manifestAdapter) GetWgS2sChainPrefix(id string) string               { return a.m.GetWgS2sChainPrefix(id) }
-func (a *manifestAdapter) GetWanPortPolicyID(marker string) string            { return a.m.GetWanPortPolicyID(marker) }
-func (a *manifestAdapter) GetWanPortEntry(marker string) (WanPortEntry, bool) { return a.m.GetWanPortEntry(marker) }
-func (a *manifestAdapter) GetWanPortsSnapshot() map[string]WanPortEntry       { return a.m.GetWanPortsSnapshot() }
-func (a *manifestAdapter) GetWgS2sSnapshot() map[string]ZoneManifest          { return a.m.GetWgS2sSnapshot() }
-func (a *manifestAdapter) GetSystemZoneIDs() (string, string)                 { return a.m.GetSystemZoneIDs() }
-func (a *manifestAdapter) HasDNSPolicy(marker string) bool                    { return a.m.HasDNSPolicy(marker) }
-func (a *manifestAdapter) GetDNSPolicy(marker string) (DNSPolicyEntry, bool)  { return a.m.GetDNSPolicy(marker) }
-
-func (a *manifestAdapter) SetSiteID(siteID string) error {
-	a.m.SetSiteID(siteID)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) error {
-	a.m.SetTailscaleZone(zoneID, zoneName, policyIDs, chainPrefix)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) SetWgS2sZone(tunnelID string, zm ZoneManifest) error {
-	a.m.SetWgS2sZone(tunnelID, zm)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) RemoveWgS2sTunnel(tunnelID string) error {
-	a.m.RemoveWgS2sTunnel(tunnelID)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) SetWanPort(marker, policyID, policyName string, port int) error {
-	a.m.SetWanPort(marker, policyID, policyName, port)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) RemoveWanPort(marker string) error {
-	a.m.RemoveWanPort(marker)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) SetSystemZoneIDs(externalID, gatewayID string) error {
-	a.m.SetSystemZoneIDs(externalID, gatewayID)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) SetDNSPolicy(marker, policyID, domain, ipAddress string) error {
-	a.m.SetDNSPolicy(marker, policyID, domain, ipAddress)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) RemoveDNSPolicy(marker string) error {
-	a.m.RemoveDNSPolicy(marker)
-	return a.m.Save()
-}
-
-func (a *manifestAdapter) ResetIntegration() error {
-	a.m.ResetIntegration()
-	return a.m.Save()
-}

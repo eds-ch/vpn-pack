@@ -67,7 +67,7 @@ func main() {
 		DeviceInfo:  info,
 		Tailscale:   NewTailscaleControl(*socket),
 		Hub:         NewHub(),
-		Manifest:    NewManifestStore(manifest),
+		Manifest:    manifest,
 		Integration: ic,
 		Firewall:    NewFirewallManager(udapiSocketPath, ic, manifest),
 		Nginx:       NewNginxManager(),

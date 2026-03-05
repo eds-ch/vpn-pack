@@ -343,7 +343,9 @@ func (s *Server) reconcileWanPortPolicies(ctx context.Context) {
 			continue
 		}
 		slog.Info("WAN port policy missing from API, recreating", "marker", marker, "port", entry.Port)
-		s.manifest.RemoveWanPort(marker)
+		if err := s.manifest.RemoveWanPort(marker); err != nil {
+			slog.Warn("failed to remove stale WAN port entry from manifest", "marker", marker, "err", err)
+		}
 		if err := s.fw.OpenWanPort(ctx, entry.Port, marker); err != nil {
 			slog.Warn("WAN port policy recreation failed", "marker", marker, "err", err)
 		}

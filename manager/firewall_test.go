@@ -92,7 +92,7 @@ func newTestManifest(t *testing.T) *Manifest {
 	dir := t.TempDir()
 	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
 	require.NoError(t, err)
-	m.SetSiteID("site-test")
+	require.NoError(t, m.SetSiteID("site-test"))
 	return m
 }
 
