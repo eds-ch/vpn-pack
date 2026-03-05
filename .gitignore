@@ -41,3 +41,6 @@ docs/
 # GitHub Wiki (separate git repo)
 wiki/
 
+# Scripts
+scripts/
+

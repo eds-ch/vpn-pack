@@ -52,7 +52,7 @@ func (s *Server) teardownTunnelFirewall(ctx context.Context, t *wgs2s.TunnelConf
 		return
 	}
 	s.fw.RemoveWgS2sFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs)
-	s.closeWgS2sWanPort(t.ListenPort, t.InterfaceName)
+	s.closeWgS2sWanPort(ctx, t.ListenPort, t.InterfaceName)
 }
 
 func validateTunnelSubnets(allowedIPs []string, excludeIfaces ...string) (warnings, blocks []SubnetConflict) {
@@ -148,7 +148,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 	s.setupTunnelZone(r.Context(), tunnel.ID, req.CreateZone, req.ZoneID, req.ZoneName)
 
 	s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID, Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs})
-	s.openWgS2sWanPort(tunnel.ListenPort, tunnel.InterfaceName)
+	s.openWgS2sWanPort(r.Context(), tunnel.ListenPort, tunnel.InterfaceName)
 
 	resp := wgS2sTunnelResponse{TunnelConfig: *tunnel, Warnings: warnings}
 	if pubKey, err := s.wgManager.GetPublicKey(tunnel.ID); err == nil {
@@ -334,7 +334,7 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 
 	if t := s.findTunnelByID(id); t != nil {
 		s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
-		s.openWgS2sWanPort(t.ListenPort, t.InterfaceName)
+		s.openWgS2sWanPort(r.Context(), t.ListenPort, t.InterfaceName)
 	}
 
 	writeOK(w)

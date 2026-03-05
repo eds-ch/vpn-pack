@@ -15,6 +15,12 @@ func TestStepError(t *testing.T) {
 	assert.Equal(t, "create_zone: timeout", e.Error())
 }
 
+func TestStepErrorUnwrap(t *testing.T) {
+	inner := fmt.Errorf("connection refused")
+	e := StepError{Step: "udapi", Err: inner}
+	assert.ErrorIs(t, e, inner)
+}
+
 func TestFirewallSetupResult_OK(t *testing.T) {
 	tests := []struct {
 		name   string

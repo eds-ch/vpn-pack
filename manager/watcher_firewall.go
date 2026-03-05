@@ -229,7 +229,7 @@ func (s *Server) retryIntegrationSetup(ctx context.Context) {
 	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.intRetry.count())
 	s.intRetry.reset()
 
-	s.openTailscaleWanPort()
+	s.openTailscaleWanPort(ctx)
 }
 
 func (s *Server) restoreTailscaleRules(ctx context.Context) {

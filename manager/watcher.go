@@ -184,7 +184,7 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *IntegrationS
 		slog.Warn("firewall setup retry failed, will not retry until restart", "err", result.Err())
 		s.intRetry.markDegraded()
 	} else {
-		s.openTailscaleWanPort()
+		s.openTailscaleWanPort(ctx)
 	}
 	return s.fetchIntegrationStatus()
 }

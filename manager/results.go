@@ -16,6 +16,10 @@ func (e StepError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Step, e.Err)
 }
 
+func (e StepError) Unwrap() error {
+	return e.Err
+}
+
 type FirewallSetupResult struct {
 	ZoneCreated   bool
 	ZoneID        string
@@ -83,7 +87,7 @@ func NewFirewallStatusBrief(r *FirewallSetupResult) *FirewallStatusBrief {
 type TunnelCreateResponse struct {
 	wgS2sTunnelResponse
 	Status   string              `json:"status,omitempty"`
-	Firewall *FirewallStatusBrief `json:"firewallStatus,omitempty"`
+	Firewall *FirewallStatusBrief `json:"firewall,omitempty"`
 }
 
 // SSE event structs for type-safe broadcasting.

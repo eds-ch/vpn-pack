@@ -165,7 +165,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	if s.integrationReady() {
-		s.openTailscaleWanPort()
+		s.openTailscaleWanPort(ctx)
 		go s.reconcileWanPortPolicies(ctx)
 	}
 
@@ -269,34 +269,34 @@ func (s *Server) integrationReady() bool {
 	return s.fw != nil && s.fw.requireIntegration() == nil
 }
 
-func (s *Server) openWgS2sWanPort(port int, iface string) {
+func (s *Server) openWgS2sWanPort(ctx context.Context, port int, iface string) {
 	if s.fw == nil {
 		return
 	}
-	if err := s.fw.OpenWanPort(context.Background(), port, wanMarkerWgS2sPrefix+iface); err != nil {
+	if err := s.fw.OpenWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
 	} else {
 		s.schedulePostPolicyRestore()
 	}
 }
 
-func (s *Server) closeWgS2sWanPort(port int, iface string) {
+func (s *Server) closeWgS2sWanPort(ctx context.Context, port int, iface string) {
 	if s.fw == nil || port <= 0 {
 		return
 	}
-	if err := s.fw.CloseWanPort(context.Background(), port, wanMarkerWgS2sPrefix+iface); err != nil {
+	if err := s.fw.CloseWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
 	} else {
 		s.schedulePostPolicyRestore()
 	}
 }
 
-func (s *Server) openTailscaleWanPort() {
+func (s *Server) openTailscaleWanPort(ctx context.Context) {
 	port := readTailscaledPort()
 	if port <= 0 {
 		return
 	}
-	if err := s.fw.OpenWanPort(context.Background(), port, wanMarkerTailscaleWG); err != nil {
+	if err := s.fw.OpenWanPort(ctx, port, wanMarkerTailscaleWG); err != nil {
 		slog.Warn("tailscale WG WAN port open failed", "port", port, "err", err)
 	}
 }
