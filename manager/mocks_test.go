@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"time"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
@@ -460,6 +461,7 @@ type mockFirewallService struct {
 	ensureDNSForwardingFn       func(ctx context.Context, magicDNSSuffix string) error
 	removeDNSForwardingFn       func(ctx context.Context) error
 	restoreTailscaleRulesFn     func(ctx context.Context) error
+	restoreRulesWithRetryFn     func(ctx context.Context, retries int, delay time.Duration)
 	checkTailscaleRulesPresentFn func(ctx context.Context) (bool, bool, bool, bool)
 	checkWgS2sRulesPresentFn    func(ctx context.Context, ifaces []string) map[string]bool
 	integrationReadyFn          func() bool
@@ -522,6 +524,11 @@ func (m *mockFirewallService) RestoreTailscaleRules(ctx context.Context) error {
 		return m.restoreTailscaleRulesFn(ctx)
 	}
 	return nil
+}
+func (m *mockFirewallService) RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration) {
+	if m.restoreRulesWithRetryFn != nil {
+		m.restoreRulesWithRetryFn(ctx, retries, delay)
+	}
 }
 func (m *mockFirewallService) CheckTailscaleRulesPresent(ctx context.Context) (bool, bool, bool, bool) {
 	if m.checkTailscaleRulesPresentFn != nil {

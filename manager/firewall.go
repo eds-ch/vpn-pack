@@ -59,6 +59,11 @@ func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *Firewall
 		result.ZoneName = zone.Name
 		slog.Info("integration zone ready", "zoneId", zone.ID, "name", zone.Name)
 
+		if ctx.Err() != nil {
+			result.addError("context", ctx.Err())
+			return result
+		}
+
 		policyIDs, err := fm.ic.EnsurePolicies(ctx, siteID, "Tailscale", zone.ID)
 		if err != nil {
 			slog.Warn("integration policy setup had errors, will retry on next restart", "err", err)
@@ -78,6 +83,11 @@ func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *Firewall
 			slog.Warn("manifest save failed", "err", err)
 			result.addError("manifest", err)
 		}
+	}
+
+	if ctx.Err() != nil {
+		result.addError("context", ctx.Err())
+		return result
 	}
 
 	marker := firewallMarker
@@ -180,6 +190,10 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 	marker := "wg-s2s-manager:" + iface
 	if err := udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix); err != nil {
 		return err
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
 	if len(allowedIPs) > 0 {
@@ -350,6 +364,21 @@ func (fm *FirewallManager) RemoveDNSForwarding(ctx context.Context) error {
 
 	slog.Info("DNS forwarding policy removed", "domain", entry.Domain)
 	return nil
+}
+
+func (fm *FirewallManager) RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration) {
+	for i := range retries {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+		}
+		if err := fm.RestoreTailscaleRules(ctx); err != nil {
+			slog.Warn("restore rules retry failed", "attempt", i+1, "err", err)
+		}
+	}
 }
 
 func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {

@@ -66,15 +66,20 @@ export function dismissUpdate() {
     updateInfo.dismissed = true;
 }
 
-export function addError(message) {
+export function addError(message, type = 'error') {
     const now = Date.now();
     if (errors.some(e => e.message === message && (now - new Date(e.timestamp).getTime()) < ERROR_DEDUP_MS)) return;
     errors.push({
         id: nextErrorId++,
         message,
+        type,
         timestamp: new Date(now).toISOString(),
     });
     if (errors.length > ERROR_CAP) errors.splice(0, errors.length - ERROR_CAP);
+}
+
+export function addWarning(message) {
+    addError(message, 'warning');
 }
 
 export function dismissError(id) {

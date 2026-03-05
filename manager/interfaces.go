@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"io"
+	"time"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
@@ -97,6 +98,7 @@ type FirewallService interface {
 	EnsureDNSForwarding(ctx context.Context, magicDNSSuffix string) error
 	RemoveDNSForwarding(ctx context.Context) error
 	RestoreTailscaleRules(ctx context.Context) error
+	RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration)
 	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
 	CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool
 	IntegrationReady() bool

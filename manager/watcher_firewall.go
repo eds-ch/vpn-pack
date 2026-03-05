@@ -19,13 +19,6 @@ func interfaceExists(name string) bool {
 	return err == nil
 }
 
-type FirewallRequest struct {
-	Action     FirewallAction
-	Interface  string
-	TunnelID   string
-	AllowedIPs []string
-}
-
 type integrationRetryState struct {
 	degraded   atomic.Bool
 	retryCount int
@@ -63,14 +56,6 @@ func (r *integrationRetryState) recordAttempt() {
 func (r *integrationRetryState) reset() { r.retryCount = 0 }
 func (r *integrationRetryState) count() int { return r.retryCount }
 
-func (s *Server) sendFirewallRequest(req FirewallRequest) {
-	select {
-	case s.firewallCh <- req:
-	default:
-		slog.Warn("firewall request dropped", "action", req.Action, "iface", req.Interface)
-
-	}
-}
 func (s *Server) runFirewallWatcher(ctx context.Context) {
 	sighup := make(chan os.Signal, 1)
 	signal.Notify(sighup, syscall.SIGHUP)
@@ -103,9 +88,6 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 			if result := s.fw.SetupTailscaleFirewall(ctx); result.Err() != nil {
 				slog.Warn("SIGHUP reapply failed", "err", result.Err())
 			}
-
-		case req := <-s.firewallCh:
-			s.handleFirewallRequest(ctx, req)
 		}
 	}
 }
@@ -192,6 +174,11 @@ func (s *Server) handleFsEvent(event fsnotify.Event) bool {
 }
 
 func (s *Server) checkAndRestoreRules(ctx context.Context) {
+	if !s.restoring.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.restoring.Store(false)
+
 	s.retryIntegrationSetup(ctx)
 	s.restoreTailscaleRules(ctx)
 	s.restoreWgS2sRules(ctx)
@@ -352,31 +339,3 @@ func (s *Server) reconcileWanPortPolicies(ctx context.Context) {
 	}
 }
 
-func (s *Server) schedulePostPolicyRestore() {
-	if !s.postPolicyRestore.CompareAndSwap(false, true) {
-		return
-	}
-	go func() {
-		defer s.postPolicyRestore.Store(false)
-		for range postPolicyRestoreRetries {
-			time.Sleep(postPolicyRestoreInterval)
-			s.sendFirewallRequest(FirewallRequest{Action: FirewallActionCheckAndRestore})
-		}
-	}()
-}
-
-func (s *Server) handleFirewallRequest(ctx context.Context, req FirewallRequest) {
-	switch req.Action {
-	case FirewallActionCheckAndRestore:
-		s.checkAndRestoreRules(ctx)
-	case FirewallActionApplyWgS2s:
-		if req.Interface != "" {
-			if err := s.fw.SetupWgS2sFirewall(ctx, req.TunnelID, req.Interface, req.AllowedIPs); err != nil {
-				slog.Warn("wg-s2s firewall rules failed", "iface", req.Interface, "err", err)
-				s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", req.Interface, err), "wgs2s"))
-			}
-		}
-	default:
-		slog.Warn("unknown firewall request action", "action", req.Action)
-	}
-}

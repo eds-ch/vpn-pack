@@ -90,6 +90,13 @@ type TunnelCreateResponse struct {
 	Firewall *FirewallStatusBrief `json:"firewall,omitempty"`
 }
 
+func firewallStatus(zoneResult *FirewallSetupResult, fwErr error) string {
+	if (zoneResult == nil || zoneResult.Err() == nil) && fwErr == nil {
+		return "ok"
+	}
+	return "partial"
+}
+
 // SSE event structs for type-safe broadcasting.
 
 type SSEStatusEvent = stateData

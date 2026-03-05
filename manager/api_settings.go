@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"tailscale.com/ipn"
 )
@@ -368,7 +369,7 @@ func (s *Server) swapWanPort(ctx context.Context, oldPort, newPort int, marker s
 		}
 	}
 	if changed {
-		s.schedulePostPolicyRestore()
+		s.fw.RestoreRulesWithRetry(ctx, 3, 2*time.Second)
 	}
 }
 

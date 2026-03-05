@@ -46,10 +46,9 @@ type Server struct {
 	ic                IntegrationAPI
 	manifest          ManifestStore
 	nginx             *NginxManager
-	firewallCh        chan FirewallRequest
 	watcherRunning    atomic.Bool
 	lastRestore       atomic.Pointer[time.Time]
-	postPolicyRestore atomic.Bool
+	restoring         atomic.Bool
 	intRetry          integrationRetryState
 	logBuf            *LogBuffer
 	wgManager         WgS2sControl
@@ -69,7 +68,6 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		ic:         opts.Integration,
 		manifest:   opts.Manifest,
 		nginx:      opts.Nginx,
-		firewallCh: make(chan FirewallRequest, firewallChBuffer),
 		logBuf:     opts.LogBuf,
 		updater:    opts.Updater,
 	}
@@ -146,7 +144,7 @@ func (s *Server) Run(ctx context.Context) error {
 		go s.runFirewallWatcher(ctx)
 	}
 
-	s.initWgS2s()
+	s.initWgS2s(ctx)
 
 	if s.integrationReady() {
 		s.openTailscaleWanPort(ctx)
@@ -187,7 +185,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-func (s *Server) initWgS2s() {
+func (s *Server) initWgS2s(ctx context.Context) {
 	wgs2sLog := slog.New(newBufferHandler(s.logBuf, "wgs2s", slog.NewJSONHandler(os.Stderr, nil)))
 	wgMgr, err := wgs2s.NewTunnelManager(wgS2sConfigDir, wgs2sLog)
 	if err != nil {
@@ -198,9 +196,14 @@ func (s *Server) initWgS2s() {
 	if restoreErr := wgMgr.RestoreAll(); restoreErr != nil {
 		slog.Warn("wg-s2s restore failed", "err", restoreErr)
 	}
+	if s.fw == nil {
+		return
+	}
 	for _, t := range wgMgr.GetTunnels() {
 		if t.Enabled {
-			s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
+			if err := s.fw.SetupWgS2sFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs); err != nil {
+				slog.Warn("wg-s2s firewall rules failed", "iface", t.InterfaceName, "err", err)
+			}
 		}
 	}
 }
@@ -278,7 +281,7 @@ func (s *Server) openWgS2sWanPort(ctx context.Context, port int, iface string) {
 	if err := s.fw.OpenWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
 	} else {
-		s.schedulePostPolicyRestore()
+		s.fw.RestoreRulesWithRetry(ctx, 3, 2*time.Second)
 	}
 }
 
@@ -289,7 +292,7 @@ func (s *Server) closeWgS2sWanPort(ctx context.Context, port int, iface string) 
 	if err := s.fw.CloseWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
 	} else {
-		s.schedulePostPolicyRestore()
+		s.fw.RestoreRulesWithRetry(ctx, 3, 2*time.Second)
 	}
 }
 

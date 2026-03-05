@@ -41,13 +41,7 @@ const (
 	statusRefresh    = 5 * time.Second
 	maxSSEClients    = 64
 	sseChannelBuffer = 16
-	firewallChBuffer = 8
-	logBufferSize    = 1000
-)
-
-const (
-	postPolicyRestoreRetries  = 10
-	postPolicyRestoreInterval = 2 * time.Second
+	logBufferSize = 1000
 )
 
 const (
@@ -103,13 +97,6 @@ const (
 const (
 	deviceInfoCmd   = "ubnt-device-info"
 	vpnClientPrefix = "wgclt"
-)
-
-type FirewallAction string
-
-const (
-	FirewallActionCheckAndRestore FirewallAction = "check-and-restore"
-	FirewallActionApplyWgS2s      FirewallAction = "apply-wg-s2s"
 )
 
 const maxPort = 65535

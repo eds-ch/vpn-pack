@@ -7,12 +7,12 @@
 {#if errors.length > 0}
     <div class="shrink-0 border-t border-border bg-panel max-h-48 overflow-y-auto">
         {#each errors as error (error.id)}
-            <div class="flex items-start gap-3 px-4 py-2 border-l-2 border-error">
+            <div class="flex items-start gap-3 px-4 py-2 border-l-2 {error.type === 'warning' ? 'border-amber-500' : 'border-error'}">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 text-caption text-text-secondary">
                         <span>{new Date(error.timestamp).toLocaleTimeString()}</span>
                     </div>
-                    <p class="text-body text-error mt-0.5">{error.message}</p>
+                    <p class="text-body {error.type === 'warning' ? 'text-amber-500' : 'text-error'} mt-0.5">{error.message}</p>
                 </div>
                 <button
                     onclick={() => dismissError(error.id)}

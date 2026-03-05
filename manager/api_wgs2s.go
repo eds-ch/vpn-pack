@@ -145,18 +145,34 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.setupTunnelZone(r.Context(), tunnel.ID, req.CreateZone, req.ZoneID, req.ZoneName)
+	zoneResult := s.setupTunnelZone(r.Context(), tunnel.ID, req.CreateZone, req.ZoneID, req.ZoneName)
 
-	s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID, Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs})
+	fwErr := s.fw.SetupWgS2sFirewall(r.Context(), tunnel.ID, tunnel.InterfaceName, tunnel.AllowedIPs)
+	if fwErr != nil {
+		slog.Warn("wg-s2s firewall rules failed", "iface", tunnel.InterfaceName, "err", fwErr)
+		s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", tunnel.InterfaceName, fwErr), "wgs2s"))
+	}
 	s.openWgS2sWanPort(r.Context(), tunnel.ListenPort, tunnel.InterfaceName)
 
-	resp := wgS2sTunnelResponse{TunnelConfig: *tunnel, Warnings: warnings}
+	tunnelResp := wgS2sTunnelResponse{TunnelConfig: *tunnel, Warnings: warnings}
 	if pubKey, err := s.wgManager.GetPublicKey(tunnel.ID); err == nil {
-		resp.PublicKey = pubKey
+		tunnelResp.PublicKey = pubKey
 	}
 	if zm, ok := s.manifest.GetWgS2sZone(tunnel.ID); ok {
-		resp.ZoneID = zm.ZoneID
-		resp.ZoneName = zm.ZoneName
+		tunnelResp.ZoneID = zm.ZoneID
+		tunnelResp.ZoneName = zm.ZoneName
+	}
+
+	resp := TunnelCreateResponse{wgS2sTunnelResponse: tunnelResp}
+	resp.Status = firewallStatus(zoneResult, fwErr)
+	if resp.Status == "partial" {
+		resp.Firewall = NewFirewallStatusBrief(zoneResult)
+		if resp.Firewall == nil {
+			resp.Firewall = &FirewallStatusBrief{}
+		}
+		if fwErr != nil {
+			resp.Firewall.Errors = append(resp.Firewall.Errors, fwErr.Error())
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
@@ -216,24 +232,23 @@ func validateWgS2sUpdateRequest(updates *wgs2s.TunnelConfig) error {
 	}
 	return nil
 }
-func (s *Server) setupTunnelZone(ctx context.Context, tunnelID string, createZone bool, zoneID, zoneName string) {
+func (s *Server) setupTunnelZone(ctx context.Context, tunnelID string, createZone bool, zoneID, zoneName string) *FirewallSetupResult {
 	if !s.integrationReady() {
-		return
+		return nil
 	}
+	var result *FirewallSetupResult
 	switch {
 	case createZone:
-		if result := s.fw.SetupWgS2sZone(ctx, tunnelID, "", zoneName); result.Err() != nil {
-			slog.Warn("wg-s2s zone setup failed", "err", result.Err())
-		}
+		result = s.fw.SetupWgS2sZone(ctx, tunnelID, "", zoneName)
 	case zoneID != "":
-		if result := s.fw.SetupWgS2sZone(ctx, tunnelID, zoneID, ""); result.Err() != nil {
-			slog.Warn("wg-s2s zone assignment failed", "err", result.Err())
-		}
+		result = s.fw.SetupWgS2sZone(ctx, tunnelID, zoneID, "")
 	case len(s.manifest.GetWgS2sZones()) == 0:
-		if result := s.fw.SetupWgS2sZone(ctx, tunnelID, "", "WireGuard S2S"); result.Err() != nil {
-			slog.Warn("wg-s2s auto zone setup failed", "err", result.Err())
-		}
+		result = s.fw.SetupWgS2sZone(ctx, tunnelID, "", "WireGuard S2S")
 	}
+	if result != nil && result.Err() != nil {
+		slog.Warn("wg-s2s zone setup failed", "err", result.Err())
+	}
+	return result
 }
 
 func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request) {
@@ -274,17 +289,25 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	var fwErr error
 	if updates.AllowedIPs != nil && tunnel.Enabled && existing != nil {
 		s.fw.RemoveWgS2sIPSetEntries(r.Context(), id, existing.AllowedIPs)
-		s.sendFirewallRequest(FirewallRequest{
-			Action: FirewallActionApplyWgS2s, TunnelID: tunnel.ID,
-			Interface: tunnel.InterfaceName, AllowedIPs: tunnel.AllowedIPs,
-		})
+		fwErr = s.fw.SetupWgS2sFirewall(r.Context(), tunnel.ID, tunnel.InterfaceName, tunnel.AllowedIPs)
+		if fwErr != nil {
+			slog.Warn("wg-s2s firewall rules failed", "iface", tunnel.InterfaceName, "err", fwErr)
+			s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", tunnel.InterfaceName, fwErr), "wgs2s"))
+		}
 	}
 
-	resp := wgS2sTunnelResponse{TunnelConfig: *tunnel, Warnings: warnings}
+	tunnelResp := wgS2sTunnelResponse{TunnelConfig: *tunnel, Warnings: warnings}
 	if pubKey, err := s.wgManager.GetPublicKey(tunnel.ID); err == nil {
-		resp.PublicKey = pubKey
+		tunnelResp.PublicKey = pubKey
+	}
+
+	resp := TunnelCreateResponse{wgS2sTunnelResponse: tunnelResp}
+	resp.Status = firewallStatus(nil, fwErr)
+	if resp.Status == "partial" {
+		resp.Firewall = &FirewallStatusBrief{Errors: []string{fwErr.Error()}}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -332,8 +355,16 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	if t := s.findTunnelByID(id); t != nil {
-		s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
+		fwErr := s.fw.SetupWgS2sFirewall(r.Context(), t.ID, t.InterfaceName, t.AllowedIPs)
+		if fwErr != nil {
+			slog.Warn("wg-s2s firewall rules failed", "iface", t.InterfaceName, "err", fwErr)
+			s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", t.InterfaceName, fwErr), "wgs2s"))
+		}
 		s.openWgS2sWanPort(r.Context(), t.ListenPort, t.InterfaceName)
+		if fwErr != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "partial", "firewall": &FirewallStatusBrief{Errors: []string{fwErr.Error()}}})
+			return
+		}
 	}
 
 	writeOK(w)

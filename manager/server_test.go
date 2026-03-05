@@ -74,7 +74,6 @@ func newTestServer(opts ...func(*Server)) *Server {
 		fw:         &mockFirewallService{},
 		ic:         &mockIntegrationAPI{},
 		manifest:   &mockManifestStore{},
-		firewallCh: make(chan FirewallRequest, 8),
 		logBuf:     NewLogBuffer(100),
 	}
 	for _, opt := range opts {

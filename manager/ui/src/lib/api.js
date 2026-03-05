@@ -1,4 +1,4 @@
-import { addError } from './stores/tailscale.svelte.js';
+import { addError, addWarning } from './stores/tailscale.svelte.js';
 import { AUTH_KEEPALIVE_MS } from './constants.js';
 
 const API_BASE = '/vpn-pack/api';
@@ -61,6 +61,13 @@ async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isR
             addError(msg);
             return null;
         }
+
+        if (data?.status === 'partial' && data?.firewall?.errors?.length) {
+            for (const err of data.firewall.errors) {
+                addWarning(`Firewall: ${err}`);
+            }
+        }
+
         return data;
     } catch (e) {
         clearTimeout(timer);
