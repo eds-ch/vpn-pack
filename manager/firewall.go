@@ -312,7 +312,9 @@ func (fm *FirewallManager) EnsureDNSForwarding(ctx context.Context, magicDNSSuff
 		if err := fm.ic.DeleteDNSPolicy(ctx, siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
 			slog.Warn("failed to delete old DNS forwarding policy", "domain", entry.Domain, "err", err)
 		}
-		_ = fm.manifest.RemoveDNSPolicy(dnsMarkerTailscale)
+		if err := fm.manifest.RemoveDNSPolicy(dnsMarkerTailscale); err != nil {
+			slog.Warn("failed to remove old DNS policy from manifest", "err", err)
+		}
 	}
 
 	siteID := fm.manifest.GetSiteID()
