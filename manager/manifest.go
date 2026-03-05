@@ -379,3 +379,76 @@ func (m *Manifest) GetWgS2sSnapshot() map[string]ZoneManifest {
 	}
 	return cp
 }
+
+type manifestAdapter struct {
+	m *Manifest
+}
+
+func NewManifestStore(m *Manifest) ManifestStore {
+	return &manifestAdapter{m: m}
+}
+
+func (a *manifestAdapter) GetSiteID() string                                  { return a.m.GetSiteID() }
+func (a *manifestAdapter) HasSiteID() bool                                    { return a.m.HasSiteID() }
+func (a *manifestAdapter) GetTailscaleZone() ZoneManifest                     { return a.m.GetTailscaleZone() }
+func (a *manifestAdapter) GetTailscaleChainPrefix() string                    { return a.m.GetTailscaleChainPrefix() }
+func (a *manifestAdapter) GetWgS2sZone(id string) (ZoneManifest, bool)        { return a.m.GetWgS2sZone(id) }
+func (a *manifestAdapter) GetWgS2sZones() []WgS2sZoneInfo                    { return a.m.GetWgS2sZones() }
+func (a *manifestAdapter) GetWgS2sChainPrefix(id string) string               { return a.m.GetWgS2sChainPrefix(id) }
+func (a *manifestAdapter) GetWanPortPolicyID(marker string) string            { return a.m.GetWanPortPolicyID(marker) }
+func (a *manifestAdapter) GetWanPortEntry(marker string) (WanPortEntry, bool) { return a.m.GetWanPortEntry(marker) }
+func (a *manifestAdapter) GetWanPortsSnapshot() map[string]WanPortEntry       { return a.m.GetWanPortsSnapshot() }
+func (a *manifestAdapter) GetWgS2sSnapshot() map[string]ZoneManifest          { return a.m.GetWgS2sSnapshot() }
+func (a *manifestAdapter) GetSystemZoneIDs() (string, string)                 { return a.m.GetSystemZoneIDs() }
+func (a *manifestAdapter) HasDNSPolicy(marker string) bool                    { return a.m.HasDNSPolicy(marker) }
+func (a *manifestAdapter) GetDNSPolicy(marker string) (DNSPolicyEntry, bool)  { return a.m.GetDNSPolicy(marker) }
+
+func (a *manifestAdapter) SetSiteID(siteID string) error {
+	a.m.SetSiteID(siteID)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) error {
+	a.m.SetTailscaleZone(zoneID, zoneName, policyIDs, chainPrefix)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) SetWgS2sZone(tunnelID string, zm ZoneManifest) error {
+	a.m.SetWgS2sZone(tunnelID, zm)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) RemoveWgS2sTunnel(tunnelID string) error {
+	a.m.RemoveWgS2sTunnel(tunnelID)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) SetWanPort(marker, policyID, policyName string, port int) error {
+	a.m.SetWanPort(marker, policyID, policyName, port)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) RemoveWanPort(marker string) error {
+	a.m.RemoveWanPort(marker)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) SetSystemZoneIDs(externalID, gatewayID string) error {
+	a.m.SetSystemZoneIDs(externalID, gatewayID)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) SetDNSPolicy(marker, policyID, domain, ipAddress string) error {
+	a.m.SetDNSPolicy(marker, policyID, domain, ipAddress)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) RemoveDNSPolicy(marker string) error {
+	a.m.RemoveDNSPolicy(marker)
+	return a.m.Save()
+}
+
+func (a *manifestAdapter) ResetIntegration() error {
+	a.m.ResetIntegration()
+	return a.m.Save()
+}

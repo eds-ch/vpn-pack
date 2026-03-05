@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -51,7 +52,28 @@ func main() {
 		os.Exit(78)
 	}
 
-	srv := NewServer(ctx, *listen, *socket, info)
+	apiKey := loadAPIKey()
+	ic := NewIntegrationClient(apiKey)
+
+	manifest, err := LoadManifest(manifestPath)
+	if err != nil {
+		slog.Warn("manifest load failed", "err", err)
+		manifest = &Manifest{path: manifestPath, Version: 2, CreatedAt: time.Now().UTC()}
+	}
+
+	srv := NewServer(ctx, ServerOptions{
+		ListenAddr:  *listen,
+		SocketPath:  *socket,
+		DeviceInfo:  info,
+		Tailscale:   NewTailscaleControl(*socket),
+		Hub:         NewHub(),
+		Manifest:    NewManifestStore(manifest),
+		Integration: ic,
+		Firewall:    NewFirewallManager(udapiSocketPath, ic, manifest),
+		Nginx:       NewNginxManager(),
+		LogBuf:      NewLogBuffer(logBufferSize),
+		Updater:     newUpdateChecker(),
+	})
 
 	if err := srv.Run(ctx); err != nil {
 		slog.Error("server failed", "err", err)

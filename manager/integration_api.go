@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -30,20 +31,20 @@ type paginatedResponse struct {
 }
 
 type Zone struct {
-	ID         string       `json:"id"`
-	Name       string       `json:"name"`
-	NetworkIDs []string     `json:"networkIds"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	NetworkIDs []string `json:"networkIds"`
 }
 
 type Policy struct {
-	ID                string             `json:"id"`
-	Enabled           bool               `json:"enabled"`
-	Name              string             `json:"name"`
-	Action            PolicyAction       `json:"action"`
-	Source            PolicyEndpoint     `json:"source"`
-	Destination       PolicyEndpoint     `json:"destination"`
-	IPProtocolScope   IPProtocolScope    `json:"ipProtocolScope,omitempty"`
-	LoggingEnabled    bool               `json:"loggingEnabled"`
+	ID              string          `json:"id"`
+	Enabled         bool            `json:"enabled"`
+	Name            string          `json:"name"`
+	Action          PolicyAction    `json:"action"`
+	Source          PolicyEndpoint  `json:"source"`
+	Destination     PolicyEndpoint  `json:"destination"`
+	IPProtocolScope IPProtocolScope `json:"ipProtocolScope,omitempty"`
+	LoggingEnabled  bool            `json:"loggingEnabled"`
 }
 
 type PolicyAction struct {
@@ -127,7 +128,7 @@ func (c *IntegrationClient) getAPIKey() string {
 	return c.apiKey
 }
 
-func (c *IntegrationClient) doRequest(method, path string, body any) ([]byte, int, error) {
+func (c *IntegrationClient) doRequest(ctx context.Context, method, path string, body any) ([]byte, int, error) {
 	key := c.getAPIKey()
 	if key == "" {
 		return nil, 0, ErrUnauthorized
@@ -142,7 +143,7 @@ func (c *IntegrationClient) doRequest(method, path string, body any) ([]byte, in
 		bodyReader = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequest(method, c.baseURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
 	if err != nil {
 		return nil, 0, fmt.Errorf("create request: %w", err)
 	}
@@ -173,8 +174,8 @@ func (c *IntegrationClient) doRequest(method, path string, body any) ([]byte, in
 	return respBody, resp.StatusCode, nil
 }
 
-func (c *IntegrationClient) Validate() (*AppInfo, error) {
-	body, status, err := c.doRequest("GET", "/v1/info", nil)
+func (c *IntegrationClient) Validate(ctx context.Context) (*AppInfo, error) {
+	body, status, err := c.doRequest(ctx, "GET", "/v1/info", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -189,8 +190,8 @@ func (c *IntegrationClient) Validate() (*AppInfo, error) {
 	return &info, nil
 }
 
-func doListRequest[T any](c *IntegrationClient, path string) ([]T, error) {
-	body, status, err := c.doRequest("GET", path, nil)
+func doListRequest[T any](c *IntegrationClient, ctx context.Context, path string) ([]T, error) {
+	body, status, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -208,21 +209,21 @@ func doListRequest[T any](c *IntegrationClient, path string) ([]T, error) {
 	return items, nil
 }
 
-func (c *IntegrationClient) getSites() ([]SiteInfo, error) {
-	return doListRequest[SiteInfo](c, "/v1/sites")
+func (c *IntegrationClient) getSites(ctx context.Context) ([]SiteInfo, error) {
+	return doListRequest[SiteInfo](c, ctx, "/v1/sites")
 }
 
-func (c *IntegrationClient) listZones(siteID string) ([]Zone, error) {
-	return doListRequest[Zone](c, fmt.Sprintf("/v1/sites/%s/firewall/zones?limit=%d", siteID, paginationLimit))
+func (c *IntegrationClient) ListZones(ctx context.Context, siteID string) ([]Zone, error) {
+	return doListRequest[Zone](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/zones?limit=%d", siteID, paginationLimit))
 }
 
-func (c *IntegrationClient) CreateZone(siteID, name string) (*Zone, error) {
+func (c *IntegrationClient) CreateZone(ctx context.Context, siteID, name string) (*Zone, error) {
 	req := map[string]any{
 		"name":       name,
 		"networkIds": []string{},
 	}
 
-	body, status, err := c.doRequest("POST", fmt.Sprintf("/v1/sites/%s/firewall/zones", siteID), req)
+	body, status, err := c.doRequest(ctx, "POST", fmt.Sprintf("/v1/sites/%s/firewall/zones", siteID), req)
 	if err != nil {
 		return nil, err
 	}
@@ -237,8 +238,8 @@ func (c *IntegrationClient) CreateZone(siteID, name string) (*Zone, error) {
 	return &zone, nil
 }
 
-func (c *IntegrationClient) findZoneByName(siteID, name string) (*Zone, error) {
-	zones, err := c.listZones(siteID)
+func (c *IntegrationClient) findZoneByName(ctx context.Context, siteID, name string) (*Zone, error) {
+	zones, err := c.ListZones(ctx, siteID)
 	if err != nil {
 		return nil, err
 	}
@@ -250,8 +251,8 @@ func (c *IntegrationClient) findZoneByName(siteID, name string) (*Zone, error) {
 	return nil, nil
 }
 
-func (c *IntegrationClient) ListPolicies(siteID string) ([]Policy, error) {
-	return doListRequest[Policy](c, fmt.Sprintf("/v1/sites/%s/firewall/policies?limit=%d", siteID, paginationLimit))
+func (c *IntegrationClient) ListPolicies(ctx context.Context, siteID string) ([]Policy, error) {
+	return doListRequest[Policy](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/policies?limit=%d", siteID, paginationLimit))
 }
 
 type createPolicyRequest struct {
@@ -264,8 +265,8 @@ type createPolicyRequest struct {
 	LoggingEnabled  bool            `json:"loggingEnabled"`
 }
 
-func (c *IntegrationClient) CreatePolicy(siteID string, req createPolicyRequest) (*Policy, error) {
-	body, status, err := c.doRequest("POST", fmt.Sprintf("/v1/sites/%s/firewall/policies", siteID), req)
+func (c *IntegrationClient) CreatePolicy(ctx context.Context, siteID string, req createPolicyRequest) (*Policy, error) {
+	body, status, err := c.doRequest(ctx, "POST", fmt.Sprintf("/v1/sites/%s/firewall/policies", siteID), req)
 	if err != nil {
 		return nil, err
 	}
@@ -280,9 +281,9 @@ func (c *IntegrationClient) CreatePolicy(siteID string, req createPolicyRequest)
 	return &pol, nil
 }
 
-func (c *IntegrationClient) DeletePolicy(siteID, policyID string) error {
+func (c *IntegrationClient) DeletePolicy(ctx context.Context, siteID, policyID string) error {
 	path := fmt.Sprintf("/v1/sites/%s/firewall/policies/%s", siteID, policyID)
-	body, status, err := c.doRequest("DELETE", path, nil)
+	body, status, err := c.doRequest(ctx, "DELETE", path, nil)
 	if err != nil {
 		return err
 	}
@@ -292,9 +293,9 @@ func (c *IntegrationClient) DeletePolicy(siteID, policyID string) error {
 	return nil
 }
 
-func (c *IntegrationClient) DeleteZone(siteID, zoneID string) error {
+func (c *IntegrationClient) DeleteZone(ctx context.Context, siteID, zoneID string) error {
 	path := fmt.Sprintf("/v1/sites/%s/firewall/zones/%s", siteID, zoneID)
-	body, status, err := c.doRequest("DELETE", path, nil)
+	body, status, err := c.doRequest(ctx, "DELETE", path, nil)
 	if err != nil {
 		return err
 	}
@@ -304,8 +305,8 @@ func (c *IntegrationClient) DeleteZone(siteID, zoneID string) error {
 	return nil
 }
 
-func (c *IntegrationClient) FindInternalZoneID(siteID string) (string, error) {
-	zones, err := c.listZones(siteID)
+func (c *IntegrationClient) FindInternalZoneID(ctx context.Context, siteID string) (string, error) {
+	zones, err := c.ListZones(ctx, siteID)
 	if err != nil {
 		return "", err
 	}
@@ -324,24 +325,24 @@ func (c *IntegrationClient) FindInternalZoneID(siteID string) (string, error) {
 	return "", fmt.Errorf("no Internal/LAN/Default zone found")
 }
 
-func (c *IntegrationClient) EnsureZone(siteID, name string) (*Zone, error) {
-	existing, err := c.findZoneByName(siteID, name)
+func (c *IntegrationClient) EnsureZone(ctx context.Context, siteID, name string) (*Zone, error) {
+	existing, err := c.findZoneByName(ctx, siteID, name)
 	if err != nil {
 		return nil, fmt.Errorf("check existing zone: %w", err)
 	}
 	if existing != nil {
 		return existing, nil
 	}
-	return c.CreateZone(siteID, name)
+	return c.CreateZone(ctx, siteID, name)
 }
 
-func (c *IntegrationClient) EnsurePolicies(siteID, zoneName, zoneID string) ([]string, error) {
-	internalZoneID, err := c.FindInternalZoneID(siteID)
+func (c *IntegrationClient) EnsurePolicies(ctx context.Context, siteID, zoneName, zoneID string) ([]string, error) {
+	internalZoneID, err := c.FindInternalZoneID(ctx, siteID)
 	if err != nil {
 		return nil, fmt.Errorf("find internal zone: %w", err)
 	}
 
-	existing, err := c.ListPolicies(siteID)
+	existing, err := c.ListPolicies(ctx, siteID)
 	if err != nil {
 		return nil, fmt.Errorf("list existing policies: %w", err)
 	}
@@ -373,7 +374,7 @@ func (c *IntegrationClient) EnsurePolicies(siteID, zoneName, zoneID string) ([]s
 			ids = append(ids, id)
 			continue
 		}
-		pol, err := c.CreatePolicy(siteID, want)
+		pol, err := c.CreatePolicy(ctx, siteID, want)
 		if err != nil {
 			return ids, fmt.Errorf("create policy %q: %w", want.Name, err)
 		}
@@ -391,8 +392,8 @@ func findExistingPolicy(policies []Policy, name string) string {
 	return ""
 }
 
-func (c *IntegrationClient) DiscoverSiteID() (string, error) {
-	sites, err := c.getSites()
+func (c *IntegrationClient) DiscoverSiteID(ctx context.Context) (string, error) {
+	sites, err := c.getSites(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -402,8 +403,8 @@ func (c *IntegrationClient) DiscoverSiteID() (string, error) {
 	return sites[0].ID, nil
 }
 
-func (c *IntegrationClient) findSystemZoneIDs(siteID string) (externalID, gatewayID string, err error) {
-	zones, err := c.listZones(siteID)
+func (c *IntegrationClient) FindSystemZoneIDs(ctx context.Context, siteID string) (externalID, gatewayID string, err error) {
+	zones, err := c.ListZones(ctx, siteID)
 	if err != nil {
 		return "", "", err
 	}
@@ -424,7 +425,7 @@ func (c *IntegrationClient) findSystemZoneIDs(siteID string) (externalID, gatewa
 	return externalID, gatewayID, nil
 }
 
-func (c *IntegrationClient) createWanPortPolicy(siteID string, port int, name, externalZoneID, gatewayZoneID string) (*Policy, error) {
+func (c *IntegrationClient) createWanPortPolicy(ctx context.Context, siteID string, port int, name, externalZoneID, gatewayZoneID string) (*Policy, error) {
 	req := createPolicyRequest{
 		Enabled: true,
 		Name:    name,
@@ -451,18 +452,18 @@ func (c *IntegrationClient) createWanPortPolicy(siteID string, port int, name, e
 		},
 		LoggingEnabled: false,
 	}
-	return c.CreatePolicy(siteID, req)
+	return c.CreatePolicy(ctx, siteID, req)
 }
 
-func (c *IntegrationClient) EnsureWanPortPolicy(siteID string, port int, name, externalZoneID, gatewayZoneID string) (string, error) {
-	existing, err := c.ListPolicies(siteID)
+func (c *IntegrationClient) EnsureWanPortPolicy(ctx context.Context, siteID string, port int, name, externalZoneID, gatewayZoneID string) (string, error) {
+	existing, err := c.ListPolicies(ctx, siteID)
 	if err != nil {
 		return "", fmt.Errorf("list existing policies: %w", err)
 	}
 	if id := findExistingPolicy(existing, name); id != "" {
 		return id, nil
 	}
-	pol, err := c.createWanPortPolicy(siteID, port, name, externalZoneID, gatewayZoneID)
+	pol, err := c.createWanPortPolicy(ctx, siteID, port, name, externalZoneID, gatewayZoneID)
 	if err != nil {
 		return "", fmt.Errorf("create WAN port policy %q: %w", name, err)
 	}
@@ -484,12 +485,12 @@ type createDNSPolicyRequest struct {
 	Enabled   bool   `json:"enabled"`
 }
 
-func (c *IntegrationClient) ListDNSPolicies(siteID string) ([]DNSPolicy, error) {
-	return doListRequest[DNSPolicy](c, fmt.Sprintf("/v1/sites/%s/dns/policies?limit=%d", siteID, paginationLimit))
+func (c *IntegrationClient) ListDNSPolicies(ctx context.Context, siteID string) ([]DNSPolicy, error) {
+	return doListRequest[DNSPolicy](c, ctx, fmt.Sprintf("/v1/sites/%s/dns/policies?limit=%d", siteID, paginationLimit))
 }
 
-func (c *IntegrationClient) CreateDNSPolicy(siteID string, req createDNSPolicyRequest) (*DNSPolicy, error) {
-	body, status, err := c.doRequest("POST", fmt.Sprintf("/v1/sites/%s/dns/policies", siteID), req)
+func (c *IntegrationClient) CreateDNSPolicy(ctx context.Context, siteID string, req createDNSPolicyRequest) (*DNSPolicy, error) {
+	body, status, err := c.doRequest(ctx, "POST", fmt.Sprintf("/v1/sites/%s/dns/policies", siteID), req)
 	if err != nil {
 		return nil, err
 	}
@@ -503,9 +504,9 @@ func (c *IntegrationClient) CreateDNSPolicy(siteID string, req createDNSPolicyRe
 	return &pol, nil
 }
 
-func (c *IntegrationClient) DeleteDNSPolicy(siteID, policyID string) error {
+func (c *IntegrationClient) DeleteDNSPolicy(ctx context.Context, siteID, policyID string) error {
 	path := fmt.Sprintf("/v1/sites/%s/dns/policies/%s", siteID, policyID)
-	body, status, err := c.doRequest("DELETE", path, nil)
+	body, status, err := c.doRequest(ctx, "DELETE", path, nil)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil
@@ -518,8 +519,8 @@ func (c *IntegrationClient) DeleteDNSPolicy(siteID, policyID string) error {
 	return nil
 }
 
-func (c *IntegrationClient) findDNSPolicyByDomain(siteID, domain string) (*DNSPolicy, error) {
-	policies, err := c.ListDNSPolicies(siteID)
+func (c *IntegrationClient) findDNSPolicyByDomain(ctx context.Context, siteID, domain string) (*DNSPolicy, error) {
+	policies, err := c.ListDNSPolicies(ctx, siteID)
 	if err != nil {
 		return nil, err
 	}
@@ -531,15 +532,15 @@ func (c *IntegrationClient) findDNSPolicyByDomain(siteID, domain string) (*DNSPo
 	return nil, nil
 }
 
-func (c *IntegrationClient) EnsureDNSForwardDomain(siteID, domain, ipAddress string) (*DNSPolicy, error) {
-	existing, err := c.findDNSPolicyByDomain(siteID, domain)
+func (c *IntegrationClient) EnsureDNSForwardDomain(ctx context.Context, siteID, domain, ipAddress string) (*DNSPolicy, error) {
+	existing, err := c.findDNSPolicyByDomain(ctx, siteID, domain)
 	if err != nil {
 		return nil, fmt.Errorf("check existing DNS policy: %w", err)
 	}
 	if existing != nil {
 		return existing, nil
 	}
-	return c.CreateDNSPolicy(siteID, createDNSPolicyRequest{
+	return c.CreateDNSPolicy(ctx, siteID, createDNSPolicyRequest{
 		Type:      "FORWARD_DOMAIN",
 		Domain:    domain,
 		IPAddress: ipAddress,

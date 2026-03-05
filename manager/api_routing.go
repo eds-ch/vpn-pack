@@ -51,14 +51,14 @@ type firewallStatusResponse struct {
 }
 
 func (s *Server) handleGetRoutes(w http.ResponseWriter, r *http.Request) {
-	prefs, err := s.lc.GetPrefs(r.Context())
+	prefs, err := s.ts.GetPrefs(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, humanizeLocalAPIError(err))
 		return
 	}
 
 	allowed := make(map[string]bool)
-	st, err := s.lc.Status(r.Context())
+	st, err := s.ts.Status(r.Context())
 	if err == nil && st.Self != nil && st.Self.AllowedIPs != nil {
 		for i := range st.Self.AllowedIPs.Len() {
 			allowed[st.Self.AllowedIPs.At(i).String()] = true
@@ -106,7 +106,7 @@ func (s *Server) handleSetRoutes(w http.ResponseWriter, r *http.Request) {
 			netip.MustParsePrefix("::/0"))
 	}
 
-	_, err := s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
+	_, err := s.ts.EditPrefs(r.Context(), &ipn.MaskedPrefs{
 		Prefs:              ipn.Prefs{AdvertiseRoutes: prefixes},
 		AdvertiseRoutesSet: true,
 	})
@@ -147,7 +147,7 @@ func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
-	err := s.lc.Start(r.Context(), ipn.Options{AuthKey: req.AuthKey})
+	err := s.ts.Start(r.Context(), ipn.Options{AuthKey: req.AuthKey})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return

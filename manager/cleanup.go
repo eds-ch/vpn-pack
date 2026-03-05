@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -127,21 +128,21 @@ func removeIntegrationResources() {
 
 	for marker, entry := range manifest.WanPorts {
 		deleteResourceBestEffort("WAN port policy", marker, func() error {
-			return ic.DeletePolicy(siteID, entry.PolicyID)
+			return ic.DeletePolicy(context.Background(), siteID, entry.PolicyID)
 		})
 	}
 
 	for tunnelID, zm := range manifest.WgS2s {
 		for _, policyID := range zm.PolicyIDs {
 			deleteResourceBestEffort("wg-s2s policy", tunnelID+"/"+policyID, func() error {
-				return ic.DeletePolicy(siteID, policyID)
+				return ic.DeletePolicy(context.Background(), siteID, policyID)
 			})
 		}
 	}
 
 	for _, policyID := range manifest.Tailscale.PolicyIDs {
 		deleteResourceBestEffort("tailscale policy", policyID, func() error {
-			return ic.DeletePolicy(siteID, policyID)
+			return ic.DeletePolicy(context.Background(), siteID, policyID)
 		})
 	}
 
@@ -152,13 +153,13 @@ func removeIntegrationResources() {
 		}
 		deletedZones[zm.ZoneID] = true
 		deleteResourceBestEffort("wg-s2s zone", zm.ZoneID, func() error {
-			return ic.DeleteZone(siteID, zm.ZoneID)
+			return ic.DeleteZone(context.Background(), siteID, zm.ZoneID)
 		})
 	}
 
 	if manifest.Tailscale.ZoneID != "" {
 		deleteResourceBestEffort("tailscale zone", manifest.Tailscale.ZoneID, func() error {
-			return ic.DeleteZone(siteID, manifest.Tailscale.ZoneID)
+			return ic.DeleteZone(context.Background(), siteID, manifest.Tailscale.ZoneID)
 		})
 	}
 

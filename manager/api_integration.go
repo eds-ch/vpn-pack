@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -67,7 +68,7 @@ func deleteAPIKey() error {
 	return nil
 }
 
-func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
+func (s *Server) fetchIntegrationStatus(ctx context.Context) *IntegrationStatus {
 	if s.ic == nil {
 		return &IntegrationStatus{Configured: false}
 	}
@@ -86,7 +87,7 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 		st.Valid = true
 	}
 
-	info, err := s.ic.Validate()
+	info, err := s.ic.Validate(ctx)
 	if err != nil {
 		st.Valid = false
 		if errors.Is(err, ErrUnauthorized) {
@@ -101,7 +102,7 @@ func (s *Server) fetchIntegrationStatus() *IntegrationStatus {
 	}
 
 	if st.Valid && st.SiteID != "" {
-		st.ZBFEnabled = s.checkZBFEnabled(st.SiteID)
+		st.ZBFEnabled = s.checkZBFEnabled(ctx, st.SiteID)
 	}
 
 	s.intCache.set(st)
@@ -113,14 +114,14 @@ func (s *Server) invalidateIntegrationCache() {
 	s.intCache.invalidate()
 }
 
-func (s *Server) checkZBFEnabled(siteID string) *bool {
-	_, _, err := s.ic.findSystemZoneIDs(siteID)
+func (s *Server) checkZBFEnabled(ctx context.Context, siteID string) *bool {
+	_, _, err := s.ic.FindSystemZoneIDs(ctx, siteID)
 	enabled := err == nil
 	return &enabled
 }
 
 func (s *Server) handleIntegrationStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.fetchIntegrationStatus())
+	writeJSON(w, http.StatusOK, s.fetchIntegrationStatus(r.Context()))
 }
 
 func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +141,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	s.ic.SetAPIKey(key)
 	s.invalidateIntegrationCache()
 
-	info, err := s.ic.Validate()
+	info, err := s.ic.Validate(r.Context())
 	if err != nil {
 		s.ic.SetAPIKey("")
 		s.invalidateIntegrationCache()
@@ -154,12 +155,11 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	siteID, err := s.ic.DiscoverSiteID()
+	siteID, err := s.ic.DiscoverSiteID(r.Context())
 	if err != nil {
 		slog.Warn("site discovery failed", "err", err)
 	} else if s.manifest != nil {
-		s.manifest.SetSiteID(siteID)
-		if err := s.manifest.Save(); err != nil {
+		if err := s.manifest.SetSiteID(siteID); err != nil {
 			slog.Warn("manifest save failed", "err", err)
 		}
 	}
@@ -172,7 +172,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	if siteID != "" {
-		st.ZBFEnabled = s.checkZBFEnabled(siteID)
+		st.ZBFEnabled = s.checkZBFEnabled(r.Context(), siteID)
 	}
 
 	slog.Info("integration API key configured", "appVersion", info.ApplicationVersion, "siteId", siteID)
@@ -230,7 +230,7 @@ func (s *Server) handleTestIntegrationKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	info, err := s.ic.Validate()
+	info, err := s.ic.Validate(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":    false,
@@ -244,7 +244,7 @@ func (s *Server) handleTestIntegrationKey(w http.ResponseWriter, r *http.Request
 		siteID = s.manifest.GetSiteID()
 	}
 	if siteID == "" {
-		if id, err := s.ic.DiscoverSiteID(); err == nil {
+		if id, err := s.ic.DiscoverSiteID(r.Context()); err == nil {
 			siteID = id
 		}
 	}

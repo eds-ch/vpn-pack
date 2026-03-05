@@ -28,6 +28,10 @@ func (fm *FirewallManager) requireIntegration() error {
 	return nil
 }
 
+func (fm *FirewallManager) IntegrationReady() bool {
+	return fm.requireIntegration() == nil
+}
+
 func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest *Manifest) *FirewallManager {
 	return &FirewallManager{
 		udapi:    udapi.NewClient(socketPath),
@@ -45,7 +49,7 @@ func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *Firewall
 	}
 
 	siteID := fm.manifest.GetSiteID()
-	zone, err := fm.ic.EnsureZone(siteID, "VPN Pack: Tailscale")
+	zone, err := fm.ic.EnsureZone(ctx, siteID, "VPN Pack: Tailscale")
 	if err != nil {
 		slog.Warn("Integration API zone setup failed, using UDAPI only", "err", err)
 		result.addError("zone", err)
@@ -55,7 +59,7 @@ func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *Firewall
 		result.ZoneName = zone.Name
 		slog.Info("integration zone ready", "zoneId", zone.ID, "name", zone.Name)
 
-		policyIDs, err := fm.ic.EnsurePolicies(siteID, "Tailscale", zone.ID)
+		policyIDs, err := fm.ic.EnsurePolicies(ctx, siteID, "Tailscale", zone.ID)
 		if err != nil {
 			slog.Warn("integration policy setup had errors, will retry on next restart", "err", err)
 			result.addError("policies", err)
@@ -128,7 +132,7 @@ func (fm *FirewallManager) SetupWgS2sZone(ctx context.Context, tunnelID, zoneID,
 	}
 	zoneDisplayName := "VPN Pack: " + zoneName
 
-	zone, err := fm.ic.EnsureZone(siteID, zoneDisplayName)
+	zone, err := fm.ic.EnsureZone(ctx, siteID, zoneDisplayName)
 	if err != nil {
 		result.addError("zone", fmt.Errorf("ensure zone %q: %w", zoneDisplayName, err))
 		return result
@@ -138,7 +142,7 @@ func (fm *FirewallManager) SetupWgS2sZone(ctx context.Context, tunnelID, zoneID,
 	result.ZoneName = zone.Name
 	slog.Info("wg-s2s integration zone ready", "zoneId", zone.ID, "name", zone.Name)
 
-	policyIDs, err := fm.ic.EnsurePolicies(siteID, zoneName, zone.ID)
+	policyIDs, err := fm.ic.EnsurePolicies(ctx, siteID, zoneName, zone.ID)
 	if err != nil {
 		slog.Warn("wg-s2s integration policy setup had errors", "err", err)
 		result.addError("policies", err)
@@ -236,13 +240,13 @@ func (fm *FirewallManager) OpenWanPort(ctx context.Context, port int, marker str
 	}
 
 	siteID := fm.manifest.GetSiteID()
-	extID, gwID, err := fm.resolveSystemZones(siteID)
+	extID, gwID, err := fm.resolveSystemZones(ctx, siteID)
 	if err != nil {
 		return fmt.Errorf("resolve system zones: %w", err)
 	}
 
 	name := wanPortPolicyName(port, marker)
-	policyID, err := fm.ic.EnsureWanPortPolicy(siteID, port, name, extID, gwID)
+	policyID, err := fm.ic.EnsureWanPortPolicy(ctx, siteID, port, name, extID, gwID)
 	if err != nil {
 		return fmt.Errorf("ensure WAN port policy: %w", err)
 	}
@@ -267,7 +271,7 @@ func (fm *FirewallManager) CloseWanPort(ctx context.Context, port int, marker st
 	}
 
 	siteID := fm.manifest.GetSiteID()
-	if err := fm.ic.DeletePolicy(siteID, policyID); err != nil {
+	if err := fm.ic.DeletePolicy(ctx, siteID, policyID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			slog.Info("WAN port policy already gone from API", "marker", marker, "policyId", policyID)
 		} else {
@@ -284,12 +288,12 @@ func (fm *FirewallManager) CloseWanPort(ctx context.Context, port int, marker st
 	return nil
 }
 
-func (fm *FirewallManager) resolveSystemZones(siteID string) (string, string, error) {
+func (fm *FirewallManager) resolveSystemZones(ctx context.Context, siteID string) (string, string, error) {
 	if extID, gwID := fm.manifest.GetSystemZoneIDs(); extID != "" && gwID != "" {
 		return extID, gwID, nil
 	}
 
-	extID, gwID, err := fm.ic.findSystemZoneIDs(siteID)
+	extID, gwID, err := fm.ic.FindSystemZoneIDs(ctx, siteID)
 	if err != nil {
 		return "", "", fmt.Errorf("find system zones: %w", err)
 	}
@@ -312,14 +316,14 @@ func (fm *FirewallManager) EnsureDNSForwarding(ctx context.Context, magicDNSSuff
 			return nil
 		}
 		siteID := fm.manifest.GetSiteID()
-		if err := fm.ic.DeleteDNSPolicy(siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
+		if err := fm.ic.DeleteDNSPolicy(ctx, siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
 			slog.Warn("failed to delete old DNS forwarding policy", "domain", entry.Domain, "err", err)
 		}
 		fm.manifest.RemoveDNSPolicy(dnsMarkerTailscale)
 	}
 
 	siteID := fm.manifest.GetSiteID()
-	pol, err := fm.ic.EnsureDNSForwardDomain(siteID, magicDNSSuffix, tailscaleDNSResolverIP)
+	pol, err := fm.ic.EnsureDNSForwardDomain(ctx, siteID, magicDNSSuffix, tailscaleDNSResolverIP)
 	if err != nil {
 		return fmt.Errorf("create DNS forward domain: %w", err)
 	}
@@ -341,7 +345,7 @@ func (fm *FirewallManager) RemoveDNSForwarding(ctx context.Context) error {
 
 	if err := fm.requireIntegration(); err == nil {
 		siteID := fm.manifest.GetSiteID()
-		if err := fm.ic.DeleteDNSPolicy(siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
+		if err := fm.ic.DeleteDNSPolicy(ctx, siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
 			slog.Warn("failed to delete DNS forwarding policy from API", "policyId", entry.PolicyID, "err", err)
 		}
 	}

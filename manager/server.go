@@ -22,57 +22,61 @@ import (
 //go:embed all:ui/dist
 var uiFS embed.FS
 
+type ServerOptions struct {
+	ListenAddr  string
+	SocketPath  string
+	DeviceInfo  DeviceInfo
+	Tailscale   TailscaleControl
+	Hub         SSEHub
+	Manifest    ManifestStore
+	Integration IntegrationAPI
+	Firewall    FirewallService
+	Nginx       *NginxManager
+	LogBuf      *LogBuffer
+	Updater     *updateChecker
+}
+
 type Server struct {
-	lc                  *local.Client
-	hub                 *Hub
-	mux                 *http.ServeMux
-	deviceInfo          DeviceInfo
-	httpServer          *http.Server
-	state               *TailscaleState
-	fw                  *FirewallManager
-	ic                  *IntegrationClient
-	manifest            *Manifest
-	nginx               *NginxManager
-	firewallCh          chan FirewallRequest
-	watcherRunning      atomic.Bool
-	lastRestore         atomic.Pointer[time.Time]
+	ts                TailscaleControl
+	hub               SSEHub
+	mux               *http.ServeMux
+	deviceInfo        DeviceInfo
+	httpServer        *http.Server
+	state             *TailscaleState
+	fw                FirewallService
+	ic                IntegrationAPI
+	manifest          ManifestStore
+	nginx             *NginxManager
+	firewallCh        chan FirewallRequest
+	watcherRunning    atomic.Bool
+	lastRestore       atomic.Pointer[time.Time]
 	postPolicyRestore atomic.Bool
 	intRetry          integrationRetryState
 	logBuf            *LogBuffer
-	wgManager              *wgs2s.TunnelManager
-	vpnClientsMu          sync.Mutex
-	updater  *updateChecker
-	intCache integrationCache
+	wgManager         WgS2sControl
+	vpnClientsMu     sync.Mutex
+	updater           *updateChecker
+	intCache          integrationCache
+	rawLC             *local.Client
 }
 
-func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceInfo) *Server {
-	lc := &local.Client{
-		Socket:        socketPath,
-		UseSocketOnly: true,
-	}
-
-	apiKey := loadAPIKey()
-	ic := NewIntegrationClient(apiKey)
-
-	manifest, err := LoadManifest(manifestPath)
-	if err != nil {
-		slog.Warn("manifest load failed", "err", err)
-		manifest = &Manifest{path: manifestPath, Version: 2, CreatedAt: time.Now().UTC()}
-	}
-
+func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	s := &Server{
-		lc:         lc,
-		hub:        NewHub(),
+		ts:         opts.Tailscale,
+		hub:        opts.Hub,
 		mux:        http.NewServeMux(),
-		deviceInfo: info,
+		deviceInfo: opts.DeviceInfo,
 		state:      &TailscaleState{data: stateData{BackendState: "Unavailable"}},
-		fw:         NewFirewallManager(udapiSocketPath, ic, manifest),
-		ic:         ic,
-		manifest:   manifest,
-		nginx:      NewNginxManager(),
+		fw:         opts.Firewall,
+		ic:         opts.Integration,
+		manifest:   opts.Manifest,
+		nginx:      opts.Nginx,
 		firewallCh: make(chan FirewallRequest, firewallChBuffer),
-		logBuf:     NewLogBuffer(logBufferSize),
-		updater:    newUpdateChecker(),
+		logBuf:     opts.LogBuf,
+		updater:    opts.Updater,
+	}
+	if tc, ok := opts.Tailscale.(*tailscaleClient); ok {
+		s.rawLC = tc.lc
 	}
 
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
@@ -116,7 +120,7 @@ func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceIn
 
 	// WriteTimeout omitted: SSE endpoint requires long-lived writes
 	s.httpServer = &http.Server{
-		Addr:              listenAddr,
+		Addr:              opts.ListenAddr,
 		Handler:           s.mux,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
@@ -133,7 +137,7 @@ func NewServer(ctx context.Context, listenAddr, socketPath string, info DeviceIn
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	if err := connectWithBackoff(ctx, s.lc); err != nil {
+	if err := connectWithBackoff(ctx, s.ts); err != nil {
 		return err
 	}
 
@@ -148,21 +152,7 @@ func (s *Server) Run(ctx context.Context) error {
 		go s.runFirewallWatcher(ctx)
 	}
 
-	wgs2sLog := slog.New(newBufferHandler(s.logBuf, "wgs2s", slog.NewJSONHandler(os.Stderr, nil)))
-	wgMgr, err := wgs2s.NewTunnelManager(wgS2sConfigDir, wgs2sLog)
-	if err != nil {
-		slog.Warn("wg-s2s manager init failed", "err", err)
-	} else {
-		s.wgManager = wgMgr
-		if restoreErr := wgMgr.RestoreAll(); restoreErr != nil {
-			slog.Warn("wg-s2s restore failed", "err", restoreErr)
-		}
-		for _, t := range wgMgr.GetTunnels() {
-			if t.Enabled {
-				s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
-			}
-		}
-	}
+	s.initWgS2s()
 
 	if s.integrationReady() {
 		s.openTailscaleWanPort(ctx)
@@ -170,7 +160,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	go s.runWatcher(ctx)
-	go runLogCollector(ctx, s.lc, s.logBuf)
+	if s.rawLC != nil {
+		go runLogCollector(ctx, s.rawLC, s.logBuf)
+	}
 	go s.runUpdateChecker(ctx)
 
 	errCh := make(chan error, 1)
@@ -200,6 +192,24 @@ func (s *Server) Run(ctx context.Context) error {
 		return s.httpServer.Shutdown(shutdownCtx)
 	case err := <-errCh:
 		return err
+	}
+}
+
+func (s *Server) initWgS2s() {
+	wgs2sLog := slog.New(newBufferHandler(s.logBuf, "wgs2s", slog.NewJSONHandler(os.Stderr, nil)))
+	wgMgr, err := wgs2s.NewTunnelManager(wgS2sConfigDir, wgs2sLog)
+	if err != nil {
+		slog.Warn("wg-s2s manager init failed", "err", err)
+		return
+	}
+	s.wgManager = wgMgr
+	if restoreErr := wgMgr.RestoreAll(); restoreErr != nil {
+		slog.Warn("wg-s2s restore failed", "err", restoreErr)
+	}
+	for _, t := range wgMgr.GetTunnels() {
+		if t.Enabled {
+			s.sendFirewallRequest(FirewallRequest{Action: FirewallActionApplyWgS2s, TunnelID: t.ID, Interface: t.InterfaceName, AllowedIPs: t.AllowedIPs})
+		}
 	}
 }
 
@@ -266,7 +276,7 @@ func isUDAPIReachable() bool {
 }
 
 func (s *Server) integrationReady() bool {
-	return s.fw != nil && s.fw.requireIntegration() == nil
+	return s.fw != nil && s.fw.IntegrationReady()
 }
 
 func (s *Server) openWgS2sWanPort(ctx context.Context, port int, iface string) {
@@ -306,14 +316,13 @@ func (s *Server) validateIntegration() {
 		return
 	}
 
-	_, err := s.ic.Validate()
+	_, err := s.ic.Validate(context.Background())
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) {
 			slog.Warn("API key invalid (likely factory reset), clearing")
 			s.ic.SetAPIKey("")
 			_ = deleteAPIKey()
-			s.manifest.ResetIntegration()
-			_ = s.manifest.Save()
+			_ = s.manifest.ResetIntegration()
 			s.intRetry.markDegraded()
 			return
 		}
@@ -321,20 +330,18 @@ func (s *Server) validateIntegration() {
 		return
 	}
 
-	siteID, err := s.ic.DiscoverSiteID()
+	siteID, err := s.ic.DiscoverSiteID(context.Background())
 	if err != nil {
 		slog.Warn("site discovery failed", "err", err)
 		return
 	}
 	if s.manifest.GetSiteID() == "" {
-		s.manifest.SetSiteID(siteID)
-		_ = s.manifest.Save()
+		_ = s.manifest.SetSiteID(siteID)
 		slog.Info("discovered site ID", "siteId", siteID)
 	} else if siteID != s.manifest.GetSiteID() {
 		slog.Warn("site ID changed, resetting manifest", "old", s.manifest.GetSiteID(), "new", siteID)
-		s.manifest.SetSiteID(siteID)
-		s.manifest.ResetIntegration()
-		_ = s.manifest.Save()
+		_ = s.manifest.SetSiteID(siteID)
+		_ = s.manifest.ResetIntegration()
 	}
 
 	s.validateManifestZones(siteID)
@@ -345,7 +352,7 @@ func (s *Server) validateManifestZones(siteID string) {
 	if ts.ZoneID == "" {
 		return
 	}
-	zones, err := s.ic.listZones(siteID)
+	zones, err := s.ic.ListZones(context.Background(), siteID)
 	if err != nil {
 		slog.Warn("zone validation failed", "err", err)
 		return
@@ -359,13 +366,12 @@ func (s *Server) validateManifestZones(siteID string) {
 	}
 	if !zoneFound {
 		slog.Warn("manifest zone not found in API, resetting", "staleZoneId", ts.ZoneID)
-		s.manifest.ResetIntegration()
-		_ = s.manifest.Save()
+		_ = s.manifest.ResetIntegration()
 		return
 	}
 
 	if len(ts.PolicyIDs) > 0 {
-		policies, err := s.ic.ListPolicies(siteID)
+		policies, err := s.ic.ListPolicies(context.Background(), siteID)
 		if err != nil {
 			slog.Warn("policy validation failed", "err", err)
 			return
@@ -382,8 +388,7 @@ func (s *Server) validateManifestZones(siteID string) {
 		}
 		if len(valid) != len(ts.PolicyIDs) {
 			slog.Warn("stale policy IDs in manifest, clearing", "had", len(ts.PolicyIDs), "valid", len(valid))
-			s.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, valid, ts.ChainPrefix)
-			_ = s.manifest.Save()
+			_ = s.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, valid, ts.ChainPrefix)
 		}
 	}
 }

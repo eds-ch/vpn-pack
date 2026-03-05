@@ -309,8 +309,7 @@ func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request)
 
 	s.teardownTunnelFirewall(r.Context(), t)
 
-	s.manifest.RemoveWgS2sTunnel(id)
-	if err := s.manifest.Save(); err != nil {
+	if err := s.manifest.RemoveWgS2sTunnel(id); err != nil {
 		slog.Warn("manifest save failed", "err", err)
 	}
 

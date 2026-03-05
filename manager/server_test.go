@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -61,6 +63,115 @@ func TestWriteJSON(t *testing.T) {
 			assert.Equal(t, want, got)
 		})
 	}
+}
+
+func newTestServer(opts ...func(*Server)) *Server {
+	s := &Server{
+		ts:         &mockTailscaleControl{},
+		hub:        &mockSSEHub{},
+		mux:        http.NewServeMux(),
+		state:      &TailscaleState{data: stateData{BackendState: "Unavailable"}},
+		fw:         &mockFirewallService{},
+		ic:         &mockIntegrationAPI{},
+		manifest:   &mockManifestStore{},
+		firewallCh: make(chan FirewallRequest, 8),
+		logBuf:     NewLogBuffer(100),
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+func TestNewServerWithMocks(t *testing.T) {
+	s := newTestServer()
+	assert.NotNil(t, s)
+	assert.NotNil(t, s.ts)
+	assert.NotNil(t, s.hub)
+	assert.NotNil(t, s.fw)
+	assert.NotNil(t, s.ic)
+	assert.NotNil(t, s.manifest)
+}
+
+func TestHandleStatusWithMocks(t *testing.T) {
+	s := newTestServer()
+	s.state.mu.Lock()
+	s.state.data.BackendState = "Running"
+	s.state.data.TailscaleIPs = []string{"100.64.0.1"}
+	s.state.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	w := httptest.NewRecorder()
+	s.handleStatus(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body stateData
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "Running", body.BackendState)
+	assert.Equal(t, []string{"100.64.0.1"}, body.TailscaleIPs)
+}
+
+func TestHandleIntegrationStatusWithMocks(t *testing.T) {
+	s := newTestServer(func(s *Server) {
+		s.ic = &mockIntegrationAPI{
+			hasAPIKeyFn: func() bool { return false },
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/integration/status", nil)
+	w := httptest.NewRecorder()
+	s.handleIntegrationStatus(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body IntegrationStatus
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.False(t, body.Configured)
+}
+
+func TestHandleDeviceWithMocks(t *testing.T) {
+	s := newTestServer()
+	s.deviceInfo = DeviceInfo{Model: "UDM-SE", ModelShort: "UDM-SE"}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/device", nil)
+	w := httptest.NewRecorder()
+	s.handleDevice(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body DeviceInfo
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "UDM-SE", body.Model)
+}
+
+func TestIntegrationReady(t *testing.T) {
+	t.Run("ready when fw returns true", func(t *testing.T) {
+		s := newTestServer(func(s *Server) {
+			s.fw = &mockFirewallService{
+				integrationReadyFn: func() bool { return true },
+			}
+		})
+		assert.True(t, s.integrationReady())
+	})
+
+	t.Run("not ready when fw returns false", func(t *testing.T) {
+		s := newTestServer()
+		assert.False(t, s.integrationReady())
+	})
+
+	t.Run("not ready when fw is nil", func(t *testing.T) {
+		s := newTestServer(func(s *Server) { s.fw = nil })
+		assert.False(t, s.integrationReady())
+	})
+}
+
+func TestHandleUpRequiresIntegration(t *testing.T) {
+	s := newTestServer()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/tailscale/up", nil)
+	req = req.WithContext(context.Background())
+	w := httptest.NewRecorder()
+	s.handleUp(w, req)
+
+	assert.Equal(t, http.StatusPreconditionFailed, w.Code)
 }
 
 func TestWriteError(t *testing.T) {

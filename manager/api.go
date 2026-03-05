@@ -20,7 +20,7 @@ func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	st, err := s.lc.Status(r.Context())
+	st, err := s.ts.Status(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, humanizeLocalAPIError(err))
 		return
@@ -31,9 +31,9 @@ func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 			return
 		}
-		err = s.lc.StartLoginInteractive(r.Context())
+		err = s.ts.StartLoginInteractive(r.Context())
 	} else {
-		_, err = s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
+		_, err = s.ts.EditPrefs(r.Context(), &ipn.MaskedPrefs{
 			Prefs:          ipn.Prefs{WantRunning: true},
 			WantRunningSet: true,
 		})
@@ -47,7 +47,7 @@ func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDown(w http.ResponseWriter, r *http.Request) {
-	_, err := s.lc.EditPrefs(r.Context(), &ipn.MaskedPrefs{
+	_, err := s.ts.EditPrefs(r.Context(), &ipn.MaskedPrefs{
 		Prefs:          ipn.Prefs{WantRunning: false},
 		WantRunningSet: true,
 	})
@@ -68,7 +68,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
-	if err := s.lc.StartLoginInteractive(r.Context()); err != nil {
+	if err := s.ts.StartLoginInteractive(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
@@ -76,7 +76,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if err := s.lc.Logout(r.Context()); err != nil {
+	if err := s.ts.Logout(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
 	}
@@ -84,7 +84,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) disableCorpDNS(ctx context.Context) error {
-	_, err := s.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+	_, err := s.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs:      ipn.Prefs{CorpDNS: false},
 		CorpDNSSet: true,
 	})

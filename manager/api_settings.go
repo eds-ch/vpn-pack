@@ -68,7 +68,7 @@ func toSettingsResponse(prefs *ipn.Prefs) settingsResponse {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	prefs, err := s.lc.GetPrefs(r.Context())
+	prefs, err := s.ts.GetPrefs(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, humanizeLocalAPIError(err))
 		return
@@ -104,7 +104,7 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 	old := s.fetchPreEditPrefs(r.Context(), &req)
 	mp := buildMaskedPrefs(&req, relayEndpoints)
 
-	updated, err := s.lc.EditPrefs(r.Context(), mp)
+	updated, err := s.ts.EditPrefs(r.Context(), mp)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return
@@ -146,7 +146,7 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) applyDNSForwarding(ctx context.Context, enable bool) error {
 	if enable {
-		st, err := s.lc.Status(ctx)
+		st, err := s.ts.Status(ctx)
 		if err != nil {
 			return &apiError{http.StatusBadGateway, humanizeLocalAPIError(err)}
 		}
@@ -182,7 +182,7 @@ func (s *Server) fetchPreEditPrefs(ctx context.Context, req *settingsRequest) pr
 	if !needControlURL && !needRelayPort {
 		return preEditPrefs{}
 	}
-	prefs, err := s.lc.GetPrefs(ctx)
+	prefs, err := s.ts.GetPrefs(ctx)
 	if err != nil {
 		return preEditPrefs{}
 	}
@@ -208,7 +208,7 @@ func (s *Server) restartTailscaled() {
 
 func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsRequest) ([]netip.AddrPort, error) {
 	if req.AcceptDNS != nil && *req.AcceptDNS {
-		if s.fw == nil || s.fw.requireIntegration() != nil {
+		if s.fw == nil || !s.fw.IntegrationReady() {
 			return nil, &apiError{http.StatusBadRequest,
 				"DNS forwarding requires Integration API. Configure in Settings > Integration."}
 		}
@@ -218,12 +218,12 @@ func (s *Server) validateSettingsRequest(ctx context.Context, req *settingsReque
 		if err := validateControlURL(*req.ControlURL); err != nil {
 			return nil, &apiError{http.StatusBadRequest, err.Error()}
 		}
-		prefs, err := s.lc.GetPrefs(ctx)
+		prefs, err := s.ts.GetPrefs(ctx)
 		if err != nil {
 			return nil, &apiError{http.StatusBadGateway, humanizeLocalAPIError(err)}
 		}
 		if *req.ControlURL != prefs.ControlURL {
-			st, err := s.lc.Status(ctx)
+			st, err := s.ts.Status(ctx)
 			if err != nil {
 				return nil, &apiError{http.StatusBadGateway, humanizeLocalAPIError(err)}
 			}

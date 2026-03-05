@@ -106,7 +106,7 @@ type SSEDNSEvent struct {
 
 // BroadcastEvent marshals payload and broadcasts as a named SSE event.
 // If event is empty, broadcasts as unnamed (default status) event.
-func BroadcastEvent[T any](hub *Hub, event string, payload T) {
+func BroadcastEvent[T any](hub SSEHub, event string, payload T) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		slog.Warn("sse marshal failed", "event", event, "err", err)

@@ -111,7 +111,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		if err := s.lc.CheckIPForwarding(ctx); err != nil {
+		if err := s.ts.CheckIPForwarding(ctx); err != nil {
 			ipFwd = err.Error()
 		} else {
 			ipFwd = "enabled"
@@ -123,7 +123,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	}()
 	go func() {
 		defer wg.Done()
-		derpMap, derpErr = s.lc.CurrentDERPMap(ctx)
+		derpMap, derpErr = s.ts.CurrentDERPMap(ctx)
 	}()
 
 	if s.wgManager != nil {
@@ -206,7 +206,7 @@ func (s *Server) handleBugReport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	marker, err := s.lc.BugReport(r.Context(), req.Note)
+	marker, err := s.ts.BugReport(r.Context(), req.Note)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, humanizeLocalAPIError(err))
 		return

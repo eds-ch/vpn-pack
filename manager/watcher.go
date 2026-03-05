@@ -150,25 +150,24 @@ func (s *Server) runStatusRefresh(ctx context.Context) {
 
 func (s *Server) refreshTick(ctx context.Context) {
 	enrichment := s.fetchStatusEnrichment(ctx)
-	integrationStatus := s.fetchIntegrationStatus()
-	integrationStatus = s.handleAPIKeyExpiry(integrationStatus)
+	integrationStatus := s.fetchIntegrationStatus(ctx)
+	integrationStatus = s.handleAPIKeyExpiry(ctx, integrationStatus)
 	integrationStatus = s.repairMissingPolicies(ctx, integrationStatus)
 	s.applyRefreshState(ctx, enrichment, integrationStatus)
 	s.broadcastState()
 }
 
-func (s *Server) handleAPIKeyExpiry(status *IntegrationStatus) *IntegrationStatus {
+func (s *Server) handleAPIKeyExpiry(ctx context.Context, status *IntegrationStatus) *IntegrationStatus {
 	if status == nil || status.Reason != "key_expired" || !s.ic.HasAPIKey() {
 		return status
 	}
 	slog.Warn("periodic check: API key rejected, clearing")
 	s.ic.SetAPIKey("")
 	_ = deleteAPIKey()
-	s.manifest.ResetIntegration()
-	_ = s.manifest.Save()
+	_ = s.manifest.ResetIntegration()
 	s.intRetry.markDegraded()
 	s.invalidateIntegrationCache()
-	return s.fetchIntegrationStatus()
+	return s.fetchIntegrationStatus(ctx)
 }
 
 func (s *Server) repairMissingPolicies(ctx context.Context, status *IntegrationStatus) *IntegrationStatus {
@@ -186,7 +185,7 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *IntegrationS
 	} else {
 		s.openTailscaleWanPort(ctx)
 	}
-	return s.fetchIntegrationStatus()
+	return s.fetchIntegrationStatus(ctx)
 }
 
 func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *IntegrationStatus) {
@@ -206,7 +205,7 @@ func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrich
 
 func (s *Server) watchLoop(ctx context.Context) error {
 	mask := ipn.NotifyInitialState | ipn.NotifyInitialPrefs | ipn.NotifyInitialNetMap | ipn.NotifyInitialHealthState
-	watcher, err := s.lc.WatchIPNBus(ctx, mask)
+	watcher, err := s.ts.WatchIPNBus(ctx, mask)
 	if err != nil {
 		return err
 	}
@@ -301,7 +300,7 @@ func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 	if fetchStatus {
 		enrichment = s.fetchStatusEnrichment(ctx)
 	}
-	integrationStatus := s.fetchIntegrationStatus()
+	integrationStatus := s.fetchIntegrationStatus(ctx)
 
 	s.state.mu.Lock()
 	s.applyEnrichment(enrichment)
@@ -383,7 +382,7 @@ type statusEnrichment struct {
 func (s *Server) fetchStatusEnrichment(ctx context.Context) *statusEnrichment {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	st, err := s.lc.Status(ctx)
+	st, err := s.ts.Status(ctx)
 	if err != nil {
 		slog.Warn("lc.Status failed", "err", err)
 		return nil

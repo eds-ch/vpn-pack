@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -78,7 +79,7 @@ func TestIntegrationValidate(t *testing.T) {
 			ic := NewIntegrationClient(tt.apiKey)
 			ic.baseURL = ts.URL
 
-			info, err := ic.Validate()
+			info, err := ic.Validate(context.Background())
 
 			if tt.apiKey == "" {
 				assert.False(t, serverHit, "server should not be hit when apiKey is empty")
@@ -131,7 +132,7 @@ func TestIntegrationDiscoverSiteID(t *testing.T) {
 				_, _ = w.Write([]byte(tt.body))
 			})
 
-			id, err := ic.DiscoverSiteID()
+			id, err := ic.DiscoverSiteID(context.Background())
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -237,7 +238,7 @@ func TestIntegrationValidateResponseParsing(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
-	info, err := ic.Validate()
+	info, err := ic.Validate(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "9.0.1", info.ApplicationVersion)
 }

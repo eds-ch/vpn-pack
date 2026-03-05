@@ -327,7 +327,7 @@ func (s *Server) reconcileWanPortPolicies(ctx context.Context) {
 	}
 
 	siteID := s.manifest.GetSiteID()
-	policies, err := s.ic.ListPolicies(siteID)
+	policies, err := s.ic.ListPolicies(ctx, siteID)
 	if err != nil {
 		slog.Warn("WAN port reconciliation failed: cannot list policies", "err", err)
 		return
