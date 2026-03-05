@@ -179,7 +179,7 @@ func TestCreateTunnelFirewallOK(t *testing.T) {
 	s.handleWgS2sCreateTunnel(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp TunnelCreateResponse
+	var resp TunnelResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "ok", resp.Status)
 	assert.Nil(t, resp.Firewall)
@@ -211,7 +211,7 @@ func TestCreateTunnelFirewallPartial(t *testing.T) {
 	s.handleWgS2sCreateTunnel(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp TunnelCreateResponse
+	var resp TunnelResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "partial", resp.Status)
 	require.NotNil(t, resp.Firewall)

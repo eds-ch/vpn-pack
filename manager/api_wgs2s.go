@@ -147,10 +147,13 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 
 	zoneResult := s.setupTunnelZone(r.Context(), tunnel.ID, req.CreateZone, req.ZoneID, req.ZoneName)
 
-	fwErr := s.fw.SetupWgS2sFirewall(r.Context(), tunnel.ID, tunnel.InterfaceName, tunnel.AllowedIPs)
-	if fwErr != nil {
-		slog.Warn("wg-s2s firewall rules failed", "iface", tunnel.InterfaceName, "err", fwErr)
-		s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", tunnel.InterfaceName, fwErr), "wgs2s"))
+	var fwErr error
+	if s.fw != nil {
+		fwErr = s.fw.SetupWgS2sFirewall(r.Context(), tunnel.ID, tunnel.InterfaceName, tunnel.AllowedIPs)
+		if fwErr != nil {
+			slog.Warn("wg-s2s firewall rules failed", "iface", tunnel.InterfaceName, "err", fwErr)
+			s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall rules failed iface=%s err=%v", tunnel.InterfaceName, fwErr), "wgs2s"))
+		}
 	}
 	s.openWgS2sWanPort(r.Context(), tunnel.ListenPort, tunnel.InterfaceName)
 
@@ -163,7 +166,7 @@ func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request)
 		tunnelResp.ZoneName = zm.ZoneName
 	}
 
-	resp := TunnelCreateResponse{wgS2sTunnelResponse: tunnelResp}
+	resp := TunnelResponse{wgS2sTunnelResponse: tunnelResp}
 	resp.Status = firewallStatus(zoneResult, fwErr)
 	if resp.Status == "partial" {
 		resp.Firewall = NewFirewallStatusBrief(zoneResult)
@@ -290,7 +293,7 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 	}
 
 	var fwErr error
-	if updates.AllowedIPs != nil && tunnel.Enabled && existing != nil {
+	if updates.AllowedIPs != nil && tunnel.Enabled && existing != nil && s.fw != nil {
 		s.fw.RemoveWgS2sIPSetEntries(r.Context(), id, existing.AllowedIPs)
 		fwErr = s.fw.SetupWgS2sFirewall(r.Context(), tunnel.ID, tunnel.InterfaceName, tunnel.AllowedIPs)
 		if fwErr != nil {
@@ -304,7 +307,7 @@ func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request)
 		tunnelResp.PublicKey = pubKey
 	}
 
-	resp := TunnelCreateResponse{wgS2sTunnelResponse: tunnelResp}
+	resp := TunnelResponse{wgS2sTunnelResponse: tunnelResp}
 	resp.Status = firewallStatus(nil, fwErr)
 	if resp.Status == "partial" {
 		resp.Firewall = &FirewallStatusBrief{Errors: []string{fwErr.Error()}}
@@ -354,7 +357,7 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if t := s.findTunnelByID(id); t != nil {
+	if t := s.findTunnelByID(id); t != nil && s.fw != nil {
 		fwErr := s.fw.SetupWgS2sFirewall(r.Context(), t.ID, t.InterfaceName, t.AllowedIPs)
 		if fwErr != nil {
 			slog.Warn("wg-s2s firewall rules failed", "iface", t.InterfaceName, "err", fwErr)
@@ -362,7 +365,7 @@ func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request)
 		}
 		s.openWgS2sWanPort(r.Context(), t.ListenPort, t.InterfaceName)
 		if fwErr != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "partial", "firewall": &FirewallStatusBrief{Errors: []string{fwErr.Error()}}})
+			writeJSON(w, http.StatusOK, OperationResponse{OK: true, Status: "partial", Firewall: &FirewallStatusBrief{Errors: []string{fwErr.Error()}}})
 			return
 		}
 	}

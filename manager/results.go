@@ -83,9 +83,17 @@ func NewFirewallStatusBrief(r *FirewallSetupResult) *FirewallStatusBrief {
 	return b
 }
 
-// TunnelCreateResponse extends the tunnel response with firewall status.
-type TunnelCreateResponse struct {
+// TunnelResponse extends the tunnel response with firewall status.
+// Used by both Create and Update handlers.
+type TunnelResponse struct {
 	wgS2sTunnelResponse
+	Status   string              `json:"status,omitempty"`
+	Firewall *FirewallStatusBrief `json:"firewall,omitempty"`
+}
+
+// OperationResponse is a lightweight response for operations that don't return entity data.
+type OperationResponse struct {
+	OK       bool                `json:"ok"`
 	Status   string              `json:"status,omitempty"`
 	Firewall *FirewallStatusBrief `json:"firewall,omitempty"`
 }

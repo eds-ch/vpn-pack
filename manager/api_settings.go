@@ -369,7 +369,7 @@ func (s *Server) swapWanPort(ctx context.Context, oldPort, newPort int, marker s
 		}
 	}
 	if changed {
-		s.fw.RestoreRulesWithRetry(ctx, 3, 2*time.Second)
+		go s.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
 	}
 }
 

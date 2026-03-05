@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -51,50 +52,39 @@ func TestCheckAndRestoreRulesDeduplication(t *testing.T) {
 	assert.Equal(t, int32(1), maxConcurrent.Load(), "only one concurrent execution should happen")
 }
 
-func TestRestoreRulesWithRetry(t *testing.T) {
+func TestRetryLoop(t *testing.T) {
 	var callCount int
-	fm := &testFirewallManager{
-		restoreFn: func() error {
-			callCount++
-			return nil
-		},
+	fn := func(context.Context) error {
+		callCount++
+		return nil
 	}
 
 	ctx := context.Background()
-	fm.restoreRulesWithRetry(ctx, 3, 10*time.Millisecond)
+	retryLoop(ctx, 3, 10*time.Millisecond, fn)
 	assert.Equal(t, 3, callCount)
 }
 
-func TestRestoreRulesWithRetryContextCancel(t *testing.T) {
+func TestRetryLoopContextCancel(t *testing.T) {
 	var callCount int
-	fm := &testFirewallManager{
-		restoreFn: func() error {
-			callCount++
-			return nil
-		},
+	fn := func(context.Context) error {
+		callCount++
+		return nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	fm.restoreRulesWithRetry(ctx, 5, 10*time.Millisecond)
+	retryLoop(ctx, 5, 10*time.Millisecond, fn)
 	assert.Equal(t, 1, callCount, "should stop after context cancel")
 }
 
-type testFirewallManager struct {
-	restoreFn func() error
-}
-
-func (fm *testFirewallManager) restoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration) {
-	for i := range retries {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(delay):
-			}
-		}
-		if fm.restoreFn != nil {
-			fm.restoreFn()
-		}
+func TestRetryLoopContinuesOnError(t *testing.T) {
+	var callCount int
+	fn := func(context.Context) error {
+		callCount++
+		return fmt.Errorf("transient error")
 	}
+
+	ctx := context.Background()
+	retryLoop(ctx, 3, 10*time.Millisecond, fn)
+	assert.Equal(t, 3, callCount, "should retry all attempts even on errors")
 }

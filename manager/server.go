@@ -248,7 +248,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func writeOK(w http.ResponseWriter) {
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeJSON(w, http.StatusOK, OperationResponse{OK: true})
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
@@ -281,7 +281,7 @@ func (s *Server) openWgS2sWanPort(ctx context.Context, port int, iface string) {
 	if err := s.fw.OpenWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
 	} else {
-		s.fw.RestoreRulesWithRetry(ctx, 3, 2*time.Second)
+		go s.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
 	}
 }
 
@@ -292,7 +292,7 @@ func (s *Server) closeWgS2sWanPort(ctx context.Context, port int, iface string) 
 	if err := s.fw.CloseWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
 	} else {
-		s.fw.RestoreRulesWithRetry(ctx, 3, 2*time.Second)
+		go s.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
 	}
 }
 

@@ -367,6 +367,10 @@ func (fm *FirewallManager) RemoveDNSForwarding(ctx context.Context) error {
 }
 
 func (fm *FirewallManager) RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration) {
+	retryLoop(ctx, retries, delay, fm.RestoreTailscaleRules)
+}
+
+func retryLoop(ctx context.Context, retries int, delay time.Duration, fn func(context.Context) error) {
 	for i := range retries {
 		if i > 0 {
 			select {
@@ -375,8 +379,8 @@ func (fm *FirewallManager) RestoreRulesWithRetry(ctx context.Context, retries in
 			case <-time.After(delay):
 			}
 		}
-		if err := fm.RestoreTailscaleRules(ctx); err != nil {
-			slog.Warn("restore rules retry failed", "attempt", i+1, "err", err)
+		if err := fn(ctx); err != nil {
+			slog.Warn("retry failed", "attempt", i+1, "err", err)
 		}
 	}
 }
