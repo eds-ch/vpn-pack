@@ -15,6 +15,7 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/types/netmap"
 	"unifi-tailscale/manager/internal/wgs2s"
+	"unifi-tailscale/manager/service"
 )
 
 type TailscaleState struct {
@@ -42,7 +43,7 @@ type stateData struct {
 	IntegrationStatus *IntegrationStatus  `json:"integrationStatus,omitempty"`
 	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
 
-	settingsFields
+	service.SettingsFields
 }
 
 type RouteStatus struct {
@@ -195,7 +196,7 @@ func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrich
 	s.state.data.FirewallHealth = s.firewallHealthSnapshot(ctx)
 	s.state.data.IntegrationStatus = integrationStatus
 	s.state.data.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
-	s.state.data.UDPPort = readTailscaledPort()
+	s.state.data.UDPPort = service.ReadTailscaledPort()
 	if s.wgManager != nil {
 		tunnels := s.wgManager.GetStatuses()
 		s.enrichForwardINOk(ctx, tunnels)
@@ -285,14 +286,14 @@ func (s *Server) applyNotifyPrefs(p ipn.PrefsView) {
 	s.state.data.RunSSH = p.RunSSH()
 	s.state.data.NoSNAT = p.NoSNAT()
 	s.state.data.RelayServerPort = p.RelayServerPort().Clone()
-	s.state.data.RelayServerEndpoints = formatAddrPorts(p.RelayServerStaticEndpoints().AsSlice())
+	s.state.data.RelayServerEndpoints = service.FormatAddrPorts(p.RelayServerStaticEndpoints().AsSlice())
 
 	tags := p.AdvertiseTags().AsSlice()
 	if tags == nil {
 		tags = []string{}
 	}
 	s.state.data.AdvertiseTags = tags
-	s.state.data.UDPPort = readTailscaledPort()
+	s.state.data.UDPPort = service.ReadTailscaledPort()
 }
 
 func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {

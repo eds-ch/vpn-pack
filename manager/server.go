@@ -10,12 +10,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"unifi-tailscale/manager/internal/wgs2s"
+	"unifi-tailscale/manager/service"
 )
 
 //go:embed all:ui/dist
@@ -55,6 +57,20 @@ type Server struct {
 	vpnClientsMu     sync.Mutex
 	updater           *updateChecker
 	intCache          integrationCache
+	settings          *service.SettingsService
+}
+
+type settingsManifestAdapter struct {
+	ms ManifestStore
+}
+
+func (a settingsManifestAdapter) HasDNSPolicy(marker string) bool {
+	return a.ms.HasDNSPolicy(marker)
+}
+
+func (a settingsManifestAdapter) WanPort(marker string) (int, bool) {
+	entry, ok := a.ms.GetWanPortEntry(marker)
+	return entry.Port, ok
 }
 
 func NewServer(ctx context.Context, opts ServerOptions) *Server {
@@ -71,6 +87,10 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		logBuf:     opts.LogBuf,
 		updater:    opts.Updater,
 	}
+	s.settings = service.NewSettingsService(
+		opts.Tailscale, opts.Firewall, opts.Integration,
+		settingsManifestAdapter{opts.Manifest}, opts.DeviceInfo.HasUDAPISocket,
+	)
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	s.mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
@@ -270,6 +290,63 @@ func isUDAPIReachable() bool {
 	return err == nil
 }
 
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.settings.GetSettings(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
+	var req service.SettingsRequest
+	if err := readJSON(w, r, &req); err != nil {
+		return
+	}
+	result, err := s.settings.SetSettings(r.Context(), &req)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if result.NeedsRestart {
+		s.restartTailscaled()
+	}
+	if result.DNSChanged {
+		s.state.mu.Lock()
+		s.state.data.AcceptDNS = result.AcceptDNSEnabled
+		s.state.mu.Unlock()
+		s.broadcastState()
+	}
+	writeJSON(w, http.StatusOK, result.Response)
+}
+
+func writeServiceError(w http.ResponseWriter, err error) {
+	var se *service.Error
+	if errors.As(err, &se) {
+		switch se.Kind {
+		case service.ErrValidation:
+			writeError(w, http.StatusBadRequest, se.Message)
+		case service.ErrUpstream:
+			writeError(w, http.StatusBadGateway, se.Message)
+		default:
+			writeError(w, http.StatusInternalServerError, se.Message)
+		}
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err.Error())
+}
+
+func (s *Server) restartTailscaled() {
+	go func() {
+		if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
+			slog.Warn("tailscaled restart failed", "err", err, "output", string(out))
+		} else {
+			slog.Info("tailscaled restarted for settings change")
+		}
+	}()
+}
+
 func (s *Server) integrationReady() bool {
 	return s.fw != nil && s.fw.IntegrationReady()
 }
@@ -297,7 +374,7 @@ func (s *Server) closeWgS2sWanPort(ctx context.Context, port int, iface string) 
 }
 
 func (s *Server) openTailscaleWanPort(ctx context.Context) {
-	port := readTailscaledPort()
+	port := service.ReadTailscaledPort()
 	if port <= 0 {
 		return
 	}

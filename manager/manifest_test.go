@@ -253,6 +253,29 @@ func TestManifest_SnapshotIsolation(t *testing.T) {
 	assert.Equal(t, "", m.GetWanPortPolicyID("a"))
 }
 
+func TestManifestDNSPolicy(t *testing.T) {
+	m := &Manifest{Version: 2}
+
+	assert.False(t, m.HasDNSPolicy("test"))
+	_, ok := m.GetDNSPolicy("test")
+	assert.False(t, ok)
+
+	m.SetDNSPolicy("test", "pol-123", "example.ts.net", "100.100.100.100")
+	assert.True(t, m.HasDNSPolicy("test"))
+	entry, ok := m.GetDNSPolicy("test")
+	require.True(t, ok)
+	assert.Equal(t, "pol-123", entry.PolicyID)
+	assert.Equal(t, "example.ts.net", entry.Domain)
+	assert.Equal(t, "100.100.100.100", entry.IPAddress)
+
+	m.RemoveDNSPolicy("test")
+	assert.False(t, m.HasDNSPolicy("test"))
+
+	m.SetDNSPolicy("test2", "pol-456", "other.ts.net", "100.100.100.100")
+	m.ResetIntegration()
+	assert.False(t, m.HasDNSPolicy("test2"))
+}
+
 func TestManifest_RemoveNonExistingTunnel(t *testing.T) {
 	dir := t.TempDir()
 	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
