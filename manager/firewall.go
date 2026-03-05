@@ -62,6 +62,10 @@ func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *Firewall
 
 	if ctx.Err() != nil {
 		result.addError("context", ctx.Err())
+		fm.rollbackZone(ctx, siteID, zone.ID, "context cancelled before policy setup")
+		result.ZoneCreated = false
+		result.ZoneID = ""
+		result.ZoneName = ""
 		return result
 	}
 
@@ -85,7 +89,7 @@ func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *Firewall
 
 	if err := fm.manifest.SetTailscaleZone(zone.ID, zone.Name, policyIDs, result.ChainPrefix); err != nil {
 		result.addError("manifest", err)
-		fm.rollbackZone(ctx, siteID, zone.ID, "tailscale manifest save failed")
+		fm.rollbackZone(ctx, siteID, zone.ID, "tailscale manifest save failed", policyIDs...)
 		result.ZoneCreated = false
 		result.ZoneID = ""
 		result.ZoneName = ""
@@ -115,8 +119,14 @@ func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *Firewall
 	return result
 }
 
-func (fm *FirewallManager) rollbackZone(ctx context.Context, siteID, zoneID, reason string) {
-	if err := fm.ic.DeleteZone(ctx, siteID, zoneID); err != nil {
+func (fm *FirewallManager) rollbackZone(ctx context.Context, siteID, zoneID, reason string, policyIDs ...string) {
+	rctx := context.WithoutCancel(ctx)
+	for _, pid := range policyIDs {
+		if err := fm.ic.DeletePolicy(rctx, siteID, pid); err != nil && !errors.Is(err, ErrNotFound) {
+			slog.Warn("rollback: failed to delete policy", "policyId", pid, "reason", reason, "err", err)
+		}
+	}
+	if err := fm.ic.DeleteZone(rctx, siteID, zoneID); err != nil {
 		slog.Warn("rollback: failed to delete zone", "zoneId", zoneID, "reason", reason, "err", err)
 	} else {
 		slog.Info("rollback: zone deleted", "zoneId", zoneID, "reason", reason)
@@ -188,7 +198,7 @@ func (fm *FirewallManager) SetupWgS2sZone(ctx context.Context, tunnelID, zoneID,
 
 	if err := fm.manifest.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zone.ID, ZoneName: zone.Name, PolicyIDs: policyIDs, ChainPrefix: chainPrefix}); err != nil {
 		result.addError("manifest", fmt.Errorf("save manifest: %w", err))
-		fm.rollbackZone(ctx, siteID, zone.ID, "wg-s2s manifest save failed")
+		fm.rollbackZone(ctx, siteID, zone.ID, "wg-s2s manifest save failed", policyIDs...)
 		result.ZoneCreated = false
 		result.ZoneID = ""
 		result.ZoneName = ""
