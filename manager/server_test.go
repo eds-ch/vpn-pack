@@ -70,7 +70,6 @@ func newTestServer(opts ...func(*Server)) *Server {
 	s := &Server{
 		ts:         &mockTailscaleControl{},
 		hub:        &mockSSEHub{},
-		mux:        http.NewServeMux(),
 		state:      &TailscaleState{data: stateData{BackendState: "Unavailable"}},
 		fw:         &mockFirewallService{},
 		ic:         &mockIntegrationAPI{},
