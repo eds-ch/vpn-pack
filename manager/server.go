@@ -57,6 +57,7 @@ type Server struct {
 	wgManager         WgS2sControl
 	vpnClientsMu     sync.Mutex
 	updater           *updateChecker
+	fwOrch            *service.FirewallOrchestrator
 	settings          *service.SettingsService
 	diagnostics       *service.DiagnosticsService
 	integration       *service.IntegrationService
@@ -101,24 +102,107 @@ func (a integrationICAdapter) Validate(ctx context.Context) (string, error) {
 	return info.ApplicationVersion, nil
 }
 
-type wgS2sFirewallAdapter struct {
+// --- Adapters for FirewallOrchestrator ---
+
+type firewallIntegrationAdapter struct {
+	ic IntegrationAPI
+}
+
+func (a *firewallIntegrationAdapter) HasAPIKey() bool { return a.ic.HasAPIKey() }
+func (a *firewallIntegrationAdapter) EnsureZone(ctx context.Context, siteID, name string) (service.ZoneInfo, error) {
+	z, err := a.ic.EnsureZone(ctx, siteID, name)
+	if err != nil {
+		return service.ZoneInfo{}, err
+	}
+	return service.ZoneInfo{ZoneID: z.ID, ZoneName: z.Name}, nil
+}
+func (a *firewallIntegrationAdapter) EnsurePolicies(ctx context.Context, siteID, name, zoneID string) ([]string, error) {
+	return a.ic.EnsurePolicies(ctx, siteID, name, zoneID)
+}
+func (a *firewallIntegrationAdapter) DeletePolicy(ctx context.Context, siteID, policyID string) error {
+	err := a.ic.DeletePolicy(ctx, siteID, policyID)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
+}
+func (a *firewallIntegrationAdapter) DeleteZone(ctx context.Context, siteID, zoneID string) error {
+	err := a.ic.DeleteZone(ctx, siteID, zoneID)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+type firewallManifestAdapter struct {
+	ms ManifestStore
+}
+
+func (a *firewallManifestAdapter) GetSiteID() string  { return a.ms.GetSiteID() }
+func (a *firewallManifestAdapter) HasSiteID() bool     { return a.ms.HasSiteID() }
+func (a *firewallManifestAdapter) GetTailscaleChainPrefix() string {
+	return a.ms.GetTailscaleChainPrefix()
+}
+func (a *firewallManifestAdapter) GetTailscaleZone() service.ZoneManifestData {
+	z := a.ms.GetTailscaleZone()
+	return service.ZoneManifestData{ZoneID: z.ZoneID, ZoneName: z.ZoneName, PolicyIDs: z.PolicyIDs, ChainPrefix: z.ChainPrefix}
+}
+func (a *firewallManifestAdapter) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) error {
+	return a.ms.SetTailscaleZone(zoneID, zoneName, policyIDs, chainPrefix)
+}
+func (a *firewallManifestAdapter) GetWgS2sSnapshot() map[string]service.ZoneManifestData {
+	raw := a.ms.GetWgS2sSnapshot()
+	out := make(map[string]service.ZoneManifestData, len(raw))
+	for k, v := range raw {
+		out[k] = service.ZoneManifestData{ZoneID: v.ZoneID, ZoneName: v.ZoneName, PolicyIDs: v.PolicyIDs, ChainPrefix: v.ChainPrefix}
+	}
+	return out
+}
+func (a *firewallManifestAdapter) GetWgS2sZone(tunnelID string) (service.ZoneManifestData, bool) {
+	zm, ok := a.ms.GetWgS2sZone(tunnelID)
+	if !ok {
+		return service.ZoneManifestData{}, false
+	}
+	return service.ZoneManifestData{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, PolicyIDs: zm.PolicyIDs, ChainPrefix: zm.ChainPrefix}, true
+}
+func (a *firewallManifestAdapter) SetWgS2sZone(tunnelID string, zs service.ZoneManifestData) error {
+	return a.ms.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zs.ZoneID, ZoneName: zs.ZoneName, PolicyIDs: zs.PolicyIDs, ChainPrefix: zs.ChainPrefix})
+}
+func (a *firewallManifestAdapter) RemoveWgS2sTunnel(tunnelID string) error {
+	return a.ms.RemoveWgS2sTunnel(tunnelID)
+}
+
+type firewallOpsAdapter struct {
 	fw FirewallService
 }
 
+func (a *firewallOpsAdapter) DiscoverChainPrefix(zoneID string) string {
+	return a.fw.DiscoverChainPrefix(zoneID)
+}
+func (a *firewallOpsAdapter) EnsureTailscaleRules(chainPrefix string) error {
+	return a.fw.EnsureTailscaleRules(chainPrefix)
+}
+func (a *firewallOpsAdapter) RemoveTailscaleInterfaceRules() error {
+	return a.fw.RemoveTailscaleInterfaceRules()
+}
+
+// --- Adapter for WgS2sService ---
+
+type wgS2sFirewallAdapter struct {
+	fw   FirewallService
+	orch *service.FirewallOrchestrator
+}
+
 func (a *wgS2sFirewallAdapter) SetupZone(ctx context.Context, tunnelID, zoneID, zoneName string) *service.ZoneSetupResult {
-	r := a.fw.SetupWgS2sZone(ctx, tunnelID, zoneID, zoneName)
+	r := a.orch.SetupWgS2sZone(ctx, tunnelID, zoneID, zoneName)
 	if r == nil {
 		return nil
-	}
-	errs := make([]string, len(r.Errors))
-	for i, e := range r.Errors {
-		errs[i] = e.Error()
 	}
 	return &service.ZoneSetupResult{
 		ZoneCreated:   r.ZoneCreated,
 		PoliciesReady: r.PoliciesReady,
 		UDAPIApplied:  r.UDAPIApplied,
-		Errors:        errs,
+		Errors:        r.Errors,
 	}
 }
 
@@ -135,7 +219,7 @@ func (a *wgS2sFirewallAdapter) RemoveIPSetEntries(ctx context.Context, tunnelID 
 }
 
 func (a *wgS2sFirewallAdapter) TeardownZone(ctx context.Context, tunnelID string) {
-	a.fw.TeardownWgS2sZone(ctx, tunnelID)
+	a.orch.TeardownWgS2sZone(ctx, tunnelID)
 }
 
 func (a *wgS2sFirewallAdapter) OpenWanPort(ctx context.Context, port int, iface string) {
@@ -250,9 +334,17 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	)
 	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall)
 
+	if opts.Firewall != nil {
+		s.fwOrch = service.NewFirewallOrchestrator(
+			&firewallIntegrationAdapter{ic: opts.Integration},
+			&firewallManifestAdapter{ms: opts.Manifest},
+			&firewallOpsAdapter{fw: opts.Firewall},
+		)
+	}
+
 	var wgFw service.WgS2sFirewall
 	if opts.Firewall != nil {
-		wgFw = &wgS2sFirewallAdapter{fw: opts.Firewall}
+		wgFw = &wgS2sFirewallAdapter{fw: opts.Firewall, orch: s.fwOrch}
 	}
 	s.wgS2sSvc = service.NewWgS2sService(
 		nil, // wg set later in initWgS2s
@@ -337,7 +429,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	if s.deviceInfo.HasUDAPISocket {
 		if s.integrationReady() {
-			if result := s.fw.SetupTailscaleFirewall(ctx); result.Err() != nil {
+			if result := s.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
 				slog.Warn("initial firewall apply failed", "err", result.Err())
 			}
 		}
@@ -569,8 +661,8 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if s.fw != nil && st.SiteID != "" {
-		if result := s.fw.SetupTailscaleFirewall(r.Context()); result.Err() != nil {
+	if s.fwOrch != nil && st.SiteID != "" {
+		if result := s.fwOrch.SetupTailscaleFirewall(r.Context()); result.Err() != nil {
 			slog.Warn("firewall setup after key save failed", "err", result.Err())
 		}
 		s.openTailscaleWanPort(r.Context())

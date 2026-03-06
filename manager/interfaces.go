@@ -88,12 +88,9 @@ type TailscaleControl interface {
 }
 
 type FirewallService interface {
-	SetupTailscaleFirewall(ctx context.Context) *FirewallSetupResult
-	SetupWgS2sZone(ctx context.Context, tunnelID, zoneID, zoneName string) *FirewallSetupResult
 	SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error
 	RemoveWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string)
 	RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID string, cidrs []string)
-	TeardownWgS2sZone(ctx context.Context, tunnelID string)
 	OpenWanPort(ctx context.Context, port int, marker string) error
 	CloseWanPort(ctx context.Context, port int, marker string) error
 	EnsureDNSForwarding(ctx context.Context, magicDNSSuffix string) error
@@ -102,6 +99,9 @@ type FirewallService interface {
 	RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration)
 	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
 	CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool
+	DiscoverChainPrefix(zoneID string) string
+	EnsureTailscaleRules(chainPrefix string) error
+	RemoveTailscaleInterfaceRules() error
 	IntegrationReady() bool
 }
 

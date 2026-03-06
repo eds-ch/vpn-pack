@@ -85,7 +85,7 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 
 		case <-sighup:
 			slog.Info("SIGHUP received, forcing reapply")
-			if result := s.fw.SetupTailscaleFirewall(ctx); result.Err() != nil {
+			if result := s.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
 				slog.Warn("SIGHUP reapply failed", "err", result.Err())
 			}
 		}
@@ -202,7 +202,7 @@ func (s *Server) retryIntegrationSetup(ctx context.Context) {
 
 	slog.Info("retrying integration zone/policy setup", "attempt", s.intRetry.count())
 
-	result := s.fw.SetupTailscaleFirewall(ctx)
+	result := s.fwOrch.SetupTailscaleFirewall(ctx)
 	if result.Err() != nil {
 		slog.Warn("integration setup retry failed", "attempt", s.intRetry.count(), "err", result.Err())
 		return

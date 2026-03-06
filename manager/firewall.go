@@ -21,15 +21,8 @@ type FirewallManager struct {
 	manifest ManifestStore
 }
 
-func (fm *FirewallManager) requireIntegration() error {
-	if fm.ic == nil || !fm.ic.HasAPIKey() || fm.manifest == nil || !fm.manifest.HasSiteID() {
-		return errIntegrationNotConfigured
-	}
-	return nil
-}
-
 func (fm *FirewallManager) IntegrationReady() bool {
-	return fm.requireIntegration() == nil
+	return fm.ic != nil && fm.ic.HasAPIKey() && fm.manifest != nil && fm.manifest.HasSiteID()
 }
 
 func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest ManifestStore) *FirewallManager {
@@ -40,181 +33,12 @@ func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest Manif
 	}
 }
 
-func (fm *FirewallManager) SetupTailscaleFirewall(ctx context.Context) *FirewallSetupResult {
-	result := &FirewallSetupResult{ChainPrefix: defaultChainPrefix}
-
-	if err := fm.requireIntegration(); err != nil {
-		slog.Info("skipping tailscale firewall setup: integration not configured")
-		return result
-	}
-
-	siteID := fm.manifest.GetSiteID()
-
-	zone, err := fm.ic.EnsureZone(ctx, siteID, "VPN Pack: Tailscale")
-	if err != nil {
-		result.addError("zone", err)
-		return result
-	}
-	result.ZoneCreated = true
-	result.ZoneID = zone.ID
-	result.ZoneName = zone.Name
-	slog.Info("integration zone ready", "zoneId", zone.ID, "name", zone.Name)
-
-	if ctx.Err() != nil {
-		result.addError("context", ctx.Err())
-		fm.rollbackZone(ctx, siteID, zone.ID, "context cancelled before policy setup")
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
-		return result
-	}
-
-	policyIDs, err := fm.ic.EnsurePolicies(ctx, siteID, "Tailscale", zone.ID)
-	if err != nil {
-		result.addError("policies", err)
-		fm.rollbackZone(ctx, siteID, zone.ID, "tailscale policy setup failed")
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
-		return result
-	}
-	result.PoliciesReady = true
-	result.PolicyIDs = policyIDs
-	slog.Info("integration policies ready", "count", len(policyIDs))
-
-	discovered := fm.discoverChainPrefix(zone.ID)
-	if discovered != "" {
-		result.ChainPrefix = discovered
-	}
-
-	if err := fm.manifest.SetTailscaleZone(zone.ID, zone.Name, policyIDs, result.ChainPrefix); err != nil {
-		result.addError("manifest", err)
-		fm.rollbackZone(ctx, siteID, zone.ID, "tailscale manifest save failed", policyIDs...)
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
-		result.PoliciesReady = false
-		result.PolicyIDs = nil
-		return result
-	}
-
-	if ctx.Err() != nil {
-		result.addError("context", ctx.Err())
-		return result
-	}
-
-	marker := firewallMarker
-	oldPrefix := fm.manifest.GetTailscaleChainPrefix()
-	if result.ChainPrefix != oldPrefix {
-		_ = udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, marker)
-	}
-
-	if err := fm.ensureTailscaleRules(result.ChainPrefix); err != nil {
-		result.addError("udapi", err)
-		return result
-	}
-	result.UDAPIApplied = true
-
-	slog.Info("tailscale firewall setup complete", "chainPrefix", result.ChainPrefix)
-	return result
-}
-
-func (fm *FirewallManager) rollbackZone(ctx context.Context, siteID, zoneID, reason string, policyIDs ...string) {
-	rctx := context.WithoutCancel(ctx)
-	for _, pid := range policyIDs {
-		if err := fm.ic.DeletePolicy(rctx, siteID, pid); err != nil && !errors.Is(err, ErrNotFound) {
-			slog.Warn("rollback: failed to delete policy", "policyId", pid, "reason", reason, "err", err)
-		}
-	}
-	if err := fm.ic.DeleteZone(rctx, siteID, zoneID); err != nil {
-		slog.Warn("rollback: failed to delete zone", "zoneId", zoneID, "reason", reason, "err", err)
-	} else {
-		slog.Info("rollback: zone deleted", "zoneId", zoneID, "reason", reason)
-	}
-}
-
-func (fm *FirewallManager) SetupWgS2sZone(ctx context.Context, tunnelID, zoneID, zoneName string) *FirewallSetupResult {
-	result := &FirewallSetupResult{ChainPrefix: defaultChainPrefix}
-
-	if err := fm.requireIntegration(); err != nil {
-		result.addError("integration", err)
-		return result
-	}
-	siteID := fm.manifest.GetSiteID()
-
-	if zoneID != "" {
-		for _, zm := range fm.manifest.GetWgS2sSnapshot() {
-			if zm.ZoneID == zoneID {
-				if err := fm.manifest.SetWgS2sZone(tunnelID, zm); err != nil {
-					result.addError("manifest", err)
-					return result
-				}
-				result.ZoneCreated = true
-				result.ZoneID = zm.ZoneID
-				result.ZoneName = zm.ZoneName
-				result.PoliciesReady = len(zm.PolicyIDs) > 0
-				result.PolicyIDs = zm.PolicyIDs
-				result.ChainPrefix = zm.ChainPrefix
-				return result
-			}
-		}
-		result.addError("zone", fmt.Errorf("zone %s not found in manifest", zoneID))
-		return result
-	}
-
-	if zoneName == "" {
-		zoneName = "WireGuard S2S"
-	}
-	zoneDisplayName := "VPN Pack: " + zoneName
-
-	zone, err := fm.ic.EnsureZone(ctx, siteID, zoneDisplayName)
-	if err != nil {
-		result.addError("zone", fmt.Errorf("ensure zone %q: %w", zoneDisplayName, err))
-		return result
-	}
-	result.ZoneCreated = true
-	result.ZoneID = zone.ID
-	result.ZoneName = zone.Name
-	slog.Info("wg-s2s integration zone ready", "zoneId", zone.ID, "name", zone.Name)
-
-	policyIDs, err := fm.ic.EnsurePolicies(ctx, siteID, zoneName, zone.ID)
-	if err != nil {
-		result.addError("policies", err)
-		fm.rollbackZone(ctx, siteID, zone.ID, "wg-s2s policy setup failed")
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
-		return result
-	}
-	result.PoliciesReady = true
-	result.PolicyIDs = policyIDs
-	slog.Info("wg-s2s integration policies ready", "count", len(policyIDs))
-
-	chainPrefix := fm.discoverChainPrefix(zone.ID)
-	if chainPrefix == "" {
-		chainPrefix = defaultChainPrefix
-	}
-	result.ChainPrefix = chainPrefix
-
-	if err := fm.manifest.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zone.ID, ZoneName: zone.Name, PolicyIDs: policyIDs, ChainPrefix: chainPrefix}); err != nil {
-		result.addError("manifest", fmt.Errorf("save manifest: %w", err))
-		fm.rollbackZone(ctx, siteID, zone.ID, "wg-s2s manifest save failed", policyIDs...)
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
-		result.PoliciesReady = false
-		result.PolicyIDs = nil
-		return result
-	}
-	return result
-}
-
 func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error {
 	chainPrefix := fm.manifest.GetWgS2sChainPrefix(tunnelID)
 
 	if chainPrefix == defaultChainPrefix {
 		if zm, ok := fm.manifest.GetWgS2sZone(tunnelID); ok && zm.ZoneID != "" {
-			if rediscovered := fm.discoverChainPrefix(zm.ZoneID); rediscovered != "" {
+			if rediscovered := fm.DiscoverChainPrefix(zm.ZoneID); rediscovered != "" {
 				chainPrefix = rediscovered
 				if err := fm.manifest.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, PolicyIDs: zm.PolicyIDs, ChainPrefix: chainPrefix}); err != nil {
 					slog.Warn("manifest save failed", "err", err)
@@ -276,47 +100,9 @@ func (fm *FirewallManager) RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID
 	}
 }
 
-func (fm *FirewallManager) TeardownWgS2sZone(ctx context.Context, tunnelID string) {
-	zm, ok := fm.manifest.GetWgS2sZone(tunnelID)
-	if !ok {
-		return
-	}
-
-	if err := fm.manifest.RemoveWgS2sTunnel(tunnelID); err != nil {
-		slog.Warn("teardown: manifest remove failed", "tunnelId", tunnelID, "err", err)
-	}
-
-	if zm.ZoneID == "" {
-		return
-	}
-
-	for _, other := range fm.manifest.GetWgS2sSnapshot() {
-		if other.ZoneID == zm.ZoneID {
-			return
-		}
-	}
-
-	if err := fm.requireIntegration(); err != nil {
-		return
-	}
-	siteID := fm.manifest.GetSiteID()
-
-	for _, policyID := range zm.PolicyIDs {
-		if err := fm.ic.DeletePolicy(ctx, siteID, policyID); err != nil && !errors.Is(err, ErrNotFound) {
-			slog.Warn("teardown: policy delete failed", "policyId", policyID, "err", err)
-		}
-	}
-
-	if err := fm.ic.DeleteZone(ctx, siteID, zm.ZoneID); err != nil && !errors.Is(err, ErrNotFound) {
-		slog.Warn("teardown: zone delete failed", "zoneId", zm.ZoneID, "err", err)
-	} else {
-		slog.Info("teardown: wg-s2s zone deleted", "zoneId", zm.ZoneID, "zoneName", zm.ZoneName)
-	}
-}
-
 func (fm *FirewallManager) OpenWanPort(ctx context.Context, port int, marker string) error {
-	if err := fm.requireIntegration(); err != nil {
-		return err
+	if !fm.IntegrationReady() {
+		return errIntegrationNotConfigured
 	}
 
 	if existing := fm.manifest.GetWanPortPolicyID(marker); existing != "" {
@@ -344,8 +130,8 @@ func (fm *FirewallManager) OpenWanPort(ctx context.Context, port int, marker str
 }
 
 func (fm *FirewallManager) CloseWanPort(ctx context.Context, port int, marker string) error {
-	if err := fm.requireIntegration(); err != nil {
-		return err
+	if !fm.IntegrationReady() {
+		return errIntegrationNotConfigured
 	}
 
 	policyID := fm.manifest.GetWanPortPolicyID(marker)
@@ -388,8 +174,8 @@ func (fm *FirewallManager) resolveSystemZones(ctx context.Context, siteID string
 }
 
 func (fm *FirewallManager) EnsureDNSForwarding(ctx context.Context, magicDNSSuffix string) error {
-	if err := fm.requireIntegration(); err != nil {
-		return err
+	if !fm.IntegrationReady() {
+		return errIntegrationNotConfigured
 	}
 
 	if entry, ok := fm.manifest.GetDNSPolicy(dnsMarkerTailscale); ok {
@@ -425,7 +211,7 @@ func (fm *FirewallManager) RemoveDNSForwarding(ctx context.Context) error {
 		return nil
 	}
 
-	if err := fm.requireIntegration(); err == nil {
+	if fm.IntegrationReady() {
 		siteID := fm.manifest.GetSiteID()
 		if err := fm.ic.DeleteDNSPolicy(ctx, siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
 			slog.Warn("failed to delete DNS forwarding policy from API", "policyId", entry.PolicyID, "err", err)
@@ -460,7 +246,7 @@ func retryLoop(ctx context.Context, retries int, delay time.Duration, fn func(co
 }
 
 func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
-	if err := fm.requireIntegration(); err != nil {
+	if !fm.IntegrationReady() {
 		return nil
 	}
 
@@ -470,7 +256,7 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 
 	ts := fm.manifest.GetTailscaleZone()
 	if chainPrefix == defaultChainPrefix && ts.ZoneID != "" {
-		if rediscovered := fm.discoverChainPrefix(ts.ZoneID); rediscovered != "" {
+		if rediscovered := fm.DiscoverChainPrefix(ts.ZoneID); rediscovered != "" {
 			_ = udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, marker)
 			chainPrefix = rediscovered
 			if err := fm.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, ts.PolicyIDs, rediscovered); err != nil {
@@ -480,10 +266,14 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 		}
 	}
 
-	return fm.ensureTailscaleRules(chainPrefix)
+	return fm.EnsureTailscaleRules(chainPrefix)
 }
 
-func (fm *FirewallManager) ensureTailscaleRules(chainPrefix string) error {
+func (fm *FirewallManager) RemoveTailscaleInterfaceRules() error {
+	return udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, firewallMarker)
+}
+
+func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
 	if chainPrefix != defaultChainPrefix {
 		fwd := hasChainRule(chainForwardInUser, "-i "+tailscaleInterface)
 		inp := hasChainRule(chainInputUserHook, "-i "+tailscaleInterface)
@@ -530,7 +320,7 @@ func (fm *FirewallManager) CheckWgS2sRulesPresent(ctx context.Context, ifaces []
 	return result
 }
 
-func (fm *FirewallManager) discoverChainPrefix(zoneID string) string {
+func (fm *FirewallManager) DiscoverChainPrefix(zoneID string) string {
 	if zoneID == "" {
 		return ""
 	}

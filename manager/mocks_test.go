@@ -451,12 +451,9 @@ func (m *mockIPNWatcher) Close() error {
 
 // mockFirewallService implements FirewallService for testing.
 type mockFirewallService struct {
-	setupTailscaleFirewallFn    func(ctx context.Context) *FirewallSetupResult
-	setupWgS2sZoneFn            func(ctx context.Context, tunnelID, zoneID, zoneName string) *FirewallSetupResult
 	setupWgS2sFirewallFn        func(ctx context.Context, tunnelID, iface string, allowedIPs []string) error
 	removeWgS2sFirewallFn       func(ctx context.Context, tunnelID, iface string, allowedIPs []string)
 	removeWgS2sIPSetEntriesFn   func(ctx context.Context, tunnelID string, cidrs []string)
-	teardownWgS2sZoneFn         func(ctx context.Context, tunnelID string)
 	openWanPortFn               func(ctx context.Context, port int, marker string) error
 	closeWanPortFn              func(ctx context.Context, port int, marker string) error
 	ensureDNSForwardingFn       func(ctx context.Context, magicDNSSuffix string) error
@@ -465,21 +462,12 @@ type mockFirewallService struct {
 	restoreRulesWithRetryFn     func(ctx context.Context, retries int, delay time.Duration)
 	checkTailscaleRulesPresentFn func(ctx context.Context) (bool, bool, bool, bool)
 	checkWgS2sRulesPresentFn    func(ctx context.Context, ifaces []string) map[string]bool
+	discoverChainPrefixFn       func(zoneID string) string
+	ensureTailscaleRulesFn      func(chainPrefix string) error
+	removeTailscaleInterfaceRulesFn func() error
 	integrationReadyFn          func() bool
 }
 
-func (m *mockFirewallService) SetupTailscaleFirewall(ctx context.Context) *FirewallSetupResult {
-	if m.setupTailscaleFirewallFn != nil {
-		return m.setupTailscaleFirewallFn(ctx)
-	}
-	return &FirewallSetupResult{}
-}
-func (m *mockFirewallService) SetupWgS2sZone(ctx context.Context, tunnelID, zoneID, zoneName string) *FirewallSetupResult {
-	if m.setupWgS2sZoneFn != nil {
-		return m.setupWgS2sZoneFn(ctx, tunnelID, zoneID, zoneName)
-	}
-	return &FirewallSetupResult{}
-}
 func (m *mockFirewallService) SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error {
 	if m.setupWgS2sFirewallFn != nil {
 		return m.setupWgS2sFirewallFn(ctx, tunnelID, iface, allowedIPs)
@@ -494,11 +482,6 @@ func (m *mockFirewallService) RemoveWgS2sFirewall(ctx context.Context, tunnelID,
 func (m *mockFirewallService) RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID string, cidrs []string) {
 	if m.removeWgS2sIPSetEntriesFn != nil {
 		m.removeWgS2sIPSetEntriesFn(ctx, tunnelID, cidrs)
-	}
-}
-func (m *mockFirewallService) TeardownWgS2sZone(ctx context.Context, tunnelID string) {
-	if m.teardownWgS2sZoneFn != nil {
-		m.teardownWgS2sZoneFn(ctx, tunnelID)
 	}
 }
 func (m *mockFirewallService) OpenWanPort(ctx context.Context, port int, marker string) error {
@@ -547,6 +530,24 @@ func (m *mockFirewallService) CheckWgS2sRulesPresent(ctx context.Context, ifaces
 		return m.checkWgS2sRulesPresentFn(ctx, ifaces)
 	}
 	return map[string]bool{}
+}
+func (m *mockFirewallService) DiscoverChainPrefix(zoneID string) string {
+	if m.discoverChainPrefixFn != nil {
+		return m.discoverChainPrefixFn(zoneID)
+	}
+	return ""
+}
+func (m *mockFirewallService) EnsureTailscaleRules(chainPrefix string) error {
+	if m.ensureTailscaleRulesFn != nil {
+		return m.ensureTailscaleRulesFn(chainPrefix)
+	}
+	return nil
+}
+func (m *mockFirewallService) RemoveTailscaleInterfaceRules() error {
+	if m.removeTailscaleInterfaceRulesFn != nil {
+		return m.removeTailscaleInterfaceRulesFn()
+	}
+	return nil
 }
 func (m *mockFirewallService) IntegrationReady() bool {
 	if m.integrationReadyFn != nil {

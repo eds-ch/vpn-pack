@@ -2,59 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"strings"
 
 	"unifi-tailscale/manager/service"
 )
-
-type StepError struct {
-	Step string
-	Err  error
-}
-
-func (e StepError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Step, e.Err)
-}
-
-func (e StepError) Unwrap() error {
-	return e.Err
-}
-
-type FirewallSetupResult struct {
-	ZoneCreated   bool
-	ZoneID        string
-	ZoneName      string
-	PoliciesReady bool
-	PolicyIDs     []string
-	UDAPIApplied  bool
-	ChainPrefix   string
-	Errors        []StepError
-}
-
-func (r *FirewallSetupResult) OK() bool {
-	return r.ZoneCreated && r.PoliciesReady && r.UDAPIApplied && len(r.Errors) == 0
-}
-
-func (r *FirewallSetupResult) Degraded() bool {
-	return r.ZoneCreated && r.PoliciesReady && !r.UDAPIApplied
-}
-
-func (r *FirewallSetupResult) Err() error {
-	if len(r.Errors) == 0 {
-		return nil
-	}
-	msgs := make([]string, len(r.Errors))
-	for i, e := range r.Errors {
-		msgs[i] = e.Error()
-	}
-	return fmt.Errorf("firewall setup: %s", strings.Join(msgs, "; "))
-}
-
-func (r *FirewallSetupResult) addError(step string, err error) {
-	r.Errors = append(r.Errors, StepError{Step: step, Err: err})
-}
 
 // OperationResponse is a lightweight response for operations that don't return entity data.
 type OperationResponse struct {

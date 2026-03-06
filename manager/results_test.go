@@ -2,91 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestStepError(t *testing.T) {
-	e := StepError{Step: "create_zone", Err: fmt.Errorf("timeout")}
-	assert.Equal(t, "create_zone: timeout", e.Error())
-}
-
-func TestStepErrorUnwrap(t *testing.T) {
-	inner := fmt.Errorf("connection refused")
-	e := StepError{Step: "udapi", Err: inner}
-	assert.ErrorIs(t, e, inner)
-}
-
-func TestFirewallSetupResult_OK(t *testing.T) {
-	tests := []struct {
-		name   string
-		result FirewallSetupResult
-		want   bool
-	}{
-		{"all true no errors", FirewallSetupResult{ZoneCreated: true, PoliciesReady: true, UDAPIApplied: true}, true},
-		{"zone false", FirewallSetupResult{PoliciesReady: true, UDAPIApplied: true}, false},
-		{"policies false", FirewallSetupResult{ZoneCreated: true, UDAPIApplied: true}, false},
-		{"udapi false", FirewallSetupResult{ZoneCreated: true, PoliciesReady: true}, false},
-		{"has errors", FirewallSetupResult{
-			ZoneCreated: true, PoliciesReady: true, UDAPIApplied: true,
-			Errors: []StepError{{Step: "test", Err: fmt.Errorf("fail")}},
-		}, false},
-		{"zero value", FirewallSetupResult{}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.result.OK())
-		})
-	}
-}
-
-func TestFirewallSetupResult_Degraded(t *testing.T) {
-	tests := []struct {
-		name   string
-		result FirewallSetupResult
-		want   bool
-	}{
-		{"zone+policies ok, udapi missing", FirewallSetupResult{ZoneCreated: true, PoliciesReady: true}, true},
-		{"fully ok", FirewallSetupResult{ZoneCreated: true, PoliciesReady: true, UDAPIApplied: true}, false},
-		{"zone missing", FirewallSetupResult{PoliciesReady: true}, false},
-		{"policies missing", FirewallSetupResult{ZoneCreated: true}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.result.Degraded())
-		})
-	}
-}
-
-func TestFirewallSetupResult_Err(t *testing.T) {
-	t.Run("no errors returns nil", func(t *testing.T) {
-		r := &FirewallSetupResult{ZoneCreated: true}
-		assert.NoError(t, r.Err())
-	})
-
-	t.Run("single error", func(t *testing.T) {
-		r := &FirewallSetupResult{}
-		r.addError("zone", fmt.Errorf("not found"))
-		err := r.Err()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "zone: not found")
-	})
-
-	t.Run("multiple errors joined", func(t *testing.T) {
-		r := &FirewallSetupResult{}
-		r.addError("zone", fmt.Errorf("fail1"))
-		r.addError("policy", fmt.Errorf("fail2"))
-		err := r.Err()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "zone: fail1")
-		assert.Contains(t, err.Error(), "policy: fail2")
-	})
-}
-
 
 func TestBroadcastEvent(t *testing.T) {
 	t.Run("unnamed event uses Broadcast", func(t *testing.T) {
@@ -124,7 +45,6 @@ func TestBroadcastEvent(t *testing.T) {
 		}
 	})
 }
-
 
 func TestSSEDNSEventJSON(t *testing.T) {
 	evt := SSEDNSEvent{Enabled: true, Domain: "example.ts.net"}
