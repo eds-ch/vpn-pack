@@ -1,10 +1,11 @@
-package main
+package sse_test
 
 import (
 	"sync"
 	"testing"
 	"time"
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/sse"
 
 	"github.com/stretchr/testify/assert"
@@ -50,7 +51,7 @@ func TestHub(t *testing.T) {
 
 	t.Run("Broadcast to 3 subscribers", func(t *testing.T) {
 		h := sse.NewHub()
-		channels := make([]chan sseMessage, 3)
+		channels := make([]chan domain.SSEMessage, 3)
 		unsubs := make([]func(), 3)
 		for i := 0; i < 3; i++ {
 			ch, unsub, err := h.Subscribe()
@@ -83,7 +84,6 @@ func TestHub(t *testing.T) {
 
 		h.Broadcast([]byte("after-unsub"))
 
-		// Channel is closed by unsub(), so receive should return zero-value immediately
 		select {
 		case msg, ok := <-ch:
 			assert.False(t, ok, "channel should be closed after unsubscribe")

@@ -11,6 +11,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 )
 
@@ -80,13 +81,7 @@ type WgS2sZoneEntry struct {
 	TunnelCount int    `json:"tunnelCount"`
 }
 
-type SubnetConflict struct {
-	CIDR          string `json:"cidr"`
-	ConflictsWith string `json:"conflictsWith"`
-	Interface     string `json:"interface,omitempty"`
-	Severity      string `json:"severity"`
-	Message       string `json:"message"`
-}
+type SubnetConflict = domain.SubnetConflict
 
 type SubnetConflictError struct {
 	Msg       string

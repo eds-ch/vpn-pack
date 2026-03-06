@@ -1,4 +1,4 @@
-package main
+package domain_test
 
 import (
 	"encoding/json"
@@ -37,7 +37,7 @@ func TestBroadcastEvent(t *testing.T) {
 		require.NoError(t, err)
 		defer unsub()
 
-		domain.BroadcastEvent(h, "health", HealthSnapshot{Status: StatusHealthy})
+		domain.BroadcastEvent(h, "health", domain.HealthSnapshot{Status: domain.StatusHealthy})
 
 		select {
 		case msg := <-ch:
@@ -49,7 +49,7 @@ func TestBroadcastEvent(t *testing.T) {
 }
 
 func TestSSEDNSEventJSON(t *testing.T) {
-	evt := SSEDNSEvent{Enabled: true, Domain: "example.ts.net"}
+	evt := domain.SSEDNSEvent{Enabled: true, Domain: "example.ts.net"}
 	data, err := json.Marshal(evt)
 	require.NoError(t, err)
 

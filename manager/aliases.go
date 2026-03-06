@@ -8,8 +8,8 @@ import (
 	"unifi-tailscale/manager/udapi"
 )
 
-// Type aliases — temporary bridge during domain/ migration.
-// Remove as code transitions to domain.X directly.
+// Type aliases bridge sub-packages back to the root package.
+// Lowercase aliases (sseMessage, stateData) were unexported pre-migration.
 
 // Interfaces
 type SSEHub = domain.SSEHub
@@ -57,10 +57,7 @@ type PeerInfo = domain.PeerInfo
 type DERPInfo = domain.DERPInfo
 type FirewallHealth = domain.FirewallHealth
 
-// results.go
 type OperationResponse = domain.OperationResponse
-type SSEStatusEvent = domain.SSEStatusEvent
-type SSEDNSEvent = domain.SSEDNSEvent
 
 // detect.go
 type DeviceInfo = domain.DeviceInfo
@@ -95,9 +92,6 @@ var (
 
 // client/ types
 type IntegrationClient = client.IntegrationClient
-type createPolicyRequest = client.CreatePolicyRequest
-
-type subnetInfo = udapi.SubnetInfo
 
 var (
 	NewIntegrationClient = client.NewIntegrationClient
@@ -112,11 +106,11 @@ var (
 	parseLocalSubnets = udapi.ParseLocalSubnets
 )
 
-// service/ subnet validator types
+// service/ types
 type InterfaceSubnet = service.InterfaceSubnet
 type RouteSubnet = service.RouteSubnet
 type SystemSubnets = service.SystemSubnets
-type SubnetConflict = service.SubnetConflict
+type SubnetConflict = domain.SubnetConflict
 type ValidationResult = service.ValidationResult
 
 var (

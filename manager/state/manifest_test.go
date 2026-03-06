@@ -1,4 +1,4 @@
-package main
+package state_test
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/state"
 
 	"github.com/stretchr/testify/assert"
@@ -17,7 +18,7 @@ import (
 func TestLoadManifest(t *testing.T) {
 	t.Run("file not found returns v2", func(t *testing.T) {
 		dir := t.TempDir()
-		m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+		m, err := state.LoadManifest(filepath.Join(dir, "manifest.json"))
 		require.NoError(t, err)
 		assert.Equal(t, 2, m.Version)
 	})
@@ -28,7 +29,7 @@ func TestLoadManifest(t *testing.T) {
 		data := `{"version":2,"siteId":"site1","tailscale":{"zoneId":"z1","chainPrefix":"TS"}}`
 		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
 
-		m, err := LoadManifest(path)
+		m, err := state.LoadManifest(path)
 		require.NoError(t, err)
 		assert.Equal(t, 2, m.Version)
 		assert.Equal(t, "site1", m.SiteID)
@@ -50,7 +51,7 @@ func TestLoadManifest(t *testing.T) {
 		data, _ := json.Marshal(v1)
 		require.NoError(t, os.WriteFile(path, data, 0600))
 
-		m, err := LoadManifest(path)
+		m, err := state.LoadManifest(path)
 		require.NoError(t, err)
 		assert.Equal(t, 2, m.Version)
 		assert.Equal(t, "zone-abc", m.Tailscale.ZoneID)
@@ -63,7 +64,7 @@ func TestLoadManifest(t *testing.T) {
 		path := filepath.Join(dir, "manifest.json")
 		require.NoError(t, os.WriteFile(path, []byte("{invalid"), 0600))
 
-		_, err := LoadManifest(path)
+		_, err := state.LoadManifest(path)
 		assert.Error(t, err)
 	})
 }
@@ -72,13 +73,13 @@ func TestManifestSaveRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "manifest.json")
 
-	m, err := LoadManifest(path)
+	m, err := state.LoadManifest(path)
 	require.NoError(t, err)
 
 	require.NoError(t, m.SetSiteID("my-site"))
 	require.NoError(t, m.SetTailscaleZone("z1", "VPN Pack: Tailscale", []string{"p1"}, "TS"))
 
-	m2, err := LoadManifest(path)
+	m2, err := state.LoadManifest(path)
 	require.NoError(t, err)
 	assert.Equal(t, "my-site", m2.SiteID)
 	assert.Equal(t, "z1", m2.Tailscale.ZoneID)
@@ -88,14 +89,14 @@ func TestManifestSaveRoundtrip(t *testing.T) {
 
 func TestGetWgS2sZones(t *testing.T) {
 	t.Run("empty map", func(t *testing.T) {
-		m := &Manifest{}
+		m := &state.Manifest{}
 		zones := m.GetWgS2sZones()
 		assert.Empty(t, zones)
 	})
 
 	t.Run("2 tunnels same zone", func(t *testing.T) {
-		m := &Manifest{
-			WgS2s: map[string]ZoneManifest{
+		m := &state.Manifest{
+			WgS2s: map[string]domain.ZoneManifest{
 				"t1": {ZoneID: "z1", ZoneName: "Zone One"},
 				"t2": {ZoneID: "z1", ZoneName: "Zone One"},
 			},
@@ -107,8 +108,8 @@ func TestGetWgS2sZones(t *testing.T) {
 	})
 
 	t.Run("2 different zones", func(t *testing.T) {
-		m := &Manifest{
-			WgS2s: map[string]ZoneManifest{
+		m := &state.Manifest{
+			WgS2s: map[string]domain.ZoneManifest{
 				"t1": {ZoneID: "z1", ZoneName: "Zone One"},
 				"t2": {ZoneID: "z2", ZoneName: "Zone Two"},
 			},
@@ -120,19 +121,19 @@ func TestGetWgS2sZones(t *testing.T) {
 
 func TestGetTailscaleChainPrefix(t *testing.T) {
 	t.Run("empty returns VPN", func(t *testing.T) {
-		m := &Manifest{}
+		m := &state.Manifest{}
 		assert.Equal(t, "VPN", m.GetTailscaleChainPrefix())
 	})
 
 	t.Run("custom prefix", func(t *testing.T) {
-		m := &Manifest{Tailscale: ZoneManifest{ChainPrefix: "CUSTOM"}}
+		m := &state.Manifest{Tailscale: domain.ZoneManifest{ChainPrefix: "CUSTOM"}}
 		assert.Equal(t, "CUSTOM", m.GetTailscaleChainPrefix())
 	})
 }
 
 func TestWanPortCycle(t *testing.T) {
 	dir := t.TempDir()
-	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	m, err := state.LoadManifest(filepath.Join(dir, "manifest.json"))
 	require.NoError(t, err)
 
 	require.NoError(t, m.SetWanPort("test-marker", "pol-1", "Test Policy", 8080))
@@ -149,7 +150,7 @@ func TestManifest_SetterPersistence(t *testing.T) {
 		require.NoError(t, m.SetSiteID("test-site"))
 		data, err := os.ReadFile(m.Path())
 		require.NoError(t, err)
-		var loaded Manifest
+		var loaded state.Manifest
 		require.NoError(t, json.Unmarshal(data, &loaded))
 		assert.Equal(t, 2, loaded.Version)
 		assert.Equal(t, "test-site", loaded.SiteID)
@@ -174,14 +175,14 @@ func TestManifest_AtomicPersistence(t *testing.T) {
 	_, err := os.Stat(path + ".tmp")
 	assert.True(t, os.IsNotExist(err))
 
-	m2, err := LoadManifest(path)
+	m2, err := state.LoadManifest(path)
 	require.NoError(t, err)
 	assert.Equal(t, "updated", m2.SiteID)
 }
 
 func TestManifest_ConcurrentAccess(t *testing.T) {
 	dir := t.TempDir()
-	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	m, err := state.LoadManifest(filepath.Join(dir, "manifest.json"))
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -194,7 +195,7 @@ func TestManifest_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				tunnelID := fmt.Sprintf("tunnel-%d-%d", id, j)
-				_ = m.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: "zone-1", ZoneName: "Zone One", PolicyIDs: []string{"p1"}, ChainPrefix: "VPN"})
+				_ = m.SetWgS2sZone(tunnelID, domain.ZoneManifest{ZoneID: "zone-1", ZoneName: "Zone One", PolicyIDs: []string{"p1"}, ChainPrefix: "VPN"})
 			}
 		}(i)
 	}
@@ -242,7 +243,7 @@ func TestManifest_ConcurrentAccess(t *testing.T) {
 
 func TestManifest_SnapshotIsolation(t *testing.T) {
 	dir := t.TempDir()
-	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	m, err := state.LoadManifest(filepath.Join(dir, "manifest.json"))
 	require.NoError(t, err)
 
 	require.NoError(t, m.SetWanPort("a", "p1", "A", 80))
@@ -256,7 +257,8 @@ func TestManifest_SnapshotIsolation(t *testing.T) {
 }
 
 func TestManifestDNSPolicy(t *testing.T) {
-	m := &Manifest{Version: 2}
+	dir := t.TempDir()
+	m := state.NewManifest(filepath.Join(dir, "manifest.json"))
 
 	assert.False(t, m.HasDNSPolicy("test"))
 	_, ok := m.GetDNSPolicy("test")
@@ -280,7 +282,7 @@ func TestManifestDNSPolicy(t *testing.T) {
 
 func TestManifest_RemoveNonExistingTunnel(t *testing.T) {
 	dir := t.TempDir()
-	m, err := LoadManifest(filepath.Join(dir, "manifest.json"))
+	m, err := state.LoadManifest(filepath.Join(dir, "manifest.json"))
 	require.NoError(t, err)
 
 	require.NoError(t, m.RemoveWgS2sTunnel("nonexistent-tunnel"))

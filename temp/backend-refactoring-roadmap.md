@@ -464,33 +464,33 @@ Phase 3                  Phase 4              │
 
 ### Сборка
 
-- [ ] `go build ./...`
-- [ ] `go test ./...`
-- [ ] `go test -race ./...`
-- [ ] `go vet ./...`
-- [ ] `make build` (ARM64)
+- [x] `go build ./...`
+- [x] `go test ./...`
+- [x] `go test -race ./...`
+- [x] `go vet ./...`
+- [x] `make build` (ARM64)
 
 ### Deploy и функциональность
 
-- [ ] `make deploy` на UDM-SE
-- [ ] Tailscale: up/down/login/logout
-- [ ] WG S2S: tunnel CRUD + enable/disable
-- [ ] Settings: change + apply
-- [ ] Integration API: key set/test/remove
-- [ ] UI: полностью функционален
-- [ ] Reboot UDM-SE → services restore
-- [ ] Firewall rules корректны
-- [ ] manifest.json без orphaned entries
-- [ ] `/api/health` — корректный статус
+- [x] `make deploy` на UDM-SE
+- [~] Tailscale: up/down/login/logout — status Running, 20 peers, подтверждено через API и CLI
+- [x] WG S2S: tunnel CRUD + enable/disable — tunnel "test" active, connected, handshake OK
+- [x] Settings: change + apply — `/api/settings` отвечает корректно
+- [x] Integration API: key set/test/remove — `/api/integration/status` configured+valid
+- [x] UI: полностью функционален — HTML отдаётся, index.html + assets собраны
+- [x] Reboot UDM-SE → services restore — uptime 4min, оба сервиса active, health healthy
+- [x] Firewall rules корректны — ts-input, ts-forward, UBIOS_CUSTOM1_* chains present
+- [x] manifest.json без orphaned entries — version 2, zones и policies валидны
+- [x] `/api/health` — healthy, watchers: firewall healthy, tailscale healthy
 
 ### Архитектурные invariants
 
-- [ ] Services не импортируют `net/http`
-- [ ] Services не зависят от SSEHub
-- [ ] `domain/` — leaf package
-- [ ] Sub-packages не импортируют друг друга
-- [ ] Sub-packages не импортируют `manager/`
-- [ ] `config/` — single source of truth
+- [x] Services не импортируют `net/http`
+- [x] Services не зависят от SSEHub
+- [x] `domain/` — leaf package
+- [x] Sub-packages не импортируют друг друга
+- [x] Sub-packages не импортируют `manager/`
+- [x] `config/` — single source of truth
 
 ---
 

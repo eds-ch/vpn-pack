@@ -117,15 +117,3 @@ type WgS2sControl interface {
 	GetPublicKey(id string) (string, error)
 	Close()
 }
-
-type HealthRecorder interface {
-	RecordSuccess(name string)
-	RecordError(name string, err error)
-	SetDegraded(name string, reason string)
-	ClearDegraded(name string)
-	IsDegraded(name string) bool
-	ShouldRetry(name string) bool
-	RecordRetryAttempt(name string)
-	ResetRetries(name string)
-	RetryCount(name string) int
-}

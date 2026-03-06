@@ -8,8 +8,6 @@ import (
 	"unifi-tailscale/manager/internal/wgs2s"
 )
 
-// From manifest.go
-
 type ZoneManifest struct {
 	ZoneID      string   `json:"zoneId,omitempty"`
 	ZoneName    string   `json:"zoneName,omitempty"`
@@ -34,8 +32,6 @@ type WgS2sZoneInfo struct {
 	ZoneName    string `json:"zoneName"`
 	TunnelCount int    `json:"tunnelCount"`
 }
-
-// From integration_api.go
 
 type Zone struct {
 	ID         string   `json:"id"`
@@ -112,14 +108,18 @@ type DNSPolicy struct {
 	Enabled   bool   `json:"enabled"`
 }
 
-// From sse.go
+type SubnetConflict struct {
+	CIDR          string `json:"cidr"`
+	ConflictsWith string `json:"conflictsWith"`
+	Interface     string `json:"interface,omitempty"`
+	Severity      string `json:"severity"`
+	Message       string `json:"message"`
+}
 
 type SSEMessage struct {
 	Event string
 	Data  []byte
 }
-
-// From health.go
 
 type WatcherStatus string
 
@@ -141,8 +141,6 @@ type HealthSnapshot struct {
 	Status   WatcherStatus            `json:"status"`
 	Watchers map[string]WatcherHealth `json:"watchers"`
 }
-
-// From watcher.go
 
 type StateData struct {
 	BackendState      string               `json:"backendState"`
@@ -251,8 +249,6 @@ func NewTailscaleState() *TailscaleState {
 	}
 }
 
-// From detect.go
-
 type DeviceInfo struct {
 	Hostname         string   `json:"hostname"`
 	Model            string   `json:"model"`
@@ -268,8 +264,6 @@ type DeviceInfo struct {
 	Uptime           int64    `json:"uptime"`
 }
 
-// From updater.go
-
 type UpdateInfo struct {
 	Available      bool   `json:"available"`
 	Version        string `json:"version"`
@@ -277,14 +271,10 @@ type UpdateInfo struct {
 	ChangelogURL   string `json:"changelogURL"`
 }
 
-// From service/routing.go
-
 type RouteStatus struct {
 	CIDR     string `json:"cidr"`
 	Approved bool   `json:"approved"`
 }
-
-// From service/integration.go
 
 type IntegrationStatus struct {
 	Configured bool   `json:"configured"`
@@ -295,8 +285,6 @@ type IntegrationStatus struct {
 	Reason     string `json:"reason,omitempty"`
 	ZBFEnabled *bool  `json:"zbfEnabled,omitempty"`
 }
-
-// From service/settings.go
 
 type SettingsFields struct {
 	Hostname             string   `json:"hostname"`
