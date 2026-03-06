@@ -16,8 +16,45 @@ import (
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
 	"tailscale.com/types/netmap"
 )
+
+func buildDERPInfo(latMap map[string]float64, regions map[int]*tailcfg.DERPRegion, preferred int) []DERPInfo {
+	regionLat := make(map[int]float64)
+	for key, val := range latMap {
+		idStr, _, _ := strings.Cut(key, "-")
+		rid, err := strconv.Atoi(idStr)
+		if err != nil || val <= 0 {
+			continue
+		}
+		if cur, ok := regionLat[rid]; !ok || val < cur {
+			regionLat[rid] = val
+		}
+	}
+	derp := make([]DERPInfo, 0, len(regionLat))
+	for rid, lat := range regionLat {
+		reg := regions[rid]
+		if reg == nil {
+			continue
+		}
+		derp = append(derp, DERPInfo{
+			RegionID:   rid,
+			RegionCode: reg.RegionCode,
+			RegionName: reg.RegionName,
+			LatencyMs:  math.Round(lat*10000) / 10,
+			Preferred:  rid == preferred,
+		})
+	}
+	sort.Slice(derp, func(i, j int) bool {
+		return derp[i].LatencyMs < derp[j].LatencyMs
+	})
+	return derp
+}
+
+func (s *Server) isDNSForwardingEnabled() bool {
+	return s.manifest != nil && s.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+}
 
 func (s *Server) runWatcher(ctx context.Context) {
 	go s.runStatusRefresh(ctx)
@@ -103,7 +140,7 @@ func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrich
 	s.applyEnrichment(enrichment)
 	s.state.Data().FirewallHealth = s.firewallHealthSnapshot(ctx)
 	s.state.Data().IntegrationStatus = integrationStatus
-	s.state.Data().AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+	s.state.Data().AcceptDNS = s.isDNSForwardingEnabled()
 	s.state.Data().UDPPort = service.ReadTailscaledPort()
 	if s.wgManager != nil {
 		tunnels := s.wgManager.GetStatuses()
@@ -190,7 +227,7 @@ func (s *Server) applyNotifyPrefs(p ipn.PrefsView) {
 	s.state.SetAdvertiseRoutes(routes)
 
 	s.state.Data().Hostname = p.Hostname()
-	s.state.Data().AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+	s.state.Data().AcceptDNS = s.isDNSForwardingEnabled()
 	s.state.Data().AcceptRoutes = p.RouteAll()
 	s.state.Data().ShieldsUp = p.ShieldsUp()
 	s.state.Data().RunSSH = p.RunSSH()
@@ -245,38 +282,9 @@ func (s *Server) processNetMap(nm *netmap.NetworkMap) {
 
 		ni := selfNode.Hostinfo().NetInfo()
 		if ni.Valid() && nm.DERPMap != nil {
-			preferred := ni.PreferredDERP()
 			latMap := ni.DERPLatency()
 			if latMap.Len() > 0 {
-				regionLat := make(map[int]float64)
-				for key, val := range latMap.AsMap() {
-					idStr, _, _ := strings.Cut(key, "-")
-					rid, err := strconv.Atoi(idStr)
-					if err != nil || val <= 0 {
-						continue
-					}
-					if cur, ok := regionLat[rid]; !ok || val < cur {
-						regionLat[rid] = val
-					}
-				}
-				derp := make([]DERPInfo, 0, len(regionLat))
-				for rid, lat := range regionLat {
-					reg := nm.DERPMap.Regions[rid]
-					if reg == nil {
-						continue
-					}
-					derp = append(derp, DERPInfo{
-						RegionID:   rid,
-						RegionCode: reg.RegionCode,
-						RegionName: reg.RegionName,
-						LatencyMs:  math.Round(lat*10000) / 10,
-						Preferred:  rid == preferred,
-					})
-				}
-				sort.Slice(derp, func(i, j int) bool {
-					return derp[i].LatencyMs < derp[j].LatencyMs
-				})
-				s.state.Data().DERP = derp
+				s.state.Data().DERP = buildDERPInfo(latMap.AsMap(), nm.DERPMap.Regions, ni.PreferredDERP())
 			}
 		}
 	}

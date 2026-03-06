@@ -615,13 +615,14 @@ func TestHandleWgS2sUpdateTunnel(t *testing.T) {
 		})
 
 		// Inject subnet validator that returns blocking conflict
-		s.wgS2sSvc = service.NewWgS2sService(
-			s.wgManager, nil, &wgS2sManifestAdapter{ms: s.manifest},
-			&wgS2sLogAdapter{buf: s.logBuf},
-			func(allowedIPs []string, excludeIfaces ...string) (warnings, blocks []service.SubnetConflict) {
+		s.wgS2sSvc = service.NewWgS2sService(service.WgS2sConfig{
+			WG:       s.wgManager,
+			Manifest: &wgS2sManifestAdapter{ms: s.manifest},
+			Logger:   &wgS2sLogAdapter{buf: s.logBuf},
+			ValidateSubnets: func(allowedIPs []string, excludeIfaces ...string) (warnings, blocks []service.SubnetConflict) {
 				return nil, []service.SubnetConflict{{CIDR: "10.0.0.0/8", ConflictsWith: "wg-s2s1", Severity: "block", Message: "overlap"}}
-			}, nil, nil,
-		)
+			},
+		})
 
 		body, _ := json.Marshal(wgs2s.TunnelConfig{AllowedIPs: []string{"10.0.0.0/8"}})
 		req := httptest.NewRequest(http.MethodPatch, "/api/wg-s2s/tunnels/t1", bytes.NewReader(body))
@@ -648,10 +649,11 @@ func TestHandleWgS2sDeleteTunnel(t *testing.T) {
 			s.fw = nil // skip firewall teardown
 		})
 		// Rebuild wgS2sSvc without firewall adapter to avoid nil fwOrch panic
-		s.wgS2sSvc = service.NewWgS2sService(
-			wg, nil, &wgS2sManifestAdapter{ms: s.manifest},
-			&wgS2sLogAdapter{buf: s.logBuf}, nil, nil, nil,
-		)
+		s.wgS2sSvc = service.NewWgS2sService(service.WgS2sConfig{
+			WG:       wg,
+			Manifest: &wgS2sManifestAdapter{ms: s.manifest},
+			Logger:   &wgS2sLogAdapter{buf: s.logBuf},
+		})
 
 		req := httptest.NewRequest(http.MethodDelete, "/api/wg-s2s/tunnels/t1", nil)
 		req.SetPathValue("id", "t1")

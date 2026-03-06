@@ -118,15 +118,14 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	if opts.Firewall != nil {
 		wgFw = &wgS2sFirewallAdapter{fw: opts.Firewall, orch: s.fwOrch}
 	}
-	s.wgS2sSvc = service.NewWgS2sService(
-		nil, // wg set later in initWgS2s
-		wgFw,
-		&wgS2sManifestAdapter{ms: opts.Manifest},
-		&wgS2sLogAdapter{buf: opts.LogBuf},
-		subnetValidatorProvider,
-		getWanIP,
-		localSubnetProvider,
-	)
+	s.wgS2sSvc = service.NewWgS2sService(service.WgS2sConfig{
+		Firewall:        wgFw,
+		Manifest:        &wgS2sManifestAdapter{ms: opts.Manifest},
+		Logger:          &wgS2sLogAdapter{buf: opts.LogBuf},
+		ValidateSubnets: subnetValidatorProvider,
+		WanIP:           getWanIP,
+		LocalSubnets:    localSubnetProvider,
+	})
 
 	mux := s.routes()
 

@@ -149,23 +149,25 @@ type WgS2sService struct {
 	localSubnets    LocalSubnetsProvider
 }
 
-func NewWgS2sService(
-	wg WgS2sWireGuard,
-	fw WgS2sFirewall,
-	manifest WgS2sManifest,
-	logger WgS2sLogger,
-	validateSubnets SubnetValidator,
-	wanIP WanIPProvider,
-	localSubnets LocalSubnetsProvider,
-) *WgS2sService {
+type WgS2sConfig struct {
+	WG              WgS2sWireGuard
+	Firewall        WgS2sFirewall
+	Manifest        WgS2sManifest
+	Logger          WgS2sLogger
+	ValidateSubnets SubnetValidator
+	WanIP           WanIPProvider
+	LocalSubnets    LocalSubnetsProvider
+}
+
+func NewWgS2sService(cfg WgS2sConfig) *WgS2sService {
 	return &WgS2sService{
-		wg:              wg,
-		fw:              fw,
-		manifest:        manifest,
-		logger:          logger,
-		validateSubnets: validateSubnets,
-		wanIP:           wanIP,
-		localSubnets:    localSubnets,
+		wg:              cfg.WG,
+		fw:              cfg.Firewall,
+		manifest:        cfg.Manifest,
+		logger:          cfg.Logger,
+		validateSubnets: cfg.ValidateSubnets,
+		wanIP:           cfg.WanIP,
+		localSubnets:    cfg.LocalSubnets,
 	}
 }
 
@@ -329,7 +331,8 @@ func (svc *WgS2sService) EnableTunnel(ctx context.Context, id string) (*EnableTu
 	}
 
 	resp := &EnableTunnelResponse{OK: true}
-	if t := svc.findTunnelByID(id); t != nil && svc.fw != nil {
+	if svc.fw != nil {
+		t := svc.findTunnelByID(id) // re-fetch post-enable state
 		fwErr := svc.fw.SetupFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs)
 		if fwErr != nil {
 			svc.logFirewallError(t.InterfaceName, fwErr)

@@ -51,7 +51,7 @@ func removeWgS2sUDAPIRules(uc *udapi.UDAPIClient) {
 		return
 	}
 	for _, iface := range ifaces {
-		marker := "wg-s2s-manager:" + iface
+		marker := wgS2sMarkerPrefix + iface
 		if err := udapi.RemoveInterfaceRules(uc, iface, marker); err != nil {
 			slog.Warn("cleanup: wg-s2s UDAPI rules removal failed", "iface", iface, "err", err)
 		} else {

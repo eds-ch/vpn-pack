@@ -92,6 +92,10 @@ type SettingsService struct {
 	hasUDAPI bool
 }
 
+func (svc *SettingsService) isDNSForwardingEnabled() bool {
+	return svc.manifest != nil && svc.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+}
+
 func NewSettingsService(
 	ts TailscalePrefs,
 	fw SettingsFirewall,
@@ -116,7 +120,7 @@ func (svc *SettingsService) GetSettings(ctx context.Context) (*SettingsResponse,
 		return nil, upstreamError(humanizeLocalAPIError(err), err)
 	}
 	resp := ToSettingsResponse(prefs)
-	resp.AcceptDNS = svc.manifest != nil && svc.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+	resp.AcceptDNS = svc.isDNSForwardingEnabled()
 	return &resp, nil
 }
 
@@ -162,7 +166,7 @@ func (svc *SettingsService) SetSettings(ctx context.Context, req *SettingsReques
 	svc.updateRelayPortRules(ctx, req.RelayServerPort, old.relayPort)
 	svc.updateTailscaleWgPortRules(ctx, req.UDPPort)
 
-	acceptDNSEnabled := svc.manifest != nil && svc.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+	acceptDNSEnabled := svc.isDNSForwardingEnabled()
 
 	resp := ToSettingsResponse(updated)
 	resp.AcceptDNS = acceptDNSEnabled

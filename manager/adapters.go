@@ -87,9 +87,17 @@ func (a *firewallManifestAdapter) HasSiteID() bool   { return a.ms.HasSiteID() }
 func (a *firewallManifestAdapter) GetTailscaleChainPrefix() string {
 	return a.ms.GetTailscaleChainPrefix()
 }
+func toZoneManifestData(z ZoneManifest) service.ZoneManifestData {
+	return service.ZoneManifestData{
+		ZoneID:      z.ZoneID,
+		ZoneName:    z.ZoneName,
+		PolicyIDs:   z.PolicyIDs,
+		ChainPrefix: z.ChainPrefix,
+	}
+}
+
 func (a *firewallManifestAdapter) GetTailscaleZone() service.ZoneManifestData {
-	z := a.ms.GetTailscaleZone()
-	return service.ZoneManifestData{ZoneID: z.ZoneID, ZoneName: z.ZoneName, PolicyIDs: z.PolicyIDs, ChainPrefix: z.ChainPrefix}
+	return toZoneManifestData(a.ms.GetTailscaleZone())
 }
 func (a *firewallManifestAdapter) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) error {
 	return a.ms.SetTailscaleZone(zoneID, zoneName, policyIDs, chainPrefix)
@@ -98,7 +106,7 @@ func (a *firewallManifestAdapter) GetWgS2sSnapshot() map[string]service.ZoneMani
 	raw := a.ms.GetWgS2sSnapshot()
 	out := make(map[string]service.ZoneManifestData, len(raw))
 	for k, v := range raw {
-		out[k] = service.ZoneManifestData{ZoneID: v.ZoneID, ZoneName: v.ZoneName, PolicyIDs: v.PolicyIDs, ChainPrefix: v.ChainPrefix}
+		out[k] = toZoneManifestData(v)
 	}
 	return out
 }
@@ -107,7 +115,7 @@ func (a *firewallManifestAdapter) GetWgS2sZone(tunnelID string) (service.ZoneMan
 	if !ok {
 		return service.ZoneManifestData{}, false
 	}
-	return service.ZoneManifestData{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, PolicyIDs: zm.PolicyIDs, ChainPrefix: zm.ChainPrefix}, true
+	return toZoneManifestData(zm), true
 }
 func (a *firewallManifestAdapter) SetWgS2sZone(tunnelID string, zs service.ZoneManifestData) error {
 	return a.ms.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zs.ZoneID, ZoneName: zs.ZoneName, PolicyIDs: zs.PolicyIDs, ChainPrefix: zs.ChainPrefix})

@@ -17,6 +17,8 @@ import (
 	"unifi-tailscale/manager/udapi"
 )
 
+const wgS2sMarkerPrefix = "wg-s2s-manager:"
+
 // Duplicated in service/firewall.go — different packages, can't share.
 var errIntegrationNotConfigured = errors.New("integration API not configured")
 
@@ -53,7 +55,7 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 		}
 	}
 
-	marker := "wg-s2s-manager:" + iface
+	marker := wgS2sMarkerPrefix + iface
 	if err := udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix); err != nil {
 		return err
 	}
@@ -86,7 +88,7 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 }
 
 func (fm *FirewallManager) RemoveWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) {
-	marker := "wg-s2s-manager:" + iface
+	marker := wgS2sMarkerPrefix + iface
 	if err := udapi.RemoveInterfaceRules(fm.udapi, iface, marker); err != nil {
 		slog.Warn("wg-s2s firewall rule removal failed", "iface", iface, "err", err)
 	}

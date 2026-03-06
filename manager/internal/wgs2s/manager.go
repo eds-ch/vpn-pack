@@ -223,26 +223,8 @@ func (m *TunnelManager) DisableTunnel(id string) error {
 	return nil
 }
 
-func needsRecreate(old, merged TunnelConfig) bool {
-	return old.ListenPort != merged.ListenPort ||
-		old.TunnelAddress != merged.TunnelAddress ||
-		old.MTU != merged.MTU ||
-		old.PeerPublicKey != merged.PeerPublicKey
-}
-
-func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelConfig, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	idx := m.findTunnel(id)
-	if idx < 0 {
-		return nil, fmt.Errorf(errFmtTunnelNotFound, id)
-	}
-
-	cfg := &m.config.Tunnels[idx]
-	wasEnabled := cfg.Enabled
-
-	merged := *cfg
+func applyUpdates(base, updates TunnelConfig) TunnelConfig {
+	merged := base
 	if updates.Name != "" {
 		merged.Name = updates.Name
 	}
@@ -270,6 +252,29 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 	if updates.MTU != 0 {
 		merged.MTU = updates.MTU
 	}
+	return merged
+}
+
+func needsRecreate(old, merged TunnelConfig) bool {
+	return old.ListenPort != merged.ListenPort ||
+		old.TunnelAddress != merged.TunnelAddress ||
+		old.MTU != merged.MTU ||
+		old.PeerPublicKey != merged.PeerPublicKey
+}
+
+func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelConfig, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	idx := m.findTunnel(id)
+	if idx < 0 {
+		return nil, fmt.Errorf(errFmtTunnelNotFound, id)
+	}
+
+	cfg := &m.config.Tunnels[idx]
+	wasEnabled := cfg.Enabled
+
+	merged := applyUpdates(*cfg, updates)
 
 	if merged.TunnelAddress != "" {
 		if _, _, err := net.ParseCIDR(merged.TunnelAddress); err != nil {

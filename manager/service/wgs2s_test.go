@@ -285,7 +285,10 @@ func (m *mockWgS2sManifest) GetZones() []WgS2sZoneEntry {
 }
 
 func newTestWgS2sService(wg WgS2sWireGuard, opts ...func(*WgS2sService)) *WgS2sService {
-	svc := NewWgS2sService(wg, nil, &mockWgS2sManifest{}, nil, nil, nil, nil)
+	svc := NewWgS2sService(WgS2sConfig{
+		WG:       wg,
+		Manifest: &mockWgS2sManifest{},
+	})
 	for _, opt := range opts {
 		opt(svc)
 	}
