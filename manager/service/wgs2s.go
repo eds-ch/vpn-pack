@@ -233,10 +233,7 @@ func (svc *WgS2sService) CreateTunnel(ctx context.Context, req *WgS2sCreateReque
 	if svc.fw != nil {
 		fwErr = svc.fw.SetupFirewall(ctx, tunnel.ID, tunnel.InterfaceName, tunnel.AllowedIPs)
 		if fwErr != nil {
-			slog.Warn("wg-s2s firewall rules failed", "iface", tunnel.InterfaceName, "err", fwErr)
-			if svc.logger != nil {
-				svc.logger.LogWarn(fmt.Sprintf("firewall rules failed iface=%s err=%v", tunnel.InterfaceName, fwErr))
-			}
+			svc.logFirewallError(tunnel.InterfaceName, fwErr)
 		}
 	}
 	if svc.fw != nil {
@@ -289,10 +286,7 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 		svc.fw.RemoveIPSetEntries(ctx, id, existing.AllowedIPs)
 		fwErr = svc.fw.SetupFirewall(ctx, tunnel.ID, tunnel.InterfaceName, tunnel.AllowedIPs)
 		if fwErr != nil {
-			slog.Warn("wg-s2s firewall rules failed", "iface", tunnel.InterfaceName, "err", fwErr)
-			if svc.logger != nil {
-				svc.logger.LogWarn(fmt.Sprintf("firewall rules failed iface=%s err=%v", tunnel.InterfaceName, fwErr))
-			}
+			svc.logFirewallError(tunnel.InterfaceName, fwErr)
 		}
 	}
 
@@ -338,10 +332,7 @@ func (svc *WgS2sService) EnableTunnel(ctx context.Context, id string) (*EnableTu
 	if t := svc.findTunnelByID(id); t != nil && svc.fw != nil {
 		fwErr := svc.fw.SetupFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs)
 		if fwErr != nil {
-			slog.Warn("wg-s2s firewall rules failed", "iface", t.InterfaceName, "err", fwErr)
-			if svc.logger != nil {
-				svc.logger.LogWarn(fmt.Sprintf("firewall rules failed iface=%s err=%v", t.InterfaceName, fwErr))
-			}
+			svc.logFirewallError(t.InterfaceName, fwErr)
 		}
 		svc.fw.OpenWanPort(ctx, t.ListenPort, t.InterfaceName)
 		if fwErr != nil {
@@ -451,6 +442,13 @@ func (svc *WgS2sService) ListZones() []WgS2sZoneEntry {
 }
 
 // --- Private helpers ---
+
+func (svc *WgS2sService) logFirewallError(iface string, err error) {
+	slog.Warn("wg-s2s firewall rules failed", "iface", iface, "err", err)
+	if svc.logger != nil {
+		svc.logger.LogWarn(fmt.Sprintf("firewall rules failed iface=%s err=%v", iface, err))
+	}
+}
 
 func (svc *WgS2sService) findTunnelByID(id string) *wgs2s.TunnelConfig {
 	tunnels := svc.wg.GetTunnels()

@@ -57,6 +57,17 @@ type SetupResult struct {
 	Errors        []string
 }
 
+func (r *SetupResult) resetZone() {
+	r.ZoneCreated = false
+	r.ZoneID = ""
+	r.ZoneName = ""
+}
+
+func (r *SetupResult) resetPolicies() {
+	r.PoliciesReady = false
+	r.PolicyIDs = nil
+}
+
 func (r *SetupResult) OK() bool {
 	return r.ZoneCreated && r.PoliciesReady && r.UDAPIApplied && len(r.Errors) == 0
 }
@@ -121,9 +132,7 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 	if ctx.Err() != nil {
 		result.addError("context", ctx.Err())
 		o.rollbackZone(ctx, siteID, zone.ZoneID, "context cancelled before policy setup")
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
+		result.resetZone()
 		return result
 	}
 
@@ -131,9 +140,7 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 	if err != nil {
 		result.addError("policies", err)
 		o.rollbackZone(ctx, siteID, zone.ZoneID, "tailscale policy setup failed")
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
+		result.resetZone()
 		return result
 	}
 	result.PoliciesReady = true
@@ -148,11 +155,8 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 	if err := o.manifest.SetTailscaleZone(zone.ZoneID, zone.ZoneName, policyIDs, result.ChainPrefix); err != nil {
 		result.addError("manifest", err)
 		o.rollbackZone(ctx, siteID, zone.ZoneID, "tailscale manifest save failed", policyIDs...)
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
-		result.PoliciesReady = false
-		result.PolicyIDs = nil
+		result.resetZone()
+		result.resetPolicies()
 		return result
 	}
 
@@ -241,9 +245,7 @@ func (o *FirewallOrchestrator) SetupWgS2sZone(ctx context.Context, tunnelID, zon
 	if err != nil {
 		result.addError("policies", err)
 		o.rollbackZone(ctx, siteID, zone.ZoneID, "wg-s2s policy setup failed")
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
+		result.resetZone()
 		return result
 	}
 	result.PoliciesReady = true
@@ -259,11 +261,8 @@ func (o *FirewallOrchestrator) SetupWgS2sZone(ctx context.Context, tunnelID, zon
 	if err := o.manifest.SetWgS2sZone(tunnelID, ZoneManifestData{ZoneID: zone.ZoneID, ZoneName: zone.ZoneName, PolicyIDs: policyIDs, ChainPrefix: chainPrefix}); err != nil {
 		result.addError("manifest", fmt.Errorf("save manifest: %w", err))
 		o.rollbackZone(ctx, siteID, zone.ZoneID, "wg-s2s manifest save failed", policyIDs...)
-		result.ZoneCreated = false
-		result.ZoneID = ""
-		result.ZoneName = ""
-		result.PoliciesReady = false
-		result.PolicyIDs = nil
+		result.resetZone()
+		result.resetPolicies()
 		return result
 	}
 	return result
