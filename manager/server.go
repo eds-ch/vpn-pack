@@ -250,6 +250,9 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		return s.httpServer.Shutdown(shutdownCtx)
 	case err := <-errCh:
+		if s.fw != nil {
+			s.fw.WaitBackground()
+		}
 		return err
 	}
 }
