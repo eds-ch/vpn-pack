@@ -17,7 +17,11 @@ import (
 )
 
 func spaHandler() http.Handler {
-	sub, _ := fs.Sub(uiFS, "ui/dist")
+	sub, err := fs.Sub(uiFS, "ui/dist")
+	if err != nil {
+		slog.Error("failed to create sub filesystem", "error", err)
+		os.Exit(1)
+	}
 	fileServer := http.FileServer(http.FS(sub))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

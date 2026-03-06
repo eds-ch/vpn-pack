@@ -31,13 +31,16 @@ func (h *Hub) Subscribe() (chan domain.SSEMessage, func(), error) {
 	h.clients[ch] = struct{}{}
 	h.mu.Unlock()
 
+	var once sync.Once
 	unsubscribe := func() {
-		h.mu.Lock()
-		delete(h.clients, ch)
-		close(ch)
-		h.mu.Unlock()
-		for range ch {
-		}
+		once.Do(func() {
+			h.mu.Lock()
+			delete(h.clients, ch)
+			close(ch)
+			h.mu.Unlock()
+			for range ch {
+			}
+		})
 	}
 	return ch, unsubscribe, nil
 }
@@ -70,5 +73,9 @@ func (h *Hub) CurrentState() []byte {
 	if v == nil {
 		return nil
 	}
-	return v.([]byte)
+	data, ok := v.([]byte)
+	if !ok {
+		return nil
+	}
+	return data
 }

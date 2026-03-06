@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
@@ -374,6 +376,7 @@ var (
 	filterRulesCacheMu   sync.Mutex
 	filterRulesCache     string
 	filterRulesCacheTime time.Time
+	filterRulesFlight    singleflight.Group
 )
 
 func cachedFilterRules() string {
@@ -385,17 +388,20 @@ func cachedFilterRules() string {
 	}
 	filterRulesCacheMu.Unlock()
 
-	out, err := exec.Command("iptables-save", "-t", "filter").Output()
-	if err != nil {
-		return ""
-	}
-	result := string(out)
+	v, _, _ := filterRulesFlight.Do("iptables-save", func() (any, error) {
+		out, err := exec.Command("iptables-save", "-t", "filter").Output()
+		if err != nil {
+			return "", err
+		}
+		result := string(out)
 
-	filterRulesCacheMu.Lock()
-	filterRulesCache = result
-	filterRulesCacheTime = time.Now()
-	filterRulesCacheMu.Unlock()
-	return result
+		filterRulesCacheMu.Lock()
+		filterRulesCache = result
+		filterRulesCacheTime = time.Now()
+		filterRulesCacheMu.Unlock()
+		return result, nil
+	})
+	return v.(string)
 }
 
 func hasChainRuleIn(rules, chain, match string) bool {
