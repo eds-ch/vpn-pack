@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 
-vi.mock('../api.ts', () => ({
+vi.mock('../api.js', () => ({
     wgS2sGenerateKeypair: vi.fn(),
     wgS2sGetLocalSubnets: vi.fn(),
     wgS2sGetWanIP: vi.fn(),
@@ -18,7 +18,7 @@ import {
     wgS2sGetLocalSubnets,
     wgS2sGetWanIP,
     wgS2sCreateTunnel,
-} from '../api.ts';
+} from '../api.js';
 import TunnelForm from './TunnelForm.svelte';
 
 describe('TunnelForm', () => {

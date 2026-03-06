@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { wgS2sGetConfig } from '../api.ts';
+    import { wgS2sGetConfig } from '../api.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';
 
     let { tunnelId } = $props();

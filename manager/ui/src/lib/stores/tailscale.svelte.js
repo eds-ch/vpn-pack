@@ -1,5 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity';
-import { keepalive } from '../api.ts';
+import { keepalive } from '../api.js';
 import { AUTH_KEEPALIVE_MS } from '../constants.js';
 
 /** @type {import('../types.js').Status} */

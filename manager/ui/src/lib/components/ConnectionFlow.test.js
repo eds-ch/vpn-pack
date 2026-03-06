@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 
-vi.mock('../api.ts', () => ({
+vi.mock('../api.js', () => ({
     connectWithAuthKey: vi.fn(),
 }));
 

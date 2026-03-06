@@ -1,5 +1,5 @@
 <script>
-    import { fetchLogs } from '../api.ts';
+    import { fetchLogs } from '../api.js';
     import { LOG_POLL_INTERVAL_MS } from '../constants.js';
 
     let daemonLogs = $state([]);

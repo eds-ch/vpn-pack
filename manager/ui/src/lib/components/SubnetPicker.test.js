@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 
-vi.mock('../api.ts', () => ({
+vi.mock('../api.js', () => ({
     getSubnets: vi.fn(),
 }));
 
@@ -12,7 +12,7 @@ vi.mock('./Icon.svelte', () => ({
     },
 }));
 
-import { getSubnets } from '../api.ts';
+import { getSubnets } from '../api.js';
 import SubnetPicker from './SubnetPicker.svelte';
 
 describe('SubnetPicker', () => {

@@ -89,8 +89,9 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
             return null;
         }
 
-        if (data?.setupStatus === 'partial' && (data?.firewall as Record<string, unknown>)?.errors) {
-            for (const err of (data.firewall as { errors: string[] }).errors) {
+        const fw = data?.firewall;
+        if (data?.setupStatus === 'partial' && fw && typeof fw === 'object' && Array.isArray((fw as Record<string, unknown>).errors)) {
+            for (const err of (fw as Record<string, unknown>).errors as string[]) {
                 addWarning(`Firewall: ${err}`);
             }
         }
@@ -98,11 +99,10 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
         return data as T;
     } catch (e: unknown) {
         clearTimeout(timer);
-        const error = e as Error;
-        if (error.name === 'AbortError') {
+        if (e instanceof DOMException && e.name === 'AbortError') {
             addError(`Request timeout: ${method} ${path}`);
         } else {
-            addError(`Network error: ${error.message}`);
+            addError(`Network error: ${e instanceof Error ? e.message : String(e)}`);
         }
         return null;
     }
@@ -209,7 +209,7 @@ export function testIntegrationKey(): Promise<IntegrationStatus | null> {
     return apiFetch<IntegrationStatus>('POST', `${API_BASE}/integration/test`);
 }
 
-export function keepalive(): Promise<Status | null> | undefined {
-    if (Date.now() - lastRequestTime < AUTH_KEEPALIVE_MS * 0.8) return;
+export function keepalive(): Promise<Status | null> {
+    if (Date.now() - lastRequestTime < AUTH_KEEPALIVE_MS * 0.8) return Promise.resolve(null);
     return apiFetch<Status>('GET', `${API_BASE}/status`);
 }

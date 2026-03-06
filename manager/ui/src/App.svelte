@@ -1,7 +1,7 @@
 <script>
     import { onMount } from 'svelte';
     import { connect, disconnect, getStatus, getErrors, getUpdateInfo, dismissUpdate } from './lib/stores/tailscale.svelte.js';
-    import { getDeviceInfo } from './lib/api.ts';
+    import { getDeviceInfo } from './lib/api.js';
     import TopBar from './lib/components/TopBar.svelte';
     import Sidebar from './lib/components/Sidebar.svelte';
     import DashboardTab from './lib/components/DashboardTab.svelte';

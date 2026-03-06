@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { getSubnets } from '../api.ts';
+    import { getSubnets } from '../api.js';
     import { isValidCIDR } from '../utils.js';
     import Icon from './Icon.svelte';
 

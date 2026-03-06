@@ -1,7 +1,7 @@
 <script>
     import QRCode from './QRCode.svelte';
     import AuthKeyInput from './AuthKeyInput.svelte';
-    import { tailscaleUp } from '../api.ts';
+    import { tailscaleUp } from '../api.js';
 
     let { status } = $props();
 

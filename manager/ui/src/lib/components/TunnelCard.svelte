@@ -1,5 +1,5 @@
 <script>
-    import { wgS2sUpdateTunnel, wgS2sDeleteTunnel, wgS2sEnableTunnel, wgS2sDisableTunnel } from '../api.ts';
+    import { wgS2sUpdateTunnel, wgS2sDeleteTunnel, wgS2sEnableTunnel, wgS2sDisableTunnel } from '../api.js';
     import { formatBytes, relativeTime, validateTunnelFields, tunnelStatusInfo } from '../utils.js';
     import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';

@@ -1,7 +1,7 @@
 <script>
     import { onMount } from 'svelte';
     import { SvelteSet } from 'svelte/reactivity';
-    import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sGetWanIP, wgS2sCreateTunnel, wgS2sListZones } from '../api.ts';
+    import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sGetWanIP, wgS2sCreateTunnel, wgS2sListZones } from '../api.js';
     import { isValidCIDR, validateTunnelFields } from '../utils.js';
     import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';

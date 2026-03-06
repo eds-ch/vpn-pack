@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import AuthKeyInput from './AuthKeyInput.svelte';
 
-vi.mock('../api.ts', () => ({
+vi.mock('../api.js', () => ({
     connectWithAuthKey: vi.fn(),
 }));
 
-import { connectWithAuthKey } from '../api.ts';
+import { connectWithAuthKey } from '../api.js';
 
 describe('AuthKeyInput', () => {
     beforeEach(() => {
