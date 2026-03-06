@@ -1,7 +1,7 @@
 <script>
     import SubnetPicker from './SubnetPicker.svelte';
     import ExitNodeToggle from './ExitNodeToggle.svelte';
-    import { setRoutes } from '../api.js';
+    import { setRoutes } from '../api.ts';
 
     let { status, deviceInfo } = $props();
 

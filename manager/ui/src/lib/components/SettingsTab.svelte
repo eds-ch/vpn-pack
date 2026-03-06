@@ -1,5 +1,5 @@
 <script>
-    import { setSettings } from '../api.js';
+    import { setSettings } from '../api.ts';
     import SettingsGeneral from './SettingsGeneral.svelte';
     import SettingsAdvanced from './SettingsAdvanced.svelte';
     import SettingsIntegration from './SettingsIntegration.svelte';

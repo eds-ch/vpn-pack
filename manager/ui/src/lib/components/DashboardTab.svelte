@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { getDiagnostics } from '../api.js';
+    import { getDiagnostics } from '../api.ts';
     import DashboardTailscaleCard from './DashboardTailscaleCard.svelte';
     import DashboardUnifiCard from './DashboardUnifiCard.svelte';
     import DashboardWgS2sCard from './DashboardWgS2sCard.svelte';

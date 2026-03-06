@@ -12,7 +12,7 @@ import {
     wgS2sDeleteTunnel,
     connectWithAuthKey,
     getDeviceInfo,
-} from './api.js';
+} from './api.ts';
 
 function mockFetch(overrides = {}) {
     const defaults = {

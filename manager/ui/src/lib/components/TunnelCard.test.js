@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
-vi.mock('../api.js', () => ({
+vi.mock('../api.ts', () => ({
     wgS2sUpdateTunnel: vi.fn(),
     wgS2sDeleteTunnel: vi.fn(),
     wgS2sEnableTunnel: vi.fn(),
@@ -9,7 +9,7 @@ vi.mock('../api.js', () => ({
     wgS2sGetConfig: vi.fn(),
 }));
 
-import { wgS2sUpdateTunnel, wgS2sDeleteTunnel } from '../api.js';
+import { wgS2sUpdateTunnel, wgS2sDeleteTunnel } from '../api.ts';
 import TunnelCard from './TunnelCard.svelte';
 
 function makeTunnel(overrides = {}) {

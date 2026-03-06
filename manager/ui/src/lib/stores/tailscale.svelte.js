@@ -1,7 +1,8 @@
 import { SvelteSet } from 'svelte/reactivity';
-import { keepalive } from '../api.js';
+import { keepalive } from '../api.ts';
 import { AUTH_KEEPALIVE_MS } from '../constants.js';
 
+/** @type {import('../types.js').Status} */
 let status = $state({
     backendState: 'Unknown',
     tailscaleIPs: [],
@@ -33,8 +34,10 @@ let status = $state({
     watcherHealth: null,
 });
 
+/** @type {import('../types.js').StoreError[]} */
 let errors = $state([]);
 let logs = $state([]);
+/** @type {import('../types.js').UpdateInfo} */
 let updateInfo = $state({ available: false, version: '', currentVersion: '', changelogURL: '', dismissed: false });
 let changedFields = new SvelteSet();
 let nextErrorId = 0;

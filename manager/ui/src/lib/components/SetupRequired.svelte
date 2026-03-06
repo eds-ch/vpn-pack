@@ -2,7 +2,7 @@
     import Icon from './Icon.svelte';
     import ApiKeyForm from './ApiKeyForm.svelte';
     import Button from './Button.svelte';
-    import { setIntegrationApiKey } from '../api.js';
+    import { setIntegrationApiKey } from '../api.ts';
 
     let apiKey = $state('');
     let loading = $state(false);

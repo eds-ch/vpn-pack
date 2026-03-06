@@ -1,5 +1,5 @@
 <script>
-    import { connectWithAuthKey } from '../api.js';
+    import { connectWithAuthKey } from '../api.ts';
 
     let authKey = $state('');
     let loading = $state(false);

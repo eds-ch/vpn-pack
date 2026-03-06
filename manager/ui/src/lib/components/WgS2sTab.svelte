@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { wgS2sListTunnels } from '../api.js';
+    import { wgS2sListTunnels } from '../api.ts';
     import TunnelCard from './TunnelCard.svelte';
     import TunnelForm from './TunnelForm.svelte';
 
