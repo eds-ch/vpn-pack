@@ -331,8 +331,7 @@ func (svc *WgS2sService) EnableTunnel(ctx context.Context, id string) (*EnableTu
 	}
 
 	resp := &EnableTunnelResponse{OK: true}
-	if svc.fw != nil {
-		t := svc.findTunnelByID(id) // re-fetch post-enable state
+	if t := svc.findTunnelByID(id); t != nil && svc.fw != nil {
 		fwErr := svc.fw.SetupFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs)
 		if fwErr != nil {
 			svc.logFirewallError(t.InterfaceName, fwErr)
