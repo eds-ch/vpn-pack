@@ -77,10 +77,32 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	s.settings = service.NewSettingsService(
 		opts.Tailscale, opts.Firewall, opts.Integration,
 		settingsManifestAdapter{opts.Manifest}, opts.DeviceInfo.HasUDAPISocket,
+		&settingsNotifierAdapter{
+			restart:   s.restartTailscaled,
+			state:     s.state,
+			broadcast: s.broadcastState,
+		},
 	)
 	s.diagnostics = service.NewDiagnosticsService(opts.Tailscale, opts.Firewall, nil)
+
+	if opts.Firewall != nil {
+		s.fwOrch = service.NewFirewallOrchestrator(
+			&firewallIntegrationAdapter{ic: opts.Integration},
+			&firewallManifestAdapter{ms: opts.Manifest},
+			&firewallOpsAdapter{fw: opts.Firewall},
+		)
+	}
+
 	s.integration = service.NewIntegrationService(
 		integrationICAdapter{opts.Integration}, opts.Manifest,
+		&integrationNotifierAdapter{
+			fw:          opts.Firewall,
+			fwOrch:      s.fwOrch,
+			intRetry:    &s.intRetry,
+			state:       s.state,
+			broadcast:   s.broadcastState,
+			openWanPort: s.openTailscaleWanPort,
+		},
 	)
 	s.routing = service.NewRoutingService(
 		opts.Tailscale, opts.Firewall, opts.Integration, opts.Manifest,
@@ -94,14 +116,6 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		},
 	)
 	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall)
-
-	if opts.Firewall != nil {
-		s.fwOrch = service.NewFirewallOrchestrator(
-			&firewallIntegrationAdapter{ic: opts.Integration},
-			&firewallManifestAdapter{ms: opts.Manifest},
-			&firewallOpsAdapter{fw: opts.Firewall},
-		)
-	}
 
 	var wgFw service.WgS2sFirewall
 	if opts.Firewall != nil {

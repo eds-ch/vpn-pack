@@ -96,6 +96,28 @@ func newTestIntegrationService(opts ...func(*IntegrationService)) *IntegrationSe
 	return svc
 }
 
+type mockIntegrationNotifier struct {
+	onBeforeKeyDeleteFn func(ctx context.Context)
+	onKeyConfiguredFn   func(ctx context.Context, st *IntegrationStatus)
+	onKeyDeletedFn      func()
+}
+
+func (m *mockIntegrationNotifier) OnBeforeKeyDelete(ctx context.Context) {
+	if m.onBeforeKeyDeleteFn != nil {
+		m.onBeforeKeyDeleteFn(ctx)
+	}
+}
+func (m *mockIntegrationNotifier) OnKeyConfigured(ctx context.Context, st *IntegrationStatus) {
+	if m.onKeyConfiguredFn != nil {
+		m.onKeyConfiguredFn(ctx, st)
+	}
+}
+func (m *mockIntegrationNotifier) OnKeyDeleted() {
+	if m.onKeyDeletedFn != nil {
+		m.onKeyDeletedFn()
+	}
+}
+
 // --- GetStatus tests ---
 
 func TestGetStatus_NotConfigured_NoAPIKey(t *testing.T) {
@@ -297,7 +319,7 @@ func TestDeleteKey(t *testing.T) {
 	svc.cache.set(&IntegrationStatus{Configured: true})
 	assert.NotNil(t, svc.cache.get(cacheTTL))
 
-	err := svc.DeleteKey()
+	err := svc.DeleteKey(context.Background())
 	// deleteAPIKey may return nil if file doesn't exist (os.IsNotExist handled)
 	require.NoError(t, err)
 	assert.Equal(t, "", ic.lastSetKey, "API key should be cleared")
@@ -385,4 +407,50 @@ func TestTestKey_NilIC(t *testing.T) {
 	})
 	result := svc.TestKey(context.Background())
 	assert.False(t, result.OK)
+}
+
+// --- Notifier tests ---
+
+func TestDeleteKey_NotifiesBefore(t *testing.T) {
+	var order []string
+	n := &mockIntegrationNotifier{
+		onBeforeKeyDeleteFn: func(ctx context.Context) { order = append(order, "before") },
+		onKeyDeletedFn:      func() { order = append(order, "deleted") },
+	}
+	svc := newTestIntegrationService(func(s *IntegrationService) { s.notify = n })
+	err := svc.DeleteKey(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"before", "deleted"}, order)
+}
+
+func TestSetKey_NotifiesOnSuccess(t *testing.T) {
+	var notifiedSiteID string
+	n := &mockIntegrationNotifier{
+		onKeyConfiguredFn: func(ctx context.Context, st *IntegrationStatus) {
+			notifiedSiteID = st.SiteID
+		},
+	}
+	svc := newTestIntegrationService(func(s *IntegrationService) {
+		s.notify = n
+		s.ic = &mockIntegrationIC{
+			validateFn:       func(ctx context.Context) (string, error) { return "1.0", nil },
+			discoverSiteIDFn: func(ctx context.Context) (string, error) { return "site-1", nil },
+		}
+	})
+	st, err := svc.SetKey(context.Background(), "key")
+	if err != nil {
+		var se *Error
+		if errors.As(err, &se) && se.Kind == ErrInternal {
+			t.Skip("saveAPIKey not available in test environment")
+		}
+		t.Fatal(err)
+	}
+	assert.Equal(t, "site-1", st.SiteID)
+	assert.Equal(t, "site-1", notifiedSiteID)
+}
+
+func TestDeleteKey_NilNotifierSafe(t *testing.T) {
+	svc := newTestIntegrationService()
+	err := svc.DeleteKey(context.Background())
+	require.NoError(t, err)
 }

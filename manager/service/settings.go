@@ -43,6 +43,11 @@ type SettingsManifest interface {
 	WanPort(marker string) (port int, ok bool)
 }
 
+type SettingsNotifier interface {
+	OnRestartRequired()
+	OnDNSChanged(enabled bool)
+}
+
 // Types — exported for use in HTTP handlers and SSE state.
 
 type SettingsFields struct {
@@ -126,6 +131,7 @@ type SettingsService struct {
 	fw       SettingsFirewall
 	ic       SettingsIntegration
 	manifest SettingsManifest
+	notify   SettingsNotifier
 	hasUDAPI bool
 }
 
@@ -135,6 +141,7 @@ func NewSettingsService(
 	ic SettingsIntegration,
 	manifest SettingsManifest,
 	hasUDAPI bool,
+	notify SettingsNotifier,
 ) *SettingsService {
 	return &SettingsService{
 		ts:       ts,
@@ -142,6 +149,7 @@ func NewSettingsService(
 		ic:       ic,
 		manifest: manifest,
 		hasUDAPI: hasUDAPI,
+		notify:   notify,
 	}
 }
 
@@ -198,6 +206,15 @@ func (svc *SettingsService) SetSettings(ctx context.Context, req *SettingsReques
 
 	resp := ToSettingsResponse(updated)
 	resp.AcceptDNS = acceptDNSEnabled
+
+	if svc.notify != nil {
+		if needsRestart {
+			svc.notify.OnRestartRequired()
+		}
+		if dnsForwardingTouched {
+			svc.notify.OnDNSChanged(acceptDNSEnabled)
+		}
+	}
 
 	return &SetResult{
 		Response:         resp,

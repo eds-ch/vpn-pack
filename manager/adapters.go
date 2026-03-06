@@ -224,6 +224,63 @@ func (a *wgS2sLogAdapter) LogWarn(msg string) {
 	a.buf.Add(newLogEntry("warn", msg, "wgs2s"))
 }
 
+// --- Notification adapters ---
+
+type settingsNotifierAdapter struct {
+	restart   func()
+	state     *TailscaleState
+	broadcast func()
+}
+
+func (a *settingsNotifierAdapter) OnRestartRequired() {
+	a.restart()
+}
+
+func (a *settingsNotifierAdapter) OnDNSChanged(enabled bool) {
+	a.state.mu.Lock()
+	a.state.data.AcceptDNS = enabled
+	a.state.mu.Unlock()
+	a.broadcast()
+}
+
+type integrationNotifierAdapter struct {
+	fw          FirewallService
+	fwOrch      *service.FirewallOrchestrator
+	intRetry    *integrationRetryState
+	state       *TailscaleState
+	broadcast   func()
+	openWanPort func(context.Context)
+}
+
+func (a *integrationNotifierAdapter) OnBeforeKeyDelete(ctx context.Context) {
+	if a.fw != nil {
+		if err := a.fw.RemoveDNSForwarding(ctx); err != nil {
+			slog.Warn("DNS forwarding cleanup failed during key removal", "err", err)
+		}
+	}
+}
+
+func (a *integrationNotifierAdapter) OnKeyConfigured(ctx context.Context, st *service.IntegrationStatus) {
+	if a.fwOrch != nil && st.SiteID != "" {
+		if result := a.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
+			slog.Warn("firewall setup after key save failed", "err", result.Err())
+		}
+		a.openWanPort(ctx)
+	}
+	a.intRetry.clearDegraded()
+	a.state.mu.Lock()
+	a.state.data.IntegrationStatus = st
+	a.state.mu.Unlock()
+	a.broadcast()
+}
+
+func (a *integrationNotifierAdapter) OnKeyDeleted() {
+	a.state.mu.Lock()
+	a.state.data.IntegrationStatus = &service.IntegrationStatus{Configured: false}
+	a.state.mu.Unlock()
+	a.broadcast()
+}
+
 func subnetValidatorProvider(allowedIPs []string, excludeIfaces ...string) ([]service.SubnetConflict, []service.SubnetConflict) {
 	sys, err := CollectSystemSubnets(excludeIfaces...)
 	if err != nil {

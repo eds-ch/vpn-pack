@@ -177,15 +177,6 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	if result.NeedsRestart {
-		s.restartTailscaled()
-	}
-	if result.DNSChanged {
-		s.state.mu.Lock()
-		s.state.data.AcceptDNS = result.AcceptDNSEnabled
-		s.state.mu.Unlock()
-		s.broadcastState()
-	}
 	writeJSON(w, http.StatusOK, result.Response)
 }
 
@@ -226,49 +217,20 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
-
 	st, err := s.integration.SetKey(r.Context(), req.APIKey)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-
-	if s.fwOrch != nil && st.SiteID != "" {
-		if result := s.fwOrch.SetupTailscaleFirewall(r.Context()); result.Err() != nil {
-			slog.Warn("firewall setup after key save failed", "err", result.Err())
-		}
-		s.openTailscaleWanPort(r.Context())
-	}
-
-	s.intRetry.clearDegraded()
-
-	s.state.mu.Lock()
-	s.state.data.IntegrationStatus = st
-	s.state.mu.Unlock()
-	s.broadcastState()
-
 	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Request) {
-	if s.fw != nil {
-		if err := s.fw.RemoveDNSForwarding(r.Context()); err != nil {
-			slog.Warn("DNS forwarding cleanup failed during key removal", "err", err)
-		}
-	}
-
-	if err := s.integration.DeleteKey(); err != nil {
+	if err := s.integration.DeleteKey(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to remove API key")
 		return
 	}
-
 	slog.Info("integration API key removed")
-
-	s.state.mu.Lock()
-	s.state.data.IntegrationStatus = &service.IntegrationStatus{Configured: false}
-	s.state.mu.Unlock()
-	s.broadcastState()
-
 	writeOK(w)
 }
 

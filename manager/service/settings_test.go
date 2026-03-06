@@ -124,6 +124,19 @@ func (m *mockSettingsManifest) WanPort(marker string) (int, bool) {
 	return 0, false
 }
 
+type mockSettingsNotifier struct {
+	restartCalled  bool
+	dnsChangedWith *bool
+}
+
+func (m *mockSettingsNotifier) OnRestartRequired() {
+	m.restartCalled = true
+}
+
+func (m *mockSettingsNotifier) OnDNSChanged(enabled bool) {
+	m.dnsChangedWith = &enabled
+}
+
 // --- Test helpers ---
 
 func newTestSettingsService(opts ...func(*SettingsService)) *SettingsService {
@@ -683,6 +696,66 @@ func TestWanPortRules(t *testing.T) {
 		svc.updateTailscaleWgPortRules(context.Background(), ptr(41641))
 		assert.False(t, called)
 	})
+}
+
+// --- Notifier tests ---
+
+func TestSetSettings_NotifiesOnRestart(t *testing.T) {
+	n := &mockSettingsNotifier{}
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.notify = n
+		s.ts = &mockTailscalePrefs{
+			getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+				return &ipn.Prefs{ControlURL: "https://old.example.com"}, nil
+			},
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return &ipnstate.Status{BackendState: "Stopped"}, nil
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{ControlURL: mp.ControlURL}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{ControlURL: ptr("https://new.example.com")}
+	_, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, n.restartCalled)
+	assert.Nil(t, n.dnsChangedWith)
+}
+
+func TestSetSettings_NotifiesOnDNSChange(t *testing.T) {
+	n := &mockSettingsNotifier{}
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.notify = n
+		s.fw = &mockSettingsFirewall{
+			integrationReadyFn: func() bool { return true },
+			ensureDNSForwardingFn: func(ctx context.Context, suffix string) error {
+				return nil
+			},
+		}
+		s.ts = &mockTailscalePrefs{
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return &ipnstate.Status{
+					CurrentTailnet: &ipnstate.TailnetStatus{MagicDNSSuffix: "example.ts.net"},
+				}, nil
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{AcceptDNS: ptr(true)}
+	_, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, n.restartCalled)
+	require.NotNil(t, n.dnsChangedWith)
+}
+
+func TestSetSettings_NilNotifierSafe(t *testing.T) {
+	svc := newTestSettingsService()
+	req := &SettingsRequest{Hostname: ptr("test")}
+	_, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
 }
 
 // --- Error type tests ---

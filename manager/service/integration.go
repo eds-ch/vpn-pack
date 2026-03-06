@@ -29,6 +29,12 @@ type IntegrationServiceManifest interface {
 	SetSiteID(siteID string) error
 }
 
+type IntegrationNotifier interface {
+	OnBeforeKeyDelete(ctx context.Context)
+	OnKeyConfigured(ctx context.Context, st *IntegrationStatus)
+	OnKeyDeleted()
+}
+
 // Types — exported for use in HTTP handlers and SSE state.
 
 type IntegrationStatus struct {
@@ -52,11 +58,12 @@ type TestKeyResult struct {
 type IntegrationService struct {
 	ic       IntegrationServiceIC
 	manifest IntegrationServiceManifest
+	notify   IntegrationNotifier
 	cache    integrationCache
 }
 
-func NewIntegrationService(ic IntegrationServiceIC, manifest IntegrationServiceManifest) *IntegrationService {
-	return &IntegrationService{ic: ic, manifest: manifest}
+func NewIntegrationService(ic IntegrationServiceIC, manifest IntegrationServiceManifest, notify IntegrationNotifier) *IntegrationService {
+	return &IntegrationService{ic: ic, manifest: manifest, notify: notify}
 }
 
 func (svc *IntegrationService) GetStatus(ctx context.Context) *IntegrationStatus {
@@ -139,10 +146,18 @@ func (svc *IntegrationService) SetKey(ctx context.Context, key string) (*Integra
 	}
 
 	slog.Info("integration API key configured", "appVersion", appVersion, "siteId", siteID)
+
+	if svc.notify != nil {
+		svc.notify.OnKeyConfigured(ctx, st)
+	}
+
 	return st, nil
 }
 
-func (svc *IntegrationService) DeleteKey() error {
+func (svc *IntegrationService) DeleteKey(ctx context.Context) error {
+	if svc.notify != nil {
+		svc.notify.OnBeforeKeyDelete(ctx)
+	}
 	if err := deleteAPIKey(); err != nil {
 		return err
 	}
@@ -150,6 +165,9 @@ func (svc *IntegrationService) DeleteKey() error {
 		svc.ic.SetAPIKey("")
 	}
 	svc.cache.invalidate()
+	if svc.notify != nil {
+		svc.notify.OnKeyDeleted()
+	}
 	return nil
 }
 
