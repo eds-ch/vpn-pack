@@ -5,8 +5,6 @@ import (
 	"slices"
 	"sync"
 	"time"
-
-	"unifi-tailscale/manager/internal/wgs2s"
 )
 
 type ZoneManifest struct {
@@ -159,7 +157,7 @@ type StateData struct {
 	FirewallHealth    *FirewallHealth      `json:"firewallHealth,omitempty"`
 	DPIFingerprinting *bool                `json:"dpiFingerprinting,omitempty"`
 	IntegrationStatus *IntegrationStatus   `json:"integrationStatus,omitempty"`
-	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
+	WgS2sTunnels      []WgS2sStatus       `json:"wgS2sTunnels,omitempty"`
 
 	SettingsFields
 }

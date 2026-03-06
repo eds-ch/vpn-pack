@@ -8,8 +8,6 @@ import (
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
-
-	"unifi-tailscale/manager/internal/wgs2s"
 )
 
 type SSEHub interface {
@@ -106,14 +104,14 @@ type FirewallService interface {
 }
 
 type WgS2sControl interface {
-	CreateTunnel(cfg wgs2s.TunnelConfig, privateKey string) (*wgs2s.TunnelConfig, error)
+	CreateTunnel(cfg TunnelConfig, privateKey string) (*TunnelConfig, error)
 	DeleteTunnel(id string) error
 	EnableTunnel(id string) error
 	DisableTunnel(id string) error
-	UpdateTunnel(id string, updates wgs2s.TunnelConfig) (*wgs2s.TunnelConfig, error)
+	UpdateTunnel(id string, updates TunnelConfig) (*TunnelConfig, error)
 	RestoreAll() error
-	GetTunnels() []wgs2s.TunnelConfig
-	GetStatuses() []wgs2s.WgS2sStatus
+	GetTunnels() []TunnelConfig
+	GetStatuses() []WgS2sStatus
 	GetPublicKey(id string) (string, error)
 	Close()
 }

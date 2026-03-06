@@ -5,24 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"time"
+
+	"unifi-tailscale/manager/domain"
 )
 
-type TunnelConfig struct {
-	ID                  string    `json:"id"`
-	Name                string    `json:"name"`
-	InterfaceName       string    `json:"interfaceName"`
-	ListenPort          int       `json:"listenPort"`
-	TunnelAddress       string    `json:"tunnelAddress"`
-	PeerPublicKey       string    `json:"peerPublicKey"`
-	PeerEndpoint        string    `json:"peerEndpoint"`
-	AllowedIPs          []string  `json:"allowedIPs"`
-	LocalSubnets        []string  `json:"localSubnets,omitempty"`
-	PersistentKeepalive int       `json:"persistentKeepalive"`
-	MTU                 int       `json:"mtu"`
-	Enabled             bool      `json:"enabled"`
-	CreatedAt           time.Time `json:"createdAt"`
-}
+type TunnelConfig = domain.TunnelConfig
 
 type TunnelsConfig struct {
 	Tunnels []TunnelConfig `json:"tunnels"`

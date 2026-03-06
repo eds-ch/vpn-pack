@@ -5,23 +5,11 @@ import (
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl"
+
+	"unifi-tailscale/manager/domain"
 )
 
-type WgS2sStatus struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	InterfaceName string    `json:"interfaceName"`
-	Enabled       bool      `json:"enabled"`
-	Connected     bool      `json:"connected"`
-	LastHandshake time.Time `json:"lastHandshake"`
-	TransferRx    int64     `json:"transferRx"`
-	TransferTx    int64     `json:"transferTx"`
-	Endpoint      string    `json:"endpoint"`
-	ListenPort    int       `json:"listenPort"`
-	LocalAddress  string    `json:"localAddress"`
-	RemoteSubnets []string  `json:"remoteSubnets"`
-	ForwardINOk   bool      `json:"forwardINOk"`
-}
+type WgS2sStatus = domain.WgS2sStatus
 
 func getAllStatuses(wgClient *wgctrl.Client, tunnels []TunnelConfig, log *slog.Logger) []WgS2sStatus {
 	statuses := make([]WgS2sStatus, 0, len(tunnels))
