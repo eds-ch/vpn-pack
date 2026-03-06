@@ -74,10 +74,10 @@ func nextInterfaceName(existing []TunnelConfig) string {
 	}
 }
 
-func generateID() string {
+func generateID() (string, error) {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+		return "", fmt.Errorf("crypto/rand failed: %w", err)
 	}
-	return fmt.Sprintf("%x", b)
+	return fmt.Sprintf("%x", b), nil
 }

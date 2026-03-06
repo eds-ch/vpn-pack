@@ -243,7 +243,9 @@ func retryLoop(ctx context.Context, retries int, delay time.Duration, fn func(co
 		}
 		if err := fn(ctx); err != nil {
 			slog.Warn("retry failed", "attempt", i+1, "err", err)
+			continue
 		}
+		return
 	}
 }
 
@@ -376,17 +378,24 @@ var (
 
 func cachedFilterRules() string {
 	filterRulesCacheMu.Lock()
-	defer filterRulesCacheMu.Unlock()
 	if filterRulesCache != "" && time.Since(filterRulesCacheTime) < time.Second {
-		return filterRulesCache
+		c := filterRulesCache
+		filterRulesCacheMu.Unlock()
+		return c
 	}
+	filterRulesCacheMu.Unlock()
+
 	out, err := exec.Command("iptables-save", "-t", "filter").Output()
 	if err != nil {
 		return ""
 	}
-	filterRulesCache = string(out)
+	result := string(out)
+
+	filterRulesCacheMu.Lock()
+	filterRulesCache = result
 	filterRulesCacheTime = time.Now()
-	return filterRulesCache
+	filterRulesCacheMu.Unlock()
+	return result
 }
 
 func hasChainRuleIn(rules, chain, match string) bool {

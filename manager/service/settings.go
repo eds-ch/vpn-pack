@@ -105,8 +105,12 @@ func upstreamError(msg string, cause error) *Error {
 	return &Error{Kind: ErrUpstream, Message: msg, Cause: cause}
 }
 
-func internalError(msg string) *Error {
-	return &Error{Kind: ErrInternal, Message: msg}
+func internalError(msg string, cause ...error) *Error {
+	e := &Error{Kind: ErrInternal, Message: msg}
+	if len(cause) > 0 {
+		e.Cause = cause[0]
+	}
+	return e
 }
 
 // SetResult carries the response and side-effect flags for the HTTP handler.
@@ -295,12 +299,12 @@ func (svc *SettingsService) applyDNSForwarding(ctx context.Context, enable bool)
 			return validationError("Cannot determine tailnet DNS suffix. Ensure Tailscale is connected.")
 		}
 		if err := svc.fw.EnsureDNSForwarding(ctx, suffix); err != nil {
-			return internalError("Failed to create DNS forwarding: " + err.Error())
+			return internalError("failed to create DNS forwarding", err)
 		}
 		return nil
 	}
 	if err := svc.fw.RemoveDNSForwarding(ctx); err != nil {
-		return internalError("Failed to remove DNS forwarding: " + err.Error())
+		return internalError("failed to remove DNS forwarding", err)
 	}
 	return nil
 }

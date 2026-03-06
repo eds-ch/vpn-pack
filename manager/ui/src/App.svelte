@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { connect, disconnect, getStatus, getErrors, getChangedFields, getUpdateInfo, dismissUpdate } from './lib/stores/tailscale.svelte.js';
+    import { connect, disconnect, getStatus, getErrors, getUpdateInfo, dismissUpdate } from './lib/stores/tailscale.svelte.js';
     import { getDeviceInfo } from './lib/api.js';
     import TopBar from './lib/components/TopBar.svelte';
     import Sidebar from './lib/components/Sidebar.svelte';
@@ -37,7 +37,6 @@
 
     const status = getStatus();
     const errors = getErrors();
-    const changedFields = getChangedFields();
     const updateInfo = getUpdateInfo();
 
     onMount(async () => {
@@ -75,7 +74,6 @@
     <TopBar
         hostname={deviceInfo?.hostname ?? ''}
         {status}
-        {changedFields}
         onThemeToggle={handleThemeToggle}
         onNavigateIntegration={handleNavigateIntegration}
         {updateInfo}

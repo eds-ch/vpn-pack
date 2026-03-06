@@ -92,7 +92,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		}
 		return
 	}
-	writeError(w, http.StatusInternalServerError, err.Error())
+	slog.Warn("unhandled service error", "err", err)
+	writeError(w, http.StatusInternalServerError, "internal server error")
 }
 
 func writeWgS2sError(w http.ResponseWriter, err error) {
@@ -188,7 +189,8 @@ func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.diagnostics.GetDiagnostics(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Warn("diagnostics failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -232,7 +234,8 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Request) {
 	if err := s.integration.DeleteKey(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to remove API key: "+err.Error())
+		slog.Warn("failed to remove API key", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to remove API key")
 		return
 	}
 	slog.Info("integration API key removed")

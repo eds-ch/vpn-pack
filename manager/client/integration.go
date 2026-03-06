@@ -34,7 +34,8 @@ func NewIntegrationClient(apiKey string) *IntegrationClient {
 		httpClient: &http.Client{
 			Timeout: config.IntegrationHTTPTimeout,
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				// Integration API on localhost uses self-signed cert.
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
 		},
 	}
@@ -85,11 +86,11 @@ func (c *IntegrationClient) doRequest(ctx context.Context, method, path string, 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w: %v", domain.ErrIntegrationAPI, err)
+		return nil, 0, fmt.Errorf("%w: %w", domain.ErrIntegrationAPI, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("read response: %w", err)
 	}

@@ -3,7 +3,9 @@
     import { SvelteSet } from 'svelte/reactivity';
     import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sGetWanIP, wgS2sCreateTunnel, wgS2sListZones } from '../api.js';
     import { isValidCIDR, validateTunnelFields } from '../utils.js';
-    import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE, COPY_NOTIFICATION_MS } from '../constants.js';
+    import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
+    import { useClipboard } from '../helpers/clipboard.svelte.js';
+    import { inputClass as getInputClass, clearFieldError } from '../helpers/field-errors.js';
 
     let { onCreated, onCancel, integrationConfigured = false } = $props();
 
@@ -24,8 +26,7 @@
     let peerEndpoint = $state('');
     let persistentKeepalive = $state(WG_DEFAULT_KEEPALIVE);
     let mtu = $state(WG_DEFAULT_MTU);
-    let copied = $state(false);
-    let copyFailed = $state(false);
+    const clip = useClipboard();
 
     let fieldErrors = $state({});
 
@@ -79,20 +80,6 @@
         }
     }
 
-    async function copyPublicKey() {
-        if (!keypair?.publicKey) return;
-        try {
-            await navigator.clipboard.writeText(keypair.publicKey);
-            copied = true;
-            copyFailed = false;
-            setTimeout(() => copied = false, COPY_NOTIFICATION_MS);
-        } catch (e) {
-            console.warn('Clipboard write failed:', e);
-            copyFailed = true;
-            setTimeout(() => copyFailed = false, COPY_NOTIFICATION_MS);
-        }
-    }
-
     function validate() {
         const errors = validateTunnelFields({
             name, listenPort, tunnelAddress, peerPublicKey,
@@ -108,19 +95,6 @@
         return errors;
     }
 
-    function inputClass(field) {
-        const base = 'mt-1 w-full px-3 py-1.5 text-body rounded-lg bg-input text-text placeholder-text-secondary focus:outline-none transition-colors';
-        return fieldErrors[field]
-            ? `${base} border-2 border-error focus:border-error`
-            : `${base} border border-border focus:border-blue`;
-    }
-
-    function clearError(field) {
-        if (fieldErrors[field]) {
-            fieldErrors = { ...fieldErrors };
-            delete fieldErrors[field];
-        }
-    }
 
     async function handleSubmit() {
         fieldErrors = validate();
@@ -172,9 +146,9 @@
                     class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono text-caption"
                 />
                 <button
-                    onclick={copyPublicKey}
+                    onclick={() => clip.copy(keypair?.publicKey)}
                     class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                >{copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy'}</button>
+                >{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</button>
             </div>
         </div>
     {:else}
@@ -185,23 +159,23 @@
         <div class="md:col-span-2">
             <span class="text-caption text-text-secondary">Tunnel Name</span>
             <input type="text" bind:value={name} placeholder="office-nyc"
-                oninput={() => clearError('name')}
-                class={inputClass('name')} />
+                oninput={() => fieldErrors = clearFieldError(fieldErrors,'name')}
+                class={getInputClass(fieldErrors,'name')} />
             {#if fieldErrors.name}<p class="text-caption text-error mt-0.5">{fieldErrors.name}</p>{/if}
         </div>
         <div>
             <span class="text-caption text-text-secondary">Listen Port</span>
             <input type="number" bind:value={listenPort}
-                oninput={() => clearError('listenPort')}
-                class={inputClass('listenPort')} />
+                oninput={() => fieldErrors = clearFieldError(fieldErrors,'listenPort')}
+                class={getInputClass(fieldErrors,'listenPort')} />
             {#if fieldErrors.listenPort}<p class="text-caption text-error mt-0.5">{fieldErrors.listenPort}</p>
             {:else if wanIP}<span class="text-caption text-text-secondary mt-0.5 block">{wanIP}:{listenPort}</span>{/if}
         </div>
         <div>
             <span class="text-caption text-text-secondary">Tunnel Address (CIDR)</span>
             <input type="text" bind:value={tunnelAddress} placeholder="10.255.0.1/30"
-                oninput={() => clearError('tunnelAddress')}
-                class={inputClass('tunnelAddress')} />
+                oninput={() => fieldErrors = clearFieldError(fieldErrors,'tunnelAddress')}
+                class={getInputClass(fieldErrors,'tunnelAddress')} />
             {#if fieldErrors.tunnelAddress}<p class="text-caption text-error mt-0.5">{fieldErrors.tunnelAddress}</p>{/if}
         </div>
     </div>
@@ -210,9 +184,9 @@
         <span class="text-caption text-text-secondary">Remote Peer Public Key</span>
         <input type="text" bind:value={peerPublicKey}
             onpaste={handleSmartPaste}
-            oninput={() => clearError('peerPublicKey')}
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')}
             placeholder="Paste public key or full WireGuard config block"
-            class="{inputClass('peerPublicKey')} font-mono text-caption" />
+            class="{getInputClass(fieldErrors,'peerPublicKey')} font-mono text-caption" />
         {#if fieldErrors.peerPublicKey}<p class="text-caption text-error mt-0.5">{fieldErrors.peerPublicKey}</p>{/if}
     </div>
 
@@ -220,15 +194,15 @@
         <div>
             <span class="text-caption text-text-secondary">Remote Peer Endpoint</span>
             <input type="text" bind:value={peerEndpoint} placeholder="85.12.34.56:51820"
-                oninput={() => clearError('peerEndpoint')}
-                class={inputClass('peerEndpoint')} />
+                oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerEndpoint')}
+                class={getInputClass(fieldErrors,'peerEndpoint')} />
             {#if fieldErrors.peerEndpoint}<p class="text-caption text-error mt-0.5">{fieldErrors.peerEndpoint}</p>{/if}
         </div>
         <div>
             <span class="text-caption text-text-secondary">Persistent Keepalive (s)</span>
             <input type="number" bind:value={persistentKeepalive}
-                oninput={() => clearError('persistentKeepalive')}
-                class={inputClass('persistentKeepalive')} />
+                oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')}
+                class={getInputClass(fieldErrors,'persistentKeepalive')} />
             {#if fieldErrors.persistentKeepalive}<p class="text-caption text-error mt-0.5">{fieldErrors.persistentKeepalive}</p>{/if}
         </div>
     </div>
@@ -236,8 +210,8 @@
     <div>
         <span class="text-caption text-text-secondary">MTU</span>
         <input type="number" bind:value={mtu}
-            oninput={() => clearError('mtu')}
-            class="{inputClass('mtu')} !w-32" />
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')}
+            class="{getInputClass(fieldErrors,'mtu')} !w-32" />
         {#if fieldErrors.mtu}<p class="text-caption text-error mt-0.5">{fieldErrors.mtu}</p>{/if}
     </div>
 
@@ -301,8 +275,8 @@
     <div>
         <span class="text-caption text-text-secondary">Custom Remote Subnets (comma-separated CIDRs)</span>
         <textarea bind:value={customCIDRs} rows="1" placeholder="10.20.0.0/24, 10.20.1.0/24"
-            oninput={() => clearError('customCIDRs')}
-            class="{inputClass('customCIDRs')} font-mono resize-none"></textarea>
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'customCIDRs')}
+            class="{getInputClass(fieldErrors,'customCIDRs')} font-mono resize-none"></textarea>
         {#if fieldErrors.customCIDRs}<p class="text-caption text-error mt-0.5">{fieldErrors.customCIDRs}</p>{/if}
     </div>
 

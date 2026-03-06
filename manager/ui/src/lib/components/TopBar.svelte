@@ -4,7 +4,7 @@
     import WgS2sPill from './WgS2sPill.svelte';
     import { REPO_INSTALL_URL } from '../constants.js';
 
-    let { hostname = '', status, changedFields, onThemeToggle, onNavigateIntegration = null, updateInfo = null, onDismissUpdate = null } = $props();
+    let { hostname = '', status, onThemeToggle, onNavigateIntegration = null, updateInfo = null, onDismissUpdate = null } = $props();
     let isLight = $state(document.documentElement.classList.contains('light'));
     let bannerDismissed = $state(false);
 
@@ -50,7 +50,7 @@
         {#if (status.wgS2sTunnels ?? []).length > 0}
             <span class="w-px h-3.5 bg-border"></span>
         {/if}
-        <StatusPill {status} {changedFields} />
+        <StatusPill {status} />
         <span class="w-px h-3.5 bg-border"></span>
         <button
             onclick={toggleTheme}

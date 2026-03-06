@@ -1,7 +1,9 @@
 <script>
     import { wgS2sUpdateTunnel, wgS2sDeleteTunnel, wgS2sEnableTunnel, wgS2sDisableTunnel } from '../api.js';
     import { formatBytes, relativeTime, validateTunnelFields, tunnelStatusInfo } from '../utils.js';
-    import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE, COPY_NOTIFICATION_MS } from '../constants.js';
+    import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
+    import { useClipboard } from '../helpers/clipboard.svelte.js';
+    import { inputClass as getInputClass, clearFieldError } from '../helpers/field-errors.js';
     import WgConfigCopy from './WgConfigCopy.svelte';
 
     let { tunnel, onUpdate, onDelete } = $props();
@@ -12,24 +14,9 @@
     let showDeleteConfirm = $state(false);
     let configVisible = $state(false);
     let actionLoading = $state(false);
-    let copied = $state(false);
-    let copyFailed = $state(false);
+    const clip = useClipboard();
 
     let si = $derived(tunnelStatusInfo(tunnel));
-
-    function inputClass(field) {
-        const base = 'mt-1 w-full px-3 py-1.5 text-body rounded-lg bg-input text-text placeholder-text-secondary focus:outline-none transition-colors';
-        return fieldErrors[field]
-            ? `${base} border-2 border-error focus:border-error`
-            : `${base} border border-border focus:border-blue`;
-    }
-
-    function clearError(field) {
-        if (fieldErrors[field]) {
-            fieldErrors = { ...fieldErrors };
-            delete fieldErrors[field];
-        }
-    }
 
     function startEdit() {
         fieldErrors = {};
@@ -78,20 +65,6 @@
             : await wgS2sEnableTunnel(tunnel.id);
         if (result) onUpdate();
         actionLoading = false;
-    }
-
-    async function copyPublicKey() {
-        if (!tunnel.publicKey) return;
-        try {
-            await navigator.clipboard.writeText(tunnel.publicKey);
-            copied = true;
-            copyFailed = false;
-            setTimeout(() => copied = false, COPY_NOTIFICATION_MS);
-        } catch (e) {
-            console.warn('Clipboard write failed:', e);
-            copyFailed = true;
-            setTimeout(() => copyFailed = false, COPY_NOTIFICATION_MS);
-        }
     }
 
     async function confirmDelete() {
@@ -161,9 +134,9 @@
                                     class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono text-caption"
                                 />
                                 <button
-                                    onclick={copyPublicKey}
+                                    onclick={() => clip.copy(tunnel.publicKey)}
                                     class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                                >{copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy'}</button>
+                                >{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</button>
                             </div>
                         </div>
                     {/if}
@@ -243,67 +216,67 @@
                         <div>
                             <span class="text-caption text-text-secondary">Tunnel Name</span>
                             <input type="text" bind:value={editData.name}
-                                oninput={() => clearError('name')}
-                                class={inputClass('name')} />
+                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'name')}
+                                class={getInputClass(fieldErrors,'name')} />
                             {#if fieldErrors.name}<p class="text-caption text-error mt-0.5">{fieldErrors.name}</p>{/if}
                         </div>
                         <div>
                             <span class="text-caption text-text-secondary">Listen Port</span>
                             <input type="number" bind:value={editData.listenPort}
-                                oninput={() => clearError('listenPort')}
-                                class={inputClass('listenPort')} />
+                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'listenPort')}
+                                class={getInputClass(fieldErrors,'listenPort')} />
                             {#if fieldErrors.listenPort}<p class="text-caption text-error mt-0.5">{fieldErrors.listenPort}</p>{/if}
                         </div>
                         <div>
                             <span class="text-caption text-text-secondary">Tunnel Address (CIDR)</span>
                             <input type="text" bind:value={editData.tunnelAddress}
-                                oninput={() => clearError('tunnelAddress')}
-                                class={inputClass('tunnelAddress')} />
+                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'tunnelAddress')}
+                                class={getInputClass(fieldErrors,'tunnelAddress')} />
                             {#if fieldErrors.tunnelAddress}<p class="text-caption text-error mt-0.5">{fieldErrors.tunnelAddress}</p>{/if}
                         </div>
                         <div>
                             <span class="text-caption text-text-secondary">MTU</span>
                             <input type="number" bind:value={editData.mtu}
-                                oninput={() => clearError('mtu')}
-                                class={inputClass('mtu')} />
+                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')}
+                                class={getInputClass(fieldErrors,'mtu')} />
                             {#if fieldErrors.mtu}<p class="text-caption text-error mt-0.5">{fieldErrors.mtu}</p>{/if}
                         </div>
                     </div>
                     <div>
                         <span class="text-caption text-text-secondary">Peer Public Key</span>
                         <input type="text" bind:value={editData.peerPublicKey}
-                            oninput={() => clearError('peerPublicKey')}
-                            class="{inputClass('peerPublicKey')} font-mono text-caption" />
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')}
+                            class="{getInputClass(fieldErrors,'peerPublicKey')} font-mono text-caption" />
                         {#if fieldErrors.peerPublicKey}<p class="text-caption text-error mt-0.5">{fieldErrors.peerPublicKey}</p>{/if}
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                             <span class="text-caption text-text-secondary">Peer Endpoint</span>
                             <input type="text" bind:value={editData.peerEndpoint}
-                                oninput={() => clearError('peerEndpoint')}
-                                class={inputClass('peerEndpoint')} />
+                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerEndpoint')}
+                                class={getInputClass(fieldErrors,'peerEndpoint')} />
                             {#if fieldErrors.peerEndpoint}<p class="text-caption text-error mt-0.5">{fieldErrors.peerEndpoint}</p>{/if}
                         </div>
                         <div>
                             <span class="text-caption text-text-secondary">Persistent Keepalive (s)</span>
                             <input type="number" bind:value={editData.persistentKeepalive}
-                                oninput={() => clearError('persistentKeepalive')}
-                                class={inputClass('persistentKeepalive')} />
+                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')}
+                                class={getInputClass(fieldErrors,'persistentKeepalive')} />
                             {#if fieldErrors.persistentKeepalive}<p class="text-caption text-error mt-0.5">{fieldErrors.persistentKeepalive}</p>{/if}
                         </div>
                     </div>
                     <div>
                         <span class="text-caption text-text-secondary">Local Subnets (comma-separated)</span>
                         <input type="text" bind:value={editData.localSubnets}
-                            oninput={() => clearError('localSubnets')}
-                            class="{inputClass('localSubnets')} font-mono text-caption" />
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'localSubnets')}
+                            class="{getInputClass(fieldErrors,'localSubnets')} font-mono text-caption" />
                         {#if fieldErrors.localSubnets}<p class="text-caption text-error mt-0.5">{fieldErrors.localSubnets}</p>{/if}
                     </div>
                     <div>
                         <span class="text-caption text-text-secondary">Remote Subnets (comma-separated)</span>
                         <input type="text" bind:value={editData.allowedIPs}
-                            oninput={() => clearError('allowedIPs')}
-                            class="{inputClass('allowedIPs')} font-mono text-caption" />
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'allowedIPs')}
+                            class="{getInputClass(fieldErrors,'allowedIPs')} font-mono text-caption" />
                         {#if fieldErrors.allowedIPs}<p class="text-caption text-error mt-0.5">{fieldErrors.allowedIPs}</p>{/if}
                     </div>
                     <div class="flex gap-2 pt-1">

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,18 @@ const (
 	errFmtTunnelNotFound = "tunnel %s not found"
 	configFileName       = "tunnels.json"
 )
+
+func validTunnelID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
 
 type TunnelManager struct {
 	mu        sync.Mutex
@@ -89,7 +102,11 @@ func (m *TunnelManager) CreateTunnel(cfg TunnelConfig, privateKey string) (*Tunn
 		return nil, fmt.Errorf("port %d: %w", cfg.ListenPort, err)
 	}
 
-	cfg.ID = generateID()
+	var err error
+	cfg.ID, err = generateID()
+	if err != nil {
+		return nil, err
+	}
 	cfg.InterfaceName = nextInterfaceName(m.config.Tunnels)
 	cfg.CreatedAt = time.Now()
 	cfg.Enabled = true
@@ -102,7 +119,6 @@ func (m *TunnelManager) CreateTunnel(cfg TunnelConfig, privateKey string) (*Tunn
 	}
 
 	var privKey wgtypes.Key
-	var err error
 	if privateKey != "" {
 		privKey, err = saveExistingKeypair(m.configDir, cfg.ID, privateKey)
 	} else {
@@ -138,15 +154,17 @@ func (m *TunnelManager) DeleteTunnel(id string) error {
 	}
 
 	cfg := m.config.Tunnels[idx]
+
+	m.config.Tunnels = append(m.config.Tunnels[:idx], m.config.Tunnels[idx+1:]...)
+	if err := m.save(); err != nil {
+		m.config.Tunnels = slices.Insert(m.config.Tunnels, idx, cfg)
+		return err
+	}
+
 	if cfg.Enabled {
 		m.tearDown(cfg)
 	}
 	deleteKeyFiles(m.configDir, cfg.ID)
-
-	m.config.Tunnels = append(m.config.Tunnels[:idx], m.config.Tunnels[idx+1:]...)
-	if err := m.save(); err != nil {
-		return err
-	}
 
 	m.log.Info("tunnel deleted", "id", id, "name", cfg.Name)
 	return nil
@@ -166,10 +184,18 @@ func (m *TunnelManager) EnableTunnel(id string) error {
 		return nil
 	}
 
-	if err := m.recreateTunnel(cfg, false); err != nil {
+	cfg.Enabled = true
+	if err := m.save(); err != nil {
+		cfg.Enabled = false
 		return err
 	}
-	return m.save()
+
+	if err := m.recreateTunnel(cfg, false); err != nil {
+		cfg.Enabled = false
+		_ = m.save()
+		return err
+	}
+	return nil
 }
 
 func (m *TunnelManager) DisableTunnel(id string) error {
@@ -186,9 +212,14 @@ func (m *TunnelManager) DisableTunnel(id string) error {
 		return nil
 	}
 
-	m.tearDown(*cfg)
 	cfg.Enabled = false
-	return m.save()
+	if err := m.save(); err != nil {
+		cfg.Enabled = true
+		return err
+	}
+
+	m.tearDown(*cfg)
+	return nil
 }
 
 func needsRecreate(old, merged TunnelConfig) bool {
@@ -260,8 +291,13 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 
 	recreate := !wasEnabled || needsRecreate(*cfg, merged)
 	oldAllowedIPs := cfg.AllowedIPs
+	oldCfg := *cfg
 
 	*cfg = merged
+	if err := m.save(); err != nil {
+		*cfg = oldCfg
+		return nil, err
+	}
 
 	if wasEnabled && recreate {
 		if err := m.recreateTunnel(cfg, true); err != nil {
@@ -274,10 +310,6 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 				return nil, err
 			}
 		}
-	}
-
-	if err := m.save(); err != nil {
-		return nil, err
 	}
 
 	result := *cfg

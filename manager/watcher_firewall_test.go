@@ -61,7 +61,7 @@ func TestRetryLoop(t *testing.T) {
 
 	ctx := context.Background()
 	retryLoop(ctx, 3, 10*time.Millisecond, fn)
-	assert.Equal(t, 3, callCount)
+	assert.Equal(t, 1, callCount, "should stop after first success")
 }
 
 func TestRetryLoopContextCancel(t *testing.T) {

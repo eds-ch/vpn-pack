@@ -169,18 +169,20 @@ var tailscaleBin = sync.OnceValue(func() string {
 
 func (svc *DiagnosticsService) runNetcheck(ctx context.Context) *NetcheckResult {
 	svc.netcheckMu.Lock()
-	defer svc.netcheckMu.Unlock()
-
 	if svc.netcheckCache != nil && time.Since(svc.netcheckCacheAt) < netcheckCacheTTL {
-		return svc.netcheckCache
+		cached := svc.netcheckCache
+		svc.netcheckMu.Unlock()
+		return cached
 	}
+	staleCache := svc.netcheckCache
+	svc.netcheckMu.Unlock()
 
 	cmdCtx, cancel := context.WithTimeout(ctx, netcheckTimeout)
 	defer cancel()
 
 	out, err := exec.CommandContext(cmdCtx, tailscaleBin(), "netcheck", "--format=json").Output()
 	if err != nil {
-		return svc.netcheckCache
+		return staleCache
 	}
 
 	raw := string(out)
@@ -190,12 +192,14 @@ func (svc *DiagnosticsService) runNetcheck(ctx context.Context) *NetcheckResult 
 
 	var result NetcheckResult
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		return svc.netcheckCache
+		return staleCache
 	}
 
+	svc.netcheckMu.Lock()
 	svc.netcheckCache = &result
 	svc.netcheckCacheAt = time.Now()
-	return svc.netcheckCache
+	svc.netcheckMu.Unlock()
+	return &result
 }
 
 func (svc *DiagnosticsService) gatherWgS2sDiagnostics(ctx context.Context) *WgS2sDiagnostics {

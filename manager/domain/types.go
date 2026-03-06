@@ -2,6 +2,7 @@ package domain
 
 import (
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -212,7 +213,15 @@ type TailscaleState struct {
 func (ts *TailscaleState) Snapshot() StateData {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	return ts.data
+	s := ts.data
+	s.TailscaleIPs = slices.Clone(s.TailscaleIPs)
+	s.Health = slices.Clone(s.Health)
+	s.Routes = slices.Clone(s.Routes)
+	s.Peers = slices.Clone(s.Peers)
+	s.DERP = slices.Clone(s.DERP)
+	s.WgS2sTunnels = slices.Clone(s.WgS2sTunnels)
+	s.AdvertiseTags = slices.Clone(s.AdvertiseTags)
+	return s
 }
 
 func (ts *TailscaleState) Lock()   { ts.mu.Lock() }
@@ -238,9 +247,11 @@ func (ts *TailscaleState) SetAcceptDNS(v bool) {
 	ts.mu.Unlock()
 }
 
-func (ts *TailscaleState) AdvertiseRoutes() []netip.Prefix { return ts.advertiseRoutes }
+// AdvertiseRoutes and AllowedIPs are called within Lock/Unlock blocks (watcher.go).
+// Clone on read to prevent callers from mutating internal state.
+func (ts *TailscaleState) AdvertiseRoutes() []netip.Prefix { return slices.Clone(ts.advertiseRoutes) }
 func (ts *TailscaleState) SetAdvertiseRoutes(r []netip.Prefix) { ts.advertiseRoutes = r }
-func (ts *TailscaleState) AllowedIPs() []netip.Prefix        { return ts.allowedIPs }
+func (ts *TailscaleState) AllowedIPs() []netip.Prefix        { return slices.Clone(ts.allowedIPs) }
 func (ts *TailscaleState) SetAllowedIPs(ips []netip.Prefix)  { ts.allowedIPs = ips }
 
 func NewTailscaleState() *TailscaleState {

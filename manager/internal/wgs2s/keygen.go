@@ -26,6 +26,9 @@ func saveExistingKeypair(configDir, id, privKeyStr string) (wgtypes.Key, error) 
 }
 
 func saveKeyFiles(configDir, id string, privKey wgtypes.Key) (wgtypes.Key, error) {
+	if !validTunnelID(id) {
+		return wgtypes.Key{}, fmt.Errorf("invalid tunnel ID: %q", id)
+	}
 	keyPath := filepath.Join(configDir, id+".key")
 	if err := os.WriteFile(keyPath, []byte(privKey.String()), 0600); err != nil {
 		return wgtypes.Key{}, fmt.Errorf("write private key: %w", err)
@@ -40,6 +43,9 @@ func saveKeyFiles(configDir, id string, privKey wgtypes.Key) (wgtypes.Key, error
 }
 
 func loadPrivateKey(configDir, id string) (wgtypes.Key, error) {
+	if !validTunnelID(id) {
+		return wgtypes.Key{}, fmt.Errorf("invalid tunnel ID: %q", id)
+	}
 	data, err := os.ReadFile(filepath.Join(configDir, id+".key"))
 	if err != nil {
 		return wgtypes.Key{}, fmt.Errorf("read private key: %w", err)
@@ -48,6 +54,9 @@ func loadPrivateKey(configDir, id string) (wgtypes.Key, error) {
 }
 
 func deleteKeyFiles(configDir, id string) {
+	if !validTunnelID(id) {
+		return
+	}
 	_ = os.Remove(filepath.Join(configDir, id+".key"))
 	_ = os.Remove(filepath.Join(configDir, id+".pub"))
 }

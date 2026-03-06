@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -258,6 +259,7 @@ func (m *Manifest) GetWgS2sZone(tunnelID string) (domain.ZoneManifest, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	zm, ok := m.WgS2s[tunnelID]
+	zm.PolicyIDs = slices.Clone(zm.PolicyIDs)
 	return zm, ok
 }
 
@@ -313,7 +315,9 @@ func (m *Manifest) HasDNSPolicy(marker string) bool {
 func (m *Manifest) GetTailscaleZone() domain.ZoneManifest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.Tailscale
+	zm := m.Tailscale
+	zm.PolicyIDs = slices.Clone(zm.PolicyIDs)
+	return zm
 }
 
 func (m *Manifest) GetSystemZoneIDs() (string, string) {
@@ -356,6 +360,7 @@ func (m *Manifest) GetWgS2sSnapshot() map[string]domain.ZoneManifest {
 	}
 	cp := make(map[string]domain.ZoneManifest, len(m.WgS2s))
 	for k, v := range m.WgS2s {
+		v.PolicyIDs = slices.Clone(v.PolicyIDs)
 		cp[k] = v
 	}
 	return cp

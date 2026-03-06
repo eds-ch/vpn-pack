@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
-import { SvelteSet } from 'svelte/reactivity';
+
 import StatusPill from './StatusPill.svelte';
 
 function makeStatus(overrides = {}) {
@@ -17,7 +17,6 @@ describe('StatusPill', () => {
     it('renders Running state text', () => {
         render(StatusPill, {
             status: makeStatus(),
-            changedFields: new SvelteSet(),
         });
         expect(screen.getByText(/Running/)).toBeInTheDocument();
     });
@@ -25,7 +24,6 @@ describe('StatusPill', () => {
     it('renders NeedsLogin state text', () => {
         render(StatusPill, {
             status: makeStatus({ backendState: 'NeedsLogin' }),
-            changedFields: new SvelteSet(),
         });
         expect(screen.getByText(/NeedsLogin/)).toBeInTheDocument();
     });
@@ -33,7 +31,6 @@ describe('StatusPill', () => {
     it('shows IP from tailscaleIPs', () => {
         render(StatusPill, {
             status: makeStatus({ tailscaleIPs: ['100.100.1.2'] }),
-            changedFields: new SvelteSet(),
         });
         expect(screen.getByText('100.100.1.2')).toBeInTheDocument();
     });
@@ -41,7 +38,6 @@ describe('StatusPill', () => {
     it('renders Stopped state', () => {
         render(StatusPill, {
             status: makeStatus({ backendState: 'Stopped', tailscaleIPs: [] }),
-            changedFields: new SvelteSet(),
         });
         expect(screen.getByText(/Stopped/)).toBeInTheDocument();
     });
@@ -49,7 +45,6 @@ describe('StatusPill', () => {
     it('does not show IP when tailscaleIPs is empty', () => {
         render(StatusPill, {
             status: makeStatus({ tailscaleIPs: [] }),
-            changedFields: new SvelteSet(),
         });
         expect(screen.queryByText('100.64.0.1')).not.toBeInTheDocument();
     });
@@ -64,7 +59,6 @@ describe('StatusPill', () => {
                     chainPrefix: 'VPN',
                 },
             }),
-            changedFields: new SvelteSet(),
         });
         expect(screen.getByText('1')).toBeInTheDocument();
     });
@@ -79,7 +73,6 @@ describe('StatusPill', () => {
                     chainPrefix: 'VPN',
                 },
             }),
-            changedFields: new SvelteSet(),
         });
 
         expect(screen.getByText('2')).toBeInTheDocument();
@@ -109,7 +102,6 @@ describe('StatusPill', () => {
                     chainPrefix: 'VPN',
                 },
             }),
-            changedFields: new SvelteSet(),
         });
         expect(screen.queryByText('1')).not.toBeInTheDocument();
         expect(screen.queryByText('2')).not.toBeInTheDocument();
@@ -127,7 +119,6 @@ describe('StatusPill', () => {
                     zoneName: 'VPN Pack: Tailscale',
                 },
             }),
-            changedFields: new SvelteSet(),
         });
 
         const button = screen.getByRole('button');
@@ -148,7 +139,6 @@ describe('StatusPill', () => {
                     chainPrefix: 'CUSTOM1',
                 },
             }),
-            changedFields: new SvelteSet(),
         });
 
         const button = screen.getByRole('button');

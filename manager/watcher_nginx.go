@@ -20,7 +20,9 @@ func (s *Server) runNginxWatcher(ctx context.Context) {
 		return
 	}
 
-	s.nginx.EnsureConfig() //nolint:errcheck
+	if err := s.nginx.EnsureConfig(); err != nil {
+		slog.Warn("initial nginx config ensure failed", "err", err)
+	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {

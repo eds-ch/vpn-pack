@@ -1,7 +1,7 @@
 <script>
     import { stateColors } from '../utils.js';
 
-    let { status, changedFields } = $props();
+    let { status } = $props();
     let open = $state(false);
     let root = $state(null);
 

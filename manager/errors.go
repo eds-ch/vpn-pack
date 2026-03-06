@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -20,7 +21,8 @@ func writeAPIError(w http.ResponseWriter, err error) {
 		writeError(w, ae.status, ae.message)
 		return
 	}
-	writeError(w, http.StatusInternalServerError, err.Error())
+	slog.Warn("unhandled API error", "err", err)
+	writeError(w, http.StatusInternalServerError, "internal server error")
 }
 
 func humanizeLocalAPIError(err error) string {
