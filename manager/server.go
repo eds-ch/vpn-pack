@@ -133,7 +133,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 			return out
 		},
 	)
-	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall, opts.Integration)
+	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall)
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	s.mux.HandleFunc("POST /api/tailscale/down", s.handleDown)

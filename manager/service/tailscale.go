@@ -18,18 +18,13 @@ type TailscaleFirewall interface {
 	IntegrationReady() bool
 }
 
-type TailscaleIntegration interface {
-	HasAPIKey() bool
-}
-
 type TailscaleService struct {
 	ts TailscaleClient
 	fw TailscaleFirewall
-	ic TailscaleIntegration
 }
 
-func NewTailscaleService(ts TailscaleClient, fw TailscaleFirewall, ic TailscaleIntegration) *TailscaleService {
-	return &TailscaleService{ts: ts, fw: fw, ic: ic}
+func NewTailscaleService(ts TailscaleClient, fw TailscaleFirewall) *TailscaleService {
+	return &TailscaleService{ts: ts, fw: fw}
 }
 
 func (svc *TailscaleService) Activate(ctx context.Context) error {

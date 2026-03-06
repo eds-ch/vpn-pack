@@ -75,10 +75,10 @@ describe('api', () => {
         expect(addError).toHaveBeenCalledWith('boom');
     });
 
-    it('calls addError on 500 response with error object', async () => {
+    it('calls addError on 502 response with error object', async () => {
         global.fetch = mockFetch({
             ok: false,
-            status: 500,
+            status: 502,
             text: () => Promise.resolve(JSON.stringify({ error: { message: 'detailed error' } })),
         });
 

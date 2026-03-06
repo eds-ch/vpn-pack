@@ -60,24 +60,12 @@ func (m *mockTailscaleFirewall) IntegrationReady() bool {
 	return true
 }
 
-type mockTailscaleIntegration struct {
-	hasAPIKeyFn func() bool
-}
-
-func (m *mockTailscaleIntegration) HasAPIKey() bool {
-	if m.hasAPIKeyFn != nil {
-		return m.hasAPIKeyFn()
-	}
-	return true
-}
-
 // --- Factory ---
 
 func newTestTailscaleService(opts ...func(*TailscaleService)) *TailscaleService {
 	svc := &TailscaleService{
 		ts: &mockTailscaleClient{},
 		fw: &mockTailscaleFirewall{},
-		ic: &mockTailscaleIntegration{},
 	}
 	for _, opt := range opts {
 		opt(svc)
