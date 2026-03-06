@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"unifi-tailscale/manager/internal/wgs2s"
+	"unifi-tailscale/manager/service"
 )
 
 func validBase64Key(t *testing.T) string {
@@ -26,122 +26,9 @@ func validBase64Key(t *testing.T) string {
 	return base64.StdEncoding.EncodeToString(key)
 }
 
-func TestValidateWgS2sCreateRequest(t *testing.T) {
-	validReq := func(t *testing.T) *wgS2sCreateRequest {
-		t.Helper()
-		return &wgS2sCreateRequest{
-			TunnelConfig: wgs2s.TunnelConfig{
-				Name:          "test-tunnel",
-				ListenPort:    51820,
-				TunnelAddress: "10.0.0.1/24",
-				PeerPublicKey: validBase64Key(t),
-				AllowedIPs:    []string{"10.0.0.0/24"},
-			},
-		}
-	}
-
-	tests := []struct {
-		name    string
-		modify  func(*wgS2sCreateRequest)
-		wantErr bool
-		errMsg  string
-	}{
-		{"valid minimal", func(r *wgS2sCreateRequest) {}, false, ""},
-		{"missing name", func(r *wgS2sCreateRequest) { r.Name = "" }, true, "name"},
-		{"zero port", func(r *wgS2sCreateRequest) { r.ListenPort = 0 }, true, "listenPort"},
-		{"negative port", func(r *wgS2sCreateRequest) { r.ListenPort = -1 }, true, "listenPort"},
-		{"port exceeds 65535", func(r *wgS2sCreateRequest) { r.ListenPort = 65536 }, true, "listenPort"},
-		{"port at max", func(r *wgS2sCreateRequest) { r.ListenPort = 65535 }, false, ""},
-		{"invalid tunnelAddress", func(r *wgS2sCreateRequest) { r.TunnelAddress = "not-cidr" }, true, "tunnelAddress"},
-		{"short peerKey", func(r *wgS2sCreateRequest) { r.PeerPublicKey = "abc" }, true, "peerPublicKey"},
-		{"bad base64 peerKey", func(r *wgS2sCreateRequest) { r.PeerPublicKey = "!!!not-base64-at-all-but-is-44-chars-long!==" }, true, "peerPublicKey"},
-		{"invalid allowedIP", func(r *wgS2sCreateRequest) { r.AllowedIPs = []string{"bad"} }, true, "allowedIP"},
-		{"valid multiple CIDRs", func(r *wgS2sCreateRequest) { r.AllowedIPs = []string{"10.0.0.0/24", "192.168.1.0/24"} }, false, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := validReq(t)
-			tt.modify(req)
-			err := validateWgS2sCreateRequest(req)
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestHumanizeWgS2sError(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want string
-	}{
-		{"nil", nil, ""},
-		{"not found", errors.New("tunnel not found"), "Tunnel not found"},
-		{"port in use", errors.New("port in use"), "already in use"},
-		{"permission denied", errors.New("permission denied"), "Insufficient permissions"},
-		{"unknown", errors.New("something else"), "WG S2S error:"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := humanizeWgS2sError(tt.err)
-			if tt.err == nil {
-				assert.Equal(t, "", result)
-			} else {
-				assert.Contains(t, result, tt.want)
-			}
-		})
-	}
-}
-
-func TestValidateWgS2sUpdateRequest(t *testing.T) {
-	tests := []struct {
-		name    string
-		modify  func(*wgs2s.TunnelConfig)
-		wantErr bool
-		errMsg  string
-	}{
-		{"empty update", func(c *wgs2s.TunnelConfig) {}, false, ""},
-		{"valid tunnelAddress", func(c *wgs2s.TunnelConfig) { c.TunnelAddress = "10.0.0.1/24" }, false, ""},
-		{"invalid tunnelAddress", func(c *wgs2s.TunnelConfig) { c.TunnelAddress = "not-cidr" }, true, "tunnelAddress"},
-		{"valid peerPublicKey", func(c *wgs2s.TunnelConfig) { c.PeerPublicKey = validBase64Key(t) }, false, ""},
-		{"invalid peerPublicKey", func(c *wgs2s.TunnelConfig) { c.PeerPublicKey = "short" }, true, "peerPublicKey"},
-		{"valid allowedIPs", func(c *wgs2s.TunnelConfig) { c.AllowedIPs = []string{"10.0.0.0/24"} }, false, ""},
-		{"invalid allowedIP", func(c *wgs2s.TunnelConfig) { c.AllowedIPs = []string{"bad"} }, true, "allowedIP"},
-		{"negative port", func(c *wgs2s.TunnelConfig) { c.ListenPort = -1 }, true, "listenPort"},
-		{"port exceeds 65535", func(c *wgs2s.TunnelConfig) { c.ListenPort = 65536 }, true, "listenPort"},
-		{"zero port (no change)", func(c *wgs2s.TunnelConfig) { c.ListenPort = 0 }, false, ""},
-		{"positive port", func(c *wgs2s.TunnelConfig) { c.ListenPort = 51821 }, false, ""},
-		{"port at max", func(c *wgs2s.TunnelConfig) { c.ListenPort = 65535 }, false, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := wgs2s.TunnelConfig{}
-			tt.modify(&cfg)
-			err := validateWgS2sUpdateRequest(&cfg)
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
 func createTunnelBody(t *testing.T) []byte {
 	t.Helper()
-	body, _ := json.Marshal(wgS2sCreateRequest{
+	body, _ := json.Marshal(service.WgS2sCreateRequest{
 		TunnelConfig: wgs2s.TunnelConfig{
 			Name:          "test",
 			ListenPort:    51820,
@@ -179,10 +66,10 @@ func TestCreateTunnelFirewallOK(t *testing.T) {
 	s.handleWgS2sCreateTunnel(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp TunnelResponse
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "ok", resp.Status)
-	assert.Nil(t, resp.Firewall)
+	assert.Equal(t, "ok", resp["status"])
+	assert.Nil(t, resp["firewall"])
 }
 
 func TestCreateTunnelFirewallPartial(t *testing.T) {
@@ -211,11 +98,13 @@ func TestCreateTunnelFirewallPartial(t *testing.T) {
 	s.handleWgS2sCreateTunnel(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp TunnelResponse
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "partial", resp.Status)
-	require.NotNil(t, resp.Firewall)
-	assert.Contains(t, resp.Firewall.Errors[0], "UDAPI unreachable")
+	assert.Equal(t, "partial", resp["status"])
+	require.NotNil(t, resp["firewall"])
+	fw := resp["firewall"].(map[string]any)
+	errs := fw["errors"].([]any)
+	assert.Contains(t, errs[0].(string), "UDAPI unreachable")
 }
 
 func TestEnableTunnelFirewallPartial(t *testing.T) {

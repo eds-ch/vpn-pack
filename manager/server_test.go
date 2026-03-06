@@ -84,6 +84,18 @@ func newTestServer(opts ...func(*Server)) *Server {
 		integrationICAdapter{s.ic}, s.manifest,
 	)
 	s.tailscaleSvc = service.NewTailscaleService(s.ts, s.fw)
+
+	var wgFw service.WgS2sFirewall
+	if s.fw != nil {
+		wgFw = &wgS2sFirewallAdapter{fw: s.fw}
+	}
+	s.wgS2sSvc = service.NewWgS2sService(
+		s.wgManager,
+		wgFw,
+		&wgS2sManifestAdapter{ms: s.manifest},
+		&wgS2sLogAdapter{buf: s.logBuf},
+		nil, nil, nil,
+	)
 	return s
 }
 

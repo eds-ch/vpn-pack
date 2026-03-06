@@ -87,34 +87,6 @@ func TestFirewallSetupResult_Err(t *testing.T) {
 	})
 }
 
-func TestNewFirewallStatusBrief(t *testing.T) {
-	t.Run("nil input returns nil", func(t *testing.T) {
-		assert.Nil(t, NewFirewallStatusBrief(nil))
-	})
-
-	t.Run("maps fields correctly", func(t *testing.T) {
-		r := &FirewallSetupResult{
-			ZoneCreated:   true,
-			PoliciesReady: true,
-			UDAPIApplied:  false,
-		}
-		b := NewFirewallStatusBrief(r)
-		require.NotNil(t, b)
-		assert.True(t, b.ZoneCreated)
-		assert.True(t, b.PoliciesReady)
-		assert.False(t, b.UDAPIApplied)
-		assert.Empty(t, b.Errors)
-	})
-
-	t.Run("includes error strings", func(t *testing.T) {
-		r := &FirewallSetupResult{
-			Errors: []StepError{{Step: "udapi", Err: fmt.Errorf("timeout")}},
-		}
-		b := NewFirewallStatusBrief(r)
-		require.Len(t, b.Errors, 1)
-		assert.Equal(t, "udapi: timeout", b.Errors[0])
-	})
-}
 
 func TestBroadcastEvent(t *testing.T) {
 	t.Run("unnamed event uses Broadcast", func(t *testing.T) {
@@ -153,20 +125,6 @@ func TestBroadcastEvent(t *testing.T) {
 	})
 }
 
-func TestAPIResponseJSON(t *testing.T) {
-	resp := APIResponse[string]{
-		Data:   "hello",
-		Status: "ok",
-	}
-	data, err := json.Marshal(resp)
-	require.NoError(t, err)
-
-	var parsed map[string]any
-	require.NoError(t, json.Unmarshal(data, &parsed))
-	assert.Equal(t, "hello", parsed["data"])
-	assert.Equal(t, "ok", parsed["status"])
-	assert.Nil(t, parsed["firewall"])
-}
 
 func TestSSEDNSEventJSON(t *testing.T) {
 	evt := SSEDNSEvent{Enabled: true, Domain: "example.ts.net"}

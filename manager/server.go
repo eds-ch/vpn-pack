@@ -62,6 +62,7 @@ type Server struct {
 	integration       *service.IntegrationService
 	routing           *service.RoutingService
 	tailscaleSvc      *service.TailscaleService
+	wgS2sSvc          *service.WgS2sService
 }
 
 type settingsManifestAdapter struct {
@@ -100,6 +101,120 @@ func (a integrationICAdapter) Validate(ctx context.Context) (string, error) {
 	return info.ApplicationVersion, nil
 }
 
+type wgS2sFirewallAdapter struct {
+	fw FirewallService
+}
+
+func (a *wgS2sFirewallAdapter) SetupZone(ctx context.Context, tunnelID, zoneID, zoneName string) *service.ZoneSetupResult {
+	r := a.fw.SetupWgS2sZone(ctx, tunnelID, zoneID, zoneName)
+	if r == nil {
+		return nil
+	}
+	errs := make([]string, len(r.Errors))
+	for i, e := range r.Errors {
+		errs[i] = e.Error()
+	}
+	return &service.ZoneSetupResult{
+		ZoneCreated:   r.ZoneCreated,
+		PoliciesReady: r.PoliciesReady,
+		UDAPIApplied:  r.UDAPIApplied,
+		Errors:        errs,
+	}
+}
+
+func (a *wgS2sFirewallAdapter) SetupFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error {
+	return a.fw.SetupWgS2sFirewall(ctx, tunnelID, iface, allowedIPs)
+}
+
+func (a *wgS2sFirewallAdapter) RemoveFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) {
+	a.fw.RemoveWgS2sFirewall(ctx, tunnelID, iface, allowedIPs)
+}
+
+func (a *wgS2sFirewallAdapter) RemoveIPSetEntries(ctx context.Context, tunnelID string, cidrs []string) {
+	a.fw.RemoveWgS2sIPSetEntries(ctx, tunnelID, cidrs)
+}
+
+func (a *wgS2sFirewallAdapter) TeardownZone(ctx context.Context, tunnelID string) {
+	a.fw.TeardownWgS2sZone(ctx, tunnelID)
+}
+
+func (a *wgS2sFirewallAdapter) OpenWanPort(ctx context.Context, port int, iface string) {
+	if err := a.fw.OpenWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
+		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
+	} else {
+		go a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
+	}
+}
+
+func (a *wgS2sFirewallAdapter) CloseWanPort(ctx context.Context, port int, iface string) {
+	if port <= 0 {
+		return
+	}
+	if err := a.fw.CloseWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
+		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
+	} else {
+		go a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
+	}
+}
+
+func (a *wgS2sFirewallAdapter) CheckRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
+	return a.fw.CheckWgS2sRulesPresent(ctx, ifaces)
+}
+
+func (a *wgS2sFirewallAdapter) IntegrationReady() bool {
+	return a.fw.IntegrationReady()
+}
+
+type wgS2sManifestAdapter struct {
+	ms ManifestStore
+}
+
+func (a *wgS2sManifestAdapter) GetZone(tunnelID string) (service.ZoneInfo, bool) {
+	zm, ok := a.ms.GetWgS2sZone(tunnelID)
+	if !ok {
+		return service.ZoneInfo{}, false
+	}
+	return service.ZoneInfo{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName}, true
+}
+
+func (a *wgS2sManifestAdapter) GetZones() []service.WgS2sZoneEntry {
+	zones := a.ms.GetWgS2sZones()
+	if zones == nil {
+		return nil
+	}
+	out := make([]service.WgS2sZoneEntry, len(zones))
+	for i, z := range zones {
+		out[i] = service.WgS2sZoneEntry{ZoneID: z.ZoneID, ZoneName: z.ZoneName, TunnelCount: z.TunnelCount}
+	}
+	return out
+}
+
+type wgS2sLogAdapter struct {
+	buf *LogBuffer
+}
+
+func (a *wgS2sLogAdapter) LogWarn(msg string) {
+	a.buf.Add(newLogEntry("warn", msg, "wgs2s"))
+}
+
+func subnetValidatorProvider(allowedIPs []string, excludeIfaces ...string) ([]service.SubnetConflict, []service.SubnetConflict) {
+	sys, err := CollectSystemSubnets(excludeIfaces...)
+	if err != nil {
+		slog.Warn("subnet collection failed, skipping validation", "err", err)
+		return nil, nil
+	}
+	vr := ValidateAllowedIPs(allowedIPs, sys)
+	warnings := make([]service.SubnetConflict, len(vr.Warnings))
+	for i, w := range vr.Warnings {
+		warnings[i] = service.SubnetConflict{CIDR: w.CIDR, ConflictsWith: w.ConflictsWith, Interface: w.Interface, Severity: w.Severity, Message: w.Message}
+	}
+	blocks := make([]service.SubnetConflict, len(vr.Blocked))
+	for i, b := range vr.Blocked {
+		blocks[i] = service.SubnetConflict{CIDR: b.CIDR, ConflictsWith: b.ConflictsWith, Interface: b.Interface, Severity: b.Severity, Message: b.Message}
+	}
+	return warnings, blocks
+}
+
 func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	s := &Server{
 		ts:         opts.Tailscale,
@@ -134,6 +249,28 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		},
 	)
 	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall)
+
+	var wgFw service.WgS2sFirewall
+	if opts.Firewall != nil {
+		wgFw = &wgS2sFirewallAdapter{fw: opts.Firewall}
+	}
+	s.wgS2sSvc = service.NewWgS2sService(
+		nil, // wg set later in initWgS2s
+		wgFw,
+		&wgS2sManifestAdapter{ms: opts.Manifest},
+		&wgS2sLogAdapter{buf: opts.LogBuf},
+		subnetValidatorProvider,
+		getWanIP,
+		func() []service.SubnetEntry {
+			raw := parseLocalSubnets()
+			out := make([]service.SubnetEntry, len(raw))
+			for i, s := range raw {
+				out[i] = service.SubnetEntry(s)
+			}
+			return out
+		},
+	)
+
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	s.mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
@@ -256,6 +393,7 @@ func (s *Server) initWgS2s(ctx context.Context) {
 		return
 	}
 	s.wgManager = wgMgr
+	s.wgS2sSvc.SetWireGuard(wgMgr)
 	s.diagnostics.SetWgS2s(wgMgr)
 	if restoreErr := wgMgr.RestoreAll(); restoreErr != nil {
 		slog.Warn("wg-s2s restore failed", "err", restoreErr)
@@ -375,6 +513,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 			writeError(w, http.StatusBadGateway, se.Message)
 		case service.ErrPrecondition:
 			writeError(w, http.StatusPreconditionFailed, se.Message)
+		case service.ErrNotFound:
+			writeError(w, http.StatusNotFound, se.Message)
+		case service.ErrUnavailable:
+			writeError(w, http.StatusServiceUnavailable, se.Message)
 		default:
 			writeError(w, http.StatusInternalServerError, se.Message)
 		}
@@ -585,6 +727,133 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
+func (s *Server) handleWgS2sListTunnels(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.wgS2sSvc.ListTunnels(r.Context()))
+}
+
+func (s *Server) handleWgS2sCreateTunnel(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	var req service.WgS2sCreateRequest
+	if err := readJSON(w, r, &req); err != nil {
+		return
+	}
+	result, err := s.wgS2sSvc.CreateTunnel(r.Context(), &req)
+	if err != nil {
+		writeWgS2sError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) handleWgS2sUpdateTunnel(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	var updates wgs2s.TunnelConfig
+	if err := readJSON(w, r, &updates); err != nil {
+		return
+	}
+	result, err := s.wgS2sSvc.UpdateTunnel(r.Context(), r.PathValue("id"), updates)
+	if err != nil {
+		writeWgS2sError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWgS2sDeleteTunnel(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	if err := s.wgS2sSvc.DeleteTunnel(r.Context(), r.PathValue("id")); err != nil {
+		writeWgS2sError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleWgS2sEnableTunnel(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	result, err := s.wgS2sSvc.EnableTunnel(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeWgS2sError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	if err := s.wgS2sSvc.DisableTunnel(r.Context(), r.PathValue("id")); err != nil {
+		writeWgS2sError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleWgS2sGenerateKeypair(w http.ResponseWriter, r *http.Request) {
+	kp, err := s.wgS2sSvc.GenerateKeypair()
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, kp)
+}
+
+func (s *Server) handleWgS2sGetConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	config, err := s.wgS2sSvc.GetConfig(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"config": config})
+}
+
+func (s *Server) handleWgS2sWanIP(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"ip": s.wgS2sSvc.GetWanIP()})
+}
+
+func (s *Server) handleWgS2sLocalSubnets(w http.ResponseWriter, r *http.Request) {
+	subnets := s.wgS2sSvc.GetLocalSubnets()
+	writeJSON(w, http.StatusOK, subnets)
+}
+
+func (s *Server) handleWgS2sListZones(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.wgS2sSvc.ListZones())
+}
+
+func writeWgS2sError(w http.ResponseWriter, err error) {
+	var sce *service.SubnetConflictError
+	if errors.As(err, &sce) {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":     sce.Msg,
+			"conflicts": sce.Conflicts,
+		})
+		return
+	}
+	writeServiceError(w, err)
+}
+
 func (s *Server) restartTailscaled() {
 	go func() {
 		if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
@@ -597,28 +866,6 @@ func (s *Server) restartTailscaled() {
 
 func (s *Server) integrationReady() bool {
 	return s.fw != nil && s.fw.IntegrationReady()
-}
-
-func (s *Server) openWgS2sWanPort(ctx context.Context, port int, iface string) {
-	if s.fw == nil {
-		return
-	}
-	if err := s.fw.OpenWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
-		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
-	} else {
-		go s.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
-	}
-}
-
-func (s *Server) closeWgS2sWanPort(ctx context.Context, port int, iface string) {
-	if s.fw == nil || port <= 0 {
-		return
-	}
-	if err := s.fw.CloseWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
-		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
-	} else {
-		go s.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
-	}
 }
 
 func (s *Server) openTailscaleWanPort(ctx context.Context) {

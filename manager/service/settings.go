@@ -86,6 +86,8 @@ const (
 	ErrUpstream
 	ErrInternal
 	ErrPrecondition
+	ErrNotFound
+	ErrUnavailable
 )
 
 type Error struct {

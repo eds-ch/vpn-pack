@@ -174,7 +174,7 @@ func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrich
 	s.state.data.UDPPort = service.ReadTailscaledPort()
 	if s.wgManager != nil {
 		tunnels := s.wgManager.GetStatuses()
-		s.enrichForwardINOk(ctx, tunnels)
+		s.wgS2sSvc.EnrichForwardINOk(ctx, tunnels)
 		s.state.data.WgS2sTunnels = tunnels
 	}
 }
