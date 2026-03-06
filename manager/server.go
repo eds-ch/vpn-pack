@@ -59,6 +59,7 @@ type Server struct {
 	settings          *service.SettingsService
 	diagnostics       *service.DiagnosticsService
 	integration       *service.IntegrationService
+	routing           *service.RoutingService
 }
 
 type settingsManifestAdapter struct {
@@ -118,6 +119,9 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	s.diagnostics = service.NewDiagnosticsService(opts.Tailscale, opts.Firewall, nil)
 	s.integration = service.NewIntegrationService(
 		integrationICAdapter{opts.Integration}, opts.Manifest,
+	)
+	s.routing = service.NewRoutingService(
+		opts.Tailscale, opts.Firewall, opts.Integration, opts.Manifest,
 	)
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
@@ -358,6 +362,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 			writeError(w, http.StatusBadRequest, se.Message)
 		case service.ErrUpstream:
 			writeError(w, http.StatusBadGateway, se.Message)
+		case service.ErrPrecondition:
+			writeError(w, http.StatusPreconditionFailed, se.Message)
 		default:
 			writeError(w, http.StatusInternalServerError, se.Message)
 		}
@@ -451,6 +457,74 @@ func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleTestIntegrationKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.integration.TestKey(r.Context()))
+}
+
+func (s *Server) handleGetRoutes(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.routing.GetRoutes(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleSetRoutes(w http.ResponseWriter, r *http.Request) {
+	var req service.SetRoutesRequest
+	if err := readJSON(w, r, &req); err != nil {
+		return
+	}
+	var clients []string
+	if req.ExitNode {
+		s.refreshVPNClients()
+		s.vpnClientsMu.Lock()
+		clients = s.deviceInfo.ActiveVPNClients
+		s.vpnClientsMu.Unlock()
+	}
+	result, err := s.routing.SetRoutes(r.Context(), &req, clients)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AuthKey string `json:"authKey"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		return
+	}
+	if err := s.routing.ActivateWithKey(r.Context(), req.AuthKey); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleGetSubnets(w http.ResponseWriter, r *http.Request) {
+	parsed := parseLocalSubnets()
+	subnets := make([]service.SubnetEntry, len(parsed))
+	for i, sub := range parsed {
+		subnets[i] = service.SubnetEntry(sub)
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Subnets []service.SubnetEntry `json:"subnets"`
+	}{Subnets: subnets})
+}
+
+func (s *Server) handleFirewallStatus(w http.ResponseWriter, r *http.Request) {
+	var lastRestore *time.Time
+	if p := s.lastRestore.Load(); p != nil {
+		t := *p
+		lastRestore = &t
+	}
+	resp := s.routing.GetFirewallStatus(r.Context(), service.FirewallState{
+		WatcherRunning: s.watcherRunning.Load(),
+		LastRestore:    lastRestore,
+		UDAPIReachable: isUDAPIReachable(),
+	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {

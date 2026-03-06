@@ -85,6 +85,7 @@ const (
 	ErrValidation ErrorKind = iota
 	ErrUpstream
 	ErrInternal
+	ErrPrecondition
 )
 
 type Error struct {

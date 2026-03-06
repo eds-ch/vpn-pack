@@ -35,7 +35,7 @@ type stateData struct {
 	Self              *SelfNode           `json:"self,omitempty"`
 	Health            []string            `json:"health,omitempty"`
 	ExitNode          bool                `json:"exitNode"`
-	Routes            []RouteStatus       `json:"routes"`
+	Routes            []service.RouteStatus `json:"routes"`
 	Peers             []PeerInfo          `json:"peers"`
 	DERP              []DERPInfo          `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth     `json:"firewallHealth,omitempty"`
@@ -44,31 +44,6 @@ type stateData struct {
 	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
 
 	service.SettingsFields
-}
-
-type RouteStatus struct {
-	CIDR     string `json:"cidr"`
-	Approved bool   `json:"approved"`
-}
-
-func buildRouteStatuses(routes []netip.Prefix, allowed map[string]bool) ([]RouteStatus, bool) {
-	var result []RouteStatus
-	isExit := false
-	for _, p := range routes {
-		str := p.String()
-		if str == "0.0.0.0/0" || str == "::/0" {
-			isExit = true
-			continue
-		}
-		result = append(result, RouteStatus{
-			CIDR:     str,
-			Approved: allowed[str],
-		})
-	}
-	if result == nil {
-		result = []RouteStatus{}
-	}
-	return result, isExit
 }
 
 type SelfNode struct {
@@ -489,7 +464,7 @@ func (s *Server) recomputeRoutes() {
 		allowed[p.String()] = true
 	}
 
-	routes, isExit := buildRouteStatuses(s.state.advertiseRoutes, allowed)
+	routes, isExit := service.BuildRouteStatuses(s.state.advertiseRoutes, allowed)
 	s.state.data.ExitNode = isExit
 	s.state.data.Routes = routes
 }
