@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"unifi-tailscale/manager/internal/wgs2s"
@@ -60,6 +61,7 @@ type Server struct {
 	diagnostics       *service.DiagnosticsService
 	integration       *service.IntegrationService
 	routing           *service.RoutingService
+	tailscaleSvc      *service.TailscaleService
 }
 
 type settingsManifestAdapter struct {
@@ -122,7 +124,16 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	)
 	s.routing = service.NewRoutingService(
 		opts.Tailscale, opts.Firewall, opts.Integration, opts.Manifest,
+		func() []service.SubnetEntry {
+			raw := parseLocalSubnets()
+			out := make([]service.SubnetEntry, len(raw))
+			for i, s := range raw {
+				out[i] = service.SubnetEntry(s)
+			}
+			return out
+		},
 	)
+	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall, opts.Integration)
 	s.mux.HandleFunc("GET /api/status", s.handleStatus)
 	s.mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	s.mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
@@ -503,14 +514,9 @@ func (s *Server) handleAuthKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSubnets(w http.ResponseWriter, r *http.Request) {
-	parsed := parseLocalSubnets()
-	subnets := make([]service.SubnetEntry, len(parsed))
-	for i, sub := range parsed {
-		subnets[i] = service.SubnetEntry(sub)
-	}
 	writeJSON(w, http.StatusOK, struct {
 		Subnets []service.SubnetEntry `json:"subnets"`
-	}{Subnets: subnets})
+	}{Subnets: s.routing.GetSubnets()})
 }
 
 func (s *Server) handleFirewallStatus(w http.ResponseWriter, r *http.Request) {
@@ -530,6 +536,53 @@ func (s *Server) handleFirewallStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	entries := s.logBuf.Snapshot()
 	writeJSON(w, http.StatusOK, map[string]any{"lines": entries})
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.state.snapshot())
+}
+
+func (s *Server) handleUp(w http.ResponseWriter, r *http.Request) {
+	if err := s.tailscaleSvc.Activate(r.Context()); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleDown(w http.ResponseWriter, r *http.Request) {
+	if err := s.tailscaleSvc.Deactivate(r.Context()); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if err := s.tailscaleSvc.Login(r.Context()); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if err := s.tailscaleSvc.Logout(r.Context()); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
+	s.vpnClientsMu.Lock()
+	info := s.deviceInfo
+	s.vpnClientsMu.Unlock()
+	var si syscall.Sysinfo_t
+	if err := syscall.Sysinfo(&si); err == nil {
+		info.Uptime = si.Uptime
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 func (s *Server) restartTailscaled() {

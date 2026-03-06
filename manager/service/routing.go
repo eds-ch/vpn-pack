@@ -20,7 +20,7 @@ type RoutingTailscale interface {
 
 type RoutingFirewall interface {
 	IntegrationReady() bool
-	CheckTailscaleRulesPresent(ctx context.Context) (bool, bool, bool, bool)
+	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
 }
 
 type RoutingIntegration interface {
@@ -74,11 +74,14 @@ type FirewallStatusResponse struct {
 	UDAPIReachable bool            `json:"udapiReachable"`
 }
 
+type SubnetProvider func() []SubnetEntry
+
 type RoutingService struct {
 	ts       RoutingTailscale
 	fw       RoutingFirewall
 	ic       RoutingIntegration
 	manifest RoutingManifest
+	subnets  SubnetProvider
 }
 
 func NewRoutingService(
@@ -86,8 +89,9 @@ func NewRoutingService(
 	fw RoutingFirewall,
 	ic RoutingIntegration,
 	manifest RoutingManifest,
+	subnets SubnetProvider,
 ) *RoutingService {
-	return &RoutingService{ts: ts, fw: fw, ic: ic, manifest: manifest}
+	return &RoutingService{ts: ts, fw: fw, ic: ic, manifest: manifest, subnets: subnets}
 }
 
 func (svc *RoutingService) GetRoutes(ctx context.Context) (*RoutesResponse, error) {
@@ -149,7 +153,7 @@ func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest,
 
 func (svc *RoutingService) ActivateWithKey(ctx context.Context, authKey string) error {
 	if svc.fw == nil || !svc.fw.IntegrationReady() {
-		return &Error{Kind: ErrPrecondition, Message: errIntegrationKeyRequired}
+		return &Error{Kind: ErrPrecondition, Message: ErrMsgIntegrationKeyRequired}
 	}
 
 	if authKey == "" {
@@ -172,6 +176,13 @@ func (svc *RoutingService) ActivateWithKey(ctx context.Context, authKey string) 
 	}
 
 	return nil
+}
+
+func (svc *RoutingService) GetSubnets() []SubnetEntry {
+	if svc.subnets != nil {
+		return svc.subnets()
+	}
+	return []SubnetEntry{}
 }
 
 func (svc *RoutingService) GetFirewallStatus(ctx context.Context, state FirewallState) *FirewallStatusResponse {
@@ -221,6 +232,6 @@ func BuildRouteStatuses(routes []netip.Prefix, allowed map[string]bool) ([]Route
 }
 
 const (
-	errIntegrationKeyRequired = "Integration API key required before activating Tailscale"
-	defaultChainPrefix        = "VPN"
+	ErrMsgIntegrationKeyRequired = "Integration API key required before activating Tailscale"
+	defaultChainPrefix           = "VPN"
 )

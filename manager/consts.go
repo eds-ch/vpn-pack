@@ -62,8 +62,6 @@ const logReconnectDelay = 2 * time.Second
 
 const tailscaleInterface = "tailscale0"
 
-const errIntegrationKeyRequired = "Integration API key required before activating Tailscale"
-
 const mongoPort = "27117"
 
 const (

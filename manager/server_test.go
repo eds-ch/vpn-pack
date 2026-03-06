@@ -83,6 +83,7 @@ func newTestServer(opts ...func(*Server)) *Server {
 	s.integration = service.NewIntegrationService(
 		integrationICAdapter{s.ic}, s.manifest,
 	)
+	s.tailscaleSvc = service.NewTailscaleService(s.ts, s.fw, s.ic)
 	return s
 }
 
