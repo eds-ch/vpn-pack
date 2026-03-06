@@ -6,6 +6,8 @@
     import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';
     import { inputClass as getInputClass, clearFieldError } from '../helpers/field-errors.js';
+    import FormField from './FormField.svelte';
+    import Button from './Button.svelte';
 
     let { onCreated, onCancel, integrationConfigured = false } = $props();
 
@@ -145,10 +147,7 @@
                     value={keypair.publicKey}
                     class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono text-caption"
                 />
-                <button
-                    onclick={() => clip.copy(keypair?.publicKey)}
-                    class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                >{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</button>
+                <Button variant="secondary" size="sm" onclick={() => clip.copy(keypair?.publicKey)}>{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</Button>
             </div>
         </div>
     {:else}
@@ -157,11 +156,9 @@
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div class="md:col-span-2">
-            <span class="text-caption text-text-secondary">Tunnel Name</span>
-            <input type="text" bind:value={name} placeholder="office-nyc"
-                oninput={() => fieldErrors = clearFieldError(fieldErrors,'name')}
-                class={getInputClass(fieldErrors,'name')} />
-            {#if fieldErrors.name}<p class="text-caption text-error mt-0.5">{fieldErrors.name}</p>{/if}
+            <FormField label="Tunnel Name" bind:value={name} placeholder="office-nyc"
+                error={fieldErrors.name}
+                oninput={() => fieldErrors = clearFieldError(fieldErrors,'name')} />
         </div>
         <div>
             <span class="text-caption text-text-secondary">Listen Port</span>
@@ -171,49 +168,29 @@
             {#if fieldErrors.listenPort}<p class="text-caption text-error mt-0.5">{fieldErrors.listenPort}</p>
             {:else if wanIP}<span class="text-caption text-text-secondary mt-0.5 block">{wanIP}:{listenPort}</span>{/if}
         </div>
-        <div>
-            <span class="text-caption text-text-secondary">Tunnel Address (CIDR)</span>
-            <input type="text" bind:value={tunnelAddress} placeholder="10.255.0.1/30"
-                oninput={() => fieldErrors = clearFieldError(fieldErrors,'tunnelAddress')}
-                class={getInputClass(fieldErrors,'tunnelAddress')} />
-            {#if fieldErrors.tunnelAddress}<p class="text-caption text-error mt-0.5">{fieldErrors.tunnelAddress}</p>{/if}
-        </div>
+        <FormField label="Tunnel Address (CIDR)" bind:value={tunnelAddress} placeholder="10.255.0.1/30"
+            error={fieldErrors.tunnelAddress}
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'tunnelAddress')} />
     </div>
 
-    <div>
-        <span class="text-caption text-text-secondary">Remote Peer Public Key</span>
-        <input type="text" bind:value={peerPublicKey}
-            onpaste={handleSmartPaste}
-            oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')}
-            placeholder="Paste public key or full WireGuard config block"
-            class="{getInputClass(fieldErrors,'peerPublicKey')} font-mono text-caption" />
-        {#if fieldErrors.peerPublicKey}<p class="text-caption text-error mt-0.5">{fieldErrors.peerPublicKey}</p>{/if}
-    </div>
+    <FormField label="Remote Peer Public Key" bind:value={peerPublicKey}
+        onpaste={handleSmartPaste}
+        placeholder="Paste public key or full WireGuard config block"
+        error={fieldErrors.peerPublicKey} extraClass="font-mono text-caption"
+        oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')} />
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-            <span class="text-caption text-text-secondary">Remote Peer Endpoint</span>
-            <input type="text" bind:value={peerEndpoint} placeholder="85.12.34.56:51820"
-                oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerEndpoint')}
-                class={getInputClass(fieldErrors,'peerEndpoint')} />
-            {#if fieldErrors.peerEndpoint}<p class="text-caption text-error mt-0.5">{fieldErrors.peerEndpoint}</p>{/if}
-        </div>
-        <div>
-            <span class="text-caption text-text-secondary">Persistent Keepalive (s)</span>
-            <input type="number" bind:value={persistentKeepalive}
-                oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')}
-                class={getInputClass(fieldErrors,'persistentKeepalive')} />
-            {#if fieldErrors.persistentKeepalive}<p class="text-caption text-error mt-0.5">{fieldErrors.persistentKeepalive}</p>{/if}
-        </div>
+        <FormField label="Remote Peer Endpoint" bind:value={peerEndpoint} placeholder="85.12.34.56:51820"
+            error={fieldErrors.peerEndpoint}
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerEndpoint')} />
+        <FormField label="Persistent Keepalive (s)" type="number" bind:value={persistentKeepalive}
+            error={fieldErrors.persistentKeepalive}
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')} />
     </div>
 
-    <div>
-        <span class="text-caption text-text-secondary">MTU</span>
-        <input type="number" bind:value={mtu}
-            oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')}
-            class="{getInputClass(fieldErrors,'mtu')} !w-32" />
-        {#if fieldErrors.mtu}<p class="text-caption text-error mt-0.5">{fieldErrors.mtu}</p>{/if}
-    </div>
+    <FormField label="MTU" type="number" bind:value={mtu}
+        error={fieldErrors.mtu} extraClass="!w-32"
+        oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')} />
 
     {#if integrationConfigured && zones.length > 0}
         <div>
@@ -281,15 +258,8 @@
     </div>
 
     <div class="flex gap-2 pt-1">
-        <button
-            onclick={handleSubmit}
-            disabled={loading}
-            class="px-6 py-2 rounded-lg text-body font-bold bg-blue text-white hover:bg-blue-hover disabled:opacity-50 transition-colors"
-        >{loading ? 'Creating...' : 'Create Tunnel'}</button>
-        <button
-            onclick={onCancel}
-            class="px-4 py-2 rounded-lg text-body font-bold border border-border text-text hover:bg-surface-hover transition-colors"
-        >Cancel</button>
+        <Button variant="primary" size="md" disabled={loading} onclick={handleSubmit}>{loading ? 'Creating...' : 'Create Tunnel'}</Button>
+        <Button variant="secondary" size="md" onclick={onCancel}>Cancel</Button>
     </div>
 
 </div>

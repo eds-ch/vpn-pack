@@ -1,6 +1,7 @@
 <script>
     import Icon from './Icon.svelte';
     import ApiKeyForm from './ApiKeyForm.svelte';
+    import Button from './Button.svelte';
     import { setIntegrationApiKey } from '../api.js';
 
     let apiKey = $state('');
@@ -35,13 +36,8 @@
             <ApiKeyForm bind:value={apiKey} disabled={loading} onEnter={handleSave} id="setup-api-key" />
         </div>
 
-        <button
-            onclick={handleSave}
-            disabled={!apiKey.trim() || loading}
-            class="px-4 py-2 rounded-lg text-body font-bold bg-blue text-white transition-colors
-                {apiKey.trim() && !loading ? 'hover:bg-blue-hover' : 'opacity-50 cursor-not-allowed'}"
-        >
+        <Button variant="primary" size="sm" disabled={!apiKey.trim() || loading} onclick={handleSave}>
             {loading ? 'Saving...' : 'Save & Continue'}
-        </button>
+        </Button>
     </div>
 </section>

@@ -6,6 +6,7 @@
     import RoutingTab from './RoutingTab.svelte';
     import WgS2sTab from './WgS2sTab.svelte';
     import Icon from './Icon.svelte';
+    import Button from './Button.svelte';
 
     let { status, deviceInfo, subTab = 'general', onSubTabChange } = $props();
 
@@ -74,6 +75,26 @@
     }
 </script>
 
+{#snippet desktopTab(tab)}
+    <button
+        class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
+            {subTab === tab.id
+                ? 'text-blue font-bold bg-surface'
+                : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
+        onclick={() => onSubTabChange(tab.id)}
+    >{tab.label}</button>
+{/snippet}
+
+{#snippet mobileTab(tab)}
+    <button
+        class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
+            {subTab === tab.id
+                ? 'text-blue font-bold bg-surface'
+                : 'text-text-secondary'}"
+        onclick={() => onSubTabChange(tab.id)}
+    >{tab.label}</button>
+{/snippet}
+
 <div class="flex flex-col md:flex-row gap-4 md:gap-6">
     <!-- Desktop: sectioned sidebar -->
     <nav class="hidden md:flex flex-col w-44 shrink-0">
@@ -84,15 +105,7 @@
         </span>
         <div class="flex flex-col gap-0.5">
             {#each tailscaleTabs as tab (tab.id)}
-                <button
-                    class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
-                        {subTab === tab.id
-                            ? 'text-blue font-bold bg-surface'
-                            : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
-                    onclick={() => onSubTabChange(tab.id)}
-                >
-                    {tab.label}
-                </button>
+                {@render desktopTab(tab)}
             {/each}
         </div>
 
@@ -103,15 +116,7 @@
         </span>
         <div class="flex flex-col gap-0.5">
             {#each wireguardTabs as tab (tab.id)}
-                <button
-                    class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
-                        {subTab === tab.id
-                            ? 'text-blue font-bold bg-surface'
-                            : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
-                    onclick={() => onSubTabChange(tab.id)}
-                >
-                    {tab.label}
-                </button>
+                {@render desktopTab(tab)}
             {/each}
         </div>
 
@@ -122,15 +127,7 @@
         </span>
         <div class="flex flex-col gap-0.5">
             {#each unifiTabs as tab (tab.id)}
-                <button
-                    class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
-                        {subTab === tab.id
-                            ? 'text-blue font-bold bg-surface'
-                            : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
-                    onclick={() => onSubTabChange(tab.id)}
-                >
-                    {tab.label}
-                </button>
+                {@render desktopTab(tab)}
             {/each}
         </div>
     </nav>
@@ -139,33 +136,15 @@
         <!-- Mobile: horizontal navigation pills -->
         <div class="flex md:hidden gap-1 overflow-x-auto mb-4">
             {#each tailscaleTabs as tab (tab.id)}
-                <button
-                    class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
-                        {subTab === tab.id
-                            ? 'text-blue font-bold bg-surface'
-                            : 'text-text-secondary'}"
-                    onclick={() => onSubTabChange(tab.id)}
-                >{tab.label}</button>
+                {@render mobileTab(tab)}
             {/each}
             <div class="w-px bg-border shrink-0 my-1"></div>
             {#each wireguardTabs as tab (tab.id)}
-                <button
-                    class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
-                        {subTab === tab.id
-                            ? 'text-blue font-bold bg-surface'
-                            : 'text-text-secondary'}"
-                    onclick={() => onSubTabChange(tab.id)}
-                >{tab.label}</button>
+                {@render mobileTab(tab)}
             {/each}
             <div class="w-px bg-border shrink-0 my-1"></div>
             {#each unifiTabs as tab (tab.id)}
-                <button
-                    class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
-                        {subTab === tab.id
-                            ? 'text-blue font-bold bg-surface'
-                            : 'text-text-secondary'}"
-                    onclick={() => onSubTabChange(tab.id)}
-                >{tab.label}</button>
+                {@render mobileTab(tab)}
             {/each}
         </div>
 
@@ -193,14 +172,9 @@
 
         {#if showApply && !loading}
             <div class="flex justify-end mt-6">
-                <button
-                    onclick={handleApply}
-                    disabled={!hasChanges || saving || hasValidationErrors}
-                    class="px-6 py-2 rounded-lg text-body font-bold bg-blue text-white transition-colors
-                        {hasChanges && !saving && !hasValidationErrors ? 'hover:bg-blue-hover' : 'opacity-50 cursor-not-allowed'}"
-                >
+                <Button variant="primary" size="md" disabled={!hasChanges || saving || hasValidationErrors} onclick={handleApply}>
                     {saving ? 'Applying...' : 'Apply'}
-                </button>
+                </Button>
             </div>
         {/if}
     </div>

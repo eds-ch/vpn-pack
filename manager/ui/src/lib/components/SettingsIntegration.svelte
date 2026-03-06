@@ -1,6 +1,7 @@
 <script>
     import Icon from './Icon.svelte';
     import ApiKeyForm from './ApiKeyForm.svelte';
+    import Button from './Button.svelte';
     import { setIntegrationApiKey, removeIntegrationApiKey, testIntegrationKey } from '../api.js';
 
     let { status } = $props();
@@ -127,31 +128,16 @@
 
     <div class="flex flex-wrap items-center gap-2 py-4">
         {#if !configured}
-            <button
-                onclick={handleSave}
-                disabled={!apiKey.trim() || loading}
-                class="px-4 py-1.5 rounded-lg text-body font-bold bg-blue text-white transition-colors
-                    {apiKey.trim() && !loading ? 'hover:bg-blue-hover' : 'opacity-50 cursor-not-allowed'}"
-            >
+            <Button variant="primary" size="sm" disabled={!apiKey.trim() || loading} onclick={handleSave}>
                 {loading ? 'Saving...' : 'Save'}
-            </button>
+            </Button>
         {:else}
-            <button
-                onclick={handleSave}
-                disabled={!apiKey.trim() || loading}
-                class="px-4 py-1.5 rounded-lg text-body font-bold bg-blue text-white transition-colors
-                    {apiKey.trim() && !loading ? 'hover:bg-blue-hover' : 'opacity-50 cursor-not-allowed'}"
-            >
+            <Button variant="primary" size="sm" disabled={!apiKey.trim() || loading} onclick={handleSave}>
                 {loading ? 'Saving...' : 'Update Key'}
-            </button>
-            <button
-                onclick={handleTest}
-                disabled={loading}
-                class="px-4 py-1.5 rounded-lg text-body font-bold border border-border text-text hover:bg-surface-hover transition-colors
-                    {loading ? 'opacity-50 cursor-not-allowed' : ''}"
-            >
+            </Button>
+            <Button variant="secondary" size="md" disabled={loading} onclick={handleTest}>
                 {loading ? 'Testing...' : 'Test Connection'}
-            </button>
+            </Button>
             <button
                 onclick={handleRemove}
                 disabled={loading}
@@ -163,12 +149,9 @@
                 {confirmRemove ? 'Confirm Remove' : 'Remove'}
             </button>
             {#if confirmRemove}
-                <button
-                    onclick={() => confirmRemove = false}
-                    class="px-3 py-1.5 text-body text-text-secondary hover:text-text transition-colors"
-                >
+                <Button variant="ghost" size="sm" onclick={() => confirmRemove = false}>
                     Cancel
-                </button>
+                </Button>
             {/if}
         {/if}
     </div>

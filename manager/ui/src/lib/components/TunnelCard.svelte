@@ -3,7 +3,9 @@
     import { formatBytes, relativeTime, validateTunnelFields, tunnelStatusInfo } from '../utils.js';
     import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';
-    import { inputClass as getInputClass, clearFieldError } from '../helpers/field-errors.js';
+    import { clearFieldError } from '../helpers/field-errors.js';
+    import FormField from './FormField.svelte';
+    import Button from './Button.svelte';
     import WgConfigCopy from './WgConfigCopy.svelte';
 
     let { tunnel, onUpdate, onDelete } = $props();
@@ -133,10 +135,7 @@
                                     value={tunnel.publicKey}
                                     class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono text-caption"
                                 />
-                                <button
-                                    onclick={() => clip.copy(tunnel.publicKey)}
-                                    class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                                >{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</button>
+                                <Button variant="secondary" size="sm" onclick={() => clip.copy(tunnel.publicKey)}>{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</Button>
                             </div>
                         </div>
                     {/if}
@@ -171,19 +170,9 @@
                 </div>
 
                 <div class="flex flex-wrap gap-2 pt-2">
-                    <button
-                        onclick={startEdit}
-                        class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                    >Edit</button>
-                    <button
-                        onclick={handleToggle}
-                        disabled={actionLoading}
-                        class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover disabled:opacity-50 transition-colors"
-                    >{tunnel.enabled !== false ? 'Disable' : 'Enable'}</button>
-                    <button
-                        onclick={() => configVisible = !configVisible}
-                        class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                    >{configVisible ? 'Hide Config' : 'Copy Config'}</button>
+                    <Button variant="secondary" size="sm" onclick={startEdit}>Edit</Button>
+                    <Button variant="secondary" size="sm" disabled={actionLoading} onclick={handleToggle}>{tunnel.enabled !== false ? 'Disable' : 'Enable'}</Button>
+                    <Button variant="secondary" size="sm" onclick={() => configVisible = !configVisible}>{configVisible ? 'Hide Config' : 'Copy Config'}</Button>
                     <button
                         onclick={() => showDeleteConfirm = true}
                         class="px-3 py-1.5 text-body rounded-lg border border-error text-error hover:bg-error/10 transition-colors"
@@ -203,92 +192,46 @@
                                 disabled={actionLoading}
                                 class="px-3 py-1.5 text-body rounded-lg bg-error text-white hover:bg-error/80 disabled:opacity-50 transition-colors"
                             >Delete</button>
-                            <button
-                                onclick={() => showDeleteConfirm = false}
-                                class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                            >Cancel</button>
+                            <Button variant="secondary" size="sm" onclick={() => showDeleteConfirm = false}>Cancel</Button>
                         </div>
                     </div>
                 {/if}
             {:else}
                 <div class="space-y-3">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <span class="text-caption text-text-secondary">Tunnel Name</span>
-                            <input type="text" bind:value={editData.name}
-                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'name')}
-                                class={getInputClass(fieldErrors,'name')} />
-                            {#if fieldErrors.name}<p class="text-caption text-error mt-0.5">{fieldErrors.name}</p>{/if}
-                        </div>
-                        <div>
-                            <span class="text-caption text-text-secondary">Listen Port</span>
-                            <input type="number" bind:value={editData.listenPort}
-                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'listenPort')}
-                                class={getInputClass(fieldErrors,'listenPort')} />
-                            {#if fieldErrors.listenPort}<p class="text-caption text-error mt-0.5">{fieldErrors.listenPort}</p>{/if}
-                        </div>
-                        <div>
-                            <span class="text-caption text-text-secondary">Tunnel Address (CIDR)</span>
-                            <input type="text" bind:value={editData.tunnelAddress}
-                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'tunnelAddress')}
-                                class={getInputClass(fieldErrors,'tunnelAddress')} />
-                            {#if fieldErrors.tunnelAddress}<p class="text-caption text-error mt-0.5">{fieldErrors.tunnelAddress}</p>{/if}
-                        </div>
-                        <div>
-                            <span class="text-caption text-text-secondary">MTU</span>
-                            <input type="number" bind:value={editData.mtu}
-                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')}
-                                class={getInputClass(fieldErrors,'mtu')} />
-                            {#if fieldErrors.mtu}<p class="text-caption text-error mt-0.5">{fieldErrors.mtu}</p>{/if}
-                        </div>
+                        <FormField label="Tunnel Name" bind:value={editData.name}
+                            error={fieldErrors.name}
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'name')} />
+                        <FormField label="Listen Port" type="number" bind:value={editData.listenPort}
+                            error={fieldErrors.listenPort}
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'listenPort')} />
+                        <FormField label="Tunnel Address (CIDR)" bind:value={editData.tunnelAddress}
+                            error={fieldErrors.tunnelAddress}
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'tunnelAddress')} />
+                        <FormField label="MTU" type="number" bind:value={editData.mtu}
+                            error={fieldErrors.mtu}
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')} />
                     </div>
-                    <div>
-                        <span class="text-caption text-text-secondary">Peer Public Key</span>
-                        <input type="text" bind:value={editData.peerPublicKey}
-                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')}
-                            class="{getInputClass(fieldErrors,'peerPublicKey')} font-mono text-caption" />
-                        {#if fieldErrors.peerPublicKey}<p class="text-caption text-error mt-0.5">{fieldErrors.peerPublicKey}</p>{/if}
-                    </div>
+                    <FormField label="Peer Public Key" bind:value={editData.peerPublicKey}
+                        error={fieldErrors.peerPublicKey} extraClass="font-mono text-caption"
+                        oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')} />
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <span class="text-caption text-text-secondary">Peer Endpoint</span>
-                            <input type="text" bind:value={editData.peerEndpoint}
-                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerEndpoint')}
-                                class={getInputClass(fieldErrors,'peerEndpoint')} />
-                            {#if fieldErrors.peerEndpoint}<p class="text-caption text-error mt-0.5">{fieldErrors.peerEndpoint}</p>{/if}
-                        </div>
-                        <div>
-                            <span class="text-caption text-text-secondary">Persistent Keepalive (s)</span>
-                            <input type="number" bind:value={editData.persistentKeepalive}
-                                oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')}
-                                class={getInputClass(fieldErrors,'persistentKeepalive')} />
-                            {#if fieldErrors.persistentKeepalive}<p class="text-caption text-error mt-0.5">{fieldErrors.persistentKeepalive}</p>{/if}
-                        </div>
+                        <FormField label="Peer Endpoint" bind:value={editData.peerEndpoint}
+                            error={fieldErrors.peerEndpoint}
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerEndpoint')} />
+                        <FormField label="Persistent Keepalive (s)" type="number" bind:value={editData.persistentKeepalive}
+                            error={fieldErrors.persistentKeepalive}
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')} />
                     </div>
-                    <div>
-                        <span class="text-caption text-text-secondary">Local Subnets (comma-separated)</span>
-                        <input type="text" bind:value={editData.localSubnets}
-                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'localSubnets')}
-                            class="{getInputClass(fieldErrors,'localSubnets')} font-mono text-caption" />
-                        {#if fieldErrors.localSubnets}<p class="text-caption text-error mt-0.5">{fieldErrors.localSubnets}</p>{/if}
-                    </div>
-                    <div>
-                        <span class="text-caption text-text-secondary">Remote Subnets (comma-separated)</span>
-                        <input type="text" bind:value={editData.allowedIPs}
-                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'allowedIPs')}
-                            class="{getInputClass(fieldErrors,'allowedIPs')} font-mono text-caption" />
-                        {#if fieldErrors.allowedIPs}<p class="text-caption text-error mt-0.5">{fieldErrors.allowedIPs}</p>{/if}
-                    </div>
+                    <FormField label="Local Subnets (comma-separated)" bind:value={editData.localSubnets}
+                        error={fieldErrors.localSubnets} extraClass="font-mono text-caption"
+                        oninput={() => fieldErrors = clearFieldError(fieldErrors,'localSubnets')} />
+                    <FormField label="Remote Subnets (comma-separated)" bind:value={editData.allowedIPs}
+                        error={fieldErrors.allowedIPs} extraClass="font-mono text-caption"
+                        oninput={() => fieldErrors = clearFieldError(fieldErrors,'allowedIPs')} />
                     <div class="flex gap-2 pt-1">
-                        <button
-                            onclick={applyEdit}
-                            disabled={actionLoading}
-                            class="px-4 py-1.5 text-body rounded-lg font-bold bg-blue text-white hover:bg-blue-hover disabled:opacity-50 transition-colors"
-                        >{actionLoading ? 'Applying...' : 'Apply'}</button>
-                        <button
-                            onclick={() => editing = false}
-                            class="px-4 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                        >Cancel</button>
+                        <Button variant="primary" size="sm" disabled={actionLoading} onclick={applyEdit}>{actionLoading ? 'Applying...' : 'Apply'}</Button>
+                        <Button variant="secondary" size="sm" onclick={() => editing = false}>Cancel</Button>
                     </div>
                 </div>
             {/if}
