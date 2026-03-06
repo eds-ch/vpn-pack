@@ -103,17 +103,11 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 			broadcast:   s.broadcastState,
 			openWanPort: s.openTailscaleWanPort,
 		},
+		fileKeyStore{},
 	)
 	s.routing = service.NewRoutingService(
 		opts.Tailscale, opts.Firewall, opts.Integration, opts.Manifest,
-		func() []service.SubnetEntry {
-			raw := parseLocalSubnets()
-			out := make([]service.SubnetEntry, len(raw))
-			for i, s := range raw {
-				out[i] = service.SubnetEntry(s)
-			}
-			return out
-		},
+		localSubnetProvider,
 	)
 	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall)
 
@@ -128,14 +122,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		&wgS2sLogAdapter{buf: opts.LogBuf},
 		subnetValidatorProvider,
 		getWanIP,
-		func() []service.SubnetEntry {
-			raw := parseLocalSubnets()
-			out := make([]service.SubnetEntry, len(raw))
-			for i, s := range raw {
-				out[i] = service.SubnetEntry(s)
-			}
-			return out
-		},
+		localSubnetProvider,
 	)
 
 	mux := s.routes()

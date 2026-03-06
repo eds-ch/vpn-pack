@@ -161,7 +161,10 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 
 	oldPrefix := o.manifest.GetTailscaleChainPrefix()
 	if result.ChainPrefix != oldPrefix {
-		_ = o.ops.RemoveTailscaleInterfaceRules()
+		if err := o.ops.RemoveTailscaleInterfaceRules(); err != nil {
+			slog.Warn("failed to remove old tailscale rules during chain prefix migration",
+				"oldPrefix", oldPrefix, "newPrefix", result.ChainPrefix, "err", err)
+		}
 	}
 
 	if err := o.ops.EnsureTailscaleRules(result.ChainPrefix); err != nil {
@@ -270,6 +273,8 @@ func (o *FirewallOrchestrator) TeardownWgS2sZone(ctx context.Context, tunnelID s
 		return
 	}
 
+	// Remove from manifest BEFORE checking if other tunnels share the zone.
+	// This ensures GetWgS2sSnapshot below won't include the tunnel being torn down.
 	if err := o.manifest.RemoveWgS2sTunnel(tunnelID); err != nil {
 		slog.Warn("teardown: manifest remove failed", "tunnelId", tunnelID, "err", err)
 	}

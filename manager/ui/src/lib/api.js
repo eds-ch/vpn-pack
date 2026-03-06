@@ -62,7 +62,7 @@ async function apiFetch(method, path, body, { timeout = DEFAULT_TIMEOUT_MS, _isR
             return null;
         }
 
-        if (data?.status === 'partial' && data?.firewall?.errors?.length) {
+        if (data?.setupStatus === 'partial' && data?.firewall?.errors?.length) {
             for (const err of data.firewall.errors) {
                 addWarning(`Firewall: ${err}`);
             }

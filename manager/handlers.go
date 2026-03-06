@@ -227,7 +227,7 @@ func (s *Server) handleSetIntegrationKey(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteIntegrationKey(w http.ResponseWriter, r *http.Request) {
 	if err := s.integration.DeleteKey(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to remove API key")
+		writeError(w, http.StatusInternalServerError, "failed to remove API key: "+err.Error())
 		return
 	}
 	slog.Info("integration API key removed")

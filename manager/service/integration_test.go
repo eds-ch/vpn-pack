@@ -83,12 +83,34 @@ func (m *mockIntegrationManifest) SetSiteID(siteID string) error {
 	return nil
 }
 
+// --- KeyStore mock ---
+
+type mockKeyStore struct {
+	saveFn   func(string) error
+	deleteFn func() error
+}
+
+func (m *mockKeyStore) Save(key string) error {
+	if m.saveFn != nil {
+		return m.saveFn(key)
+	}
+	return nil
+}
+
+func (m *mockKeyStore) Delete() error {
+	if m.deleteFn != nil {
+		return m.deleteFn()
+	}
+	return nil
+}
+
 // --- Factory ---
 
 func newTestIntegrationService(opts ...func(*IntegrationService)) *IntegrationService {
 	svc := &IntegrationService{
 		ic:       &mockIntegrationIC{},
 		manifest: &mockIntegrationManifest{},
+		keyStore: &mockKeyStore{},
 	}
 	for _, opt := range opts {
 		opt(svc)
@@ -287,24 +309,32 @@ func TestSetKey_Success(t *testing.T) {
 		}
 	})
 
-	// Note: saveAPIKey will fail in tests (no /persistent), but we skip that by testing
-	// the flow up to that point. Integration tests on device validate full flow.
-	// For unit tests, we test the logic paths only.
 	st, err := svc.SetKey(context.Background(), "valid-key")
-	if err != nil {
-		// saveAPIKey may fail in test environment — that's expected
-		var se *Error
-		if errors.As(err, &se) && se.Kind == ErrInternal {
-			t.Skip("saveAPIKey not available in test environment")
-		}
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	assert.True(t, st.Configured)
 	assert.True(t, st.Valid)
 	assert.Equal(t, "9.0.1", st.AppVersion)
 	assert.Equal(t, "site-discovered", st.SiteID)
 	assert.Equal(t, "site-discovered", setSiteID)
+}
+
+func TestSetKey_SaveFails(t *testing.T) {
+	svc := newTestIntegrationService(func(s *IntegrationService) {
+		s.ic = &mockIntegrationIC{
+			validateFn: func(ctx context.Context) (string, error) { return "9.0.1", nil },
+		}
+		s.keyStore = &mockKeyStore{
+			saveFn: func(string) error { return errors.New("disk full") },
+		}
+	})
+
+	_, err := svc.SetKey(context.Background(), "valid-key")
+	require.Error(t, err)
+	var se *Error
+	require.ErrorAs(t, err, &se)
+	assert.Equal(t, ErrInternal, se.Kind)
+	assert.Contains(t, se.Message, "failed to save")
 }
 
 // --- DeleteKey tests ---
@@ -320,7 +350,6 @@ func TestDeleteKey(t *testing.T) {
 	assert.NotNil(t, svc.cache.get(cacheTTL))
 
 	err := svc.DeleteKey(context.Background())
-	// deleteAPIKey may return nil if file doesn't exist (os.IsNotExist handled)
 	require.NoError(t, err)
 	assert.Equal(t, "", ic.lastSetKey, "API key should be cleared")
 	assert.Nil(t, svc.cache.get(cacheTTL), "cache should be invalidated")
@@ -438,13 +467,7 @@ func TestSetKey_NotifiesOnSuccess(t *testing.T) {
 		}
 	})
 	st, err := svc.SetKey(context.Background(), "key")
-	if err != nil {
-		var se *Error
-		if errors.As(err, &se) && se.Kind == ErrInternal {
-			t.Skip("saveAPIKey not available in test environment")
-		}
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assert.Equal(t, "site-1", st.SiteID)
 	assert.Equal(t, "site-1", notifiedSiteID)
 }

@@ -116,20 +116,20 @@ type TunnelInfo struct {
 
 type TunnelCreateResponse struct {
 	TunnelInfo
-	Status   string          `json:"status,omitempty"`
-	Firewall *FirewallStatus `json:"firewall,omitempty"`
+	SetupStatus string          `json:"setupStatus,omitempty"`
+	Firewall    *FirewallStatus `json:"firewall,omitempty"`
 }
 
 type TunnelUpdateResponse struct {
 	TunnelInfo
-	Status   string          `json:"status,omitempty"`
-	Firewall *FirewallStatus `json:"firewall,omitempty"`
+	SetupStatus string          `json:"setupStatus,omitempty"`
+	Firewall    *FirewallStatus `json:"firewall,omitempty"`
 }
 
 type EnableTunnelResponse struct {
-	OK       bool            `json:"ok"`
-	Status   string          `json:"status,omitempty"`
-	Firewall *FirewallStatus `json:"firewall,omitempty"`
+	OK          bool            `json:"ok"`
+	SetupStatus string          `json:"setupStatus,omitempty"`
+	Firewall    *FirewallStatus `json:"firewall,omitempty"`
 }
 
 type WgS2sCreateRequest struct {
@@ -261,8 +261,8 @@ func (svc *WgS2sService) CreateTunnel(ctx context.Context, req *WgS2sCreateReque
 	}
 
 	resp := &TunnelCreateResponse{TunnelInfo: info}
-	resp.Status = firewallResultStatus(zoneResult, fwErr)
-	if resp.Status == "partial" {
+	resp.SetupStatus = firewallResultStatus(zoneResult, fwErr)
+	if resp.SetupStatus == "partial" {
 		resp.Firewall = buildFirewallStatus(zoneResult, fwErr)
 	}
 	return resp, nil
@@ -310,8 +310,8 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 	}
 
 	resp := &TunnelUpdateResponse{TunnelInfo: info}
-	resp.Status = firewallResultStatus(nil, fwErr)
-	if resp.Status == "partial" {
+	resp.SetupStatus = firewallResultStatus(nil, fwErr)
+	if resp.SetupStatus == "partial" {
 		resp.Firewall = &FirewallStatus{Errors: []string{fwErr.Error()}}
 	}
 	return resp, nil
@@ -353,7 +353,7 @@ func (svc *WgS2sService) EnableTunnel(ctx context.Context, id string) (*EnableTu
 		}
 		svc.fw.OpenWanPort(ctx, t.ListenPort, t.InterfaceName)
 		if fwErr != nil {
-			resp.Status = "partial"
+			resp.SetupStatus = "partial"
 			resp.Firewall = &FirewallStatus{Errors: []string{fwErr.Error()}}
 		}
 	}

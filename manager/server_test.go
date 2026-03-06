@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,14 +76,22 @@ func newTestServer(opts ...func(*Server)) *Server {
 		ic:         &mockIntegrationAPI{},
 		manifest:   &mockManifestStore{},
 		logBuf:     NewLogBuffer(100),
+		updater:    &updateChecker{current: "1.0.0-test", httpClient: &http.Client{}},
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
 	s.integration = service.NewIntegrationService(
 		integrationICAdapter{s.ic}, s.manifest, nil,
+		service.MemKeyStore{},
 	)
 	s.tailscaleSvc = service.NewTailscaleService(s.ts, s.fw)
+	s.settings = service.NewSettingsService(
+		s.ts, s.fw, s.ic,
+		settingsManifestAdapter{s.manifest}, false, nil,
+	)
+	s.diagnostics = service.NewDiagnosticsService(s.ts, s.fw, nil)
+	s.routing = service.NewRoutingService(s.ts, s.fw, s.ic, s.manifest, nil)
 
 	var wgFw service.WgS2sFirewall
 	if s.fw != nil {
@@ -106,6 +115,61 @@ func TestNewServerWithMocks(t *testing.T) {
 	assert.NotNil(t, s.fw)
 	assert.NotNil(t, s.ic)
 	assert.NotNil(t, s.manifest)
+}
+
+func TestRouteRegistration(t *testing.T) {
+	s := newTestServer()
+	mux := s.routes()
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/status"},
+		{"POST", "/api/tailscale/up"},
+		{"POST", "/api/tailscale/down"},
+		{"POST", "/api/tailscale/login"},
+		{"POST", "/api/tailscale/logout"},
+		// GET /api/events (SSE) excluded — handler blocks on streaming.
+		{"GET", "/api/device"},
+		{"GET", "/api/routes"},
+		{"POST", "/api/routes"},
+		{"POST", "/api/tailscale/auth-key"},
+		{"GET", "/api/subnets"},
+		{"GET", "/api/firewall"},
+		{"GET", "/api/settings"},
+		{"POST", "/api/settings"},
+		{"GET", "/api/diagnostics"},
+		{"POST", "/api/bugreport"},
+		{"GET", "/api/logs"},
+		{"GET", "/api/integration/status"},
+		{"POST", "/api/integration/api-key"},
+		{"DELETE", "/api/integration/api-key"},
+		{"POST", "/api/integration/test"},
+		{"GET", "/api/wg-s2s/tunnels"},
+		{"POST", "/api/wg-s2s/tunnels"},
+		{"PATCH", "/api/wg-s2s/tunnels/{id}"},
+		{"DELETE", "/api/wg-s2s/tunnels/{id}"},
+		{"POST", "/api/wg-s2s/tunnels/{id}/enable"},
+		{"POST", "/api/wg-s2s/tunnels/{id}/disable"},
+		{"POST", "/api/wg-s2s/generate-keypair"},
+		{"GET", "/api/wg-s2s/tunnels/{id}/config"},
+		{"GET", "/api/wg-s2s/wan-ip"},
+		{"GET", "/api/wg-s2s/local-subnets"},
+		{"GET", "/api/wg-s2s/zones"},
+		{"GET", "/api/update-check"},
+	}
+
+	for _, r := range routes {
+		t.Run(r.method+" "+r.path, func(t *testing.T) {
+			path := strings.ReplaceAll(r.path, "{id}", "test-id")
+			req := httptest.NewRequest(r.method, path, nil)
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+			assert.NotEqual(t, http.StatusMethodNotAllowed, w.Code,
+				"route %s %s returned 405 — not registered or wrong method", r.method, r.path)
+		})
+	}
 }
 
 func TestHandleStatusWithMocks(t *testing.T) {

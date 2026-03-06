@@ -178,7 +178,10 @@ func (svc *SettingsService) SetSettings(ctx context.Context, req *SettingsReques
 		req.AcceptDNS = nil
 	}
 
-	old := svc.fetchPreEditPrefs(ctx, req)
+	old, err := svc.fetchPreEditPrefs(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	mp := BuildMaskedPrefs(req, relayEndpoints)
 
 	updated, err := svc.ts.EditPrefs(ctx, mp)
@@ -315,15 +318,15 @@ type preEditPrefs struct {
 	relayPort  *uint16
 }
 
-func (svc *SettingsService) fetchPreEditPrefs(ctx context.Context, req *SettingsRequest) preEditPrefs {
+func (svc *SettingsService) fetchPreEditPrefs(ctx context.Context, req *SettingsRequest) (preEditPrefs, error) {
 	needControlURL := req.ControlURL != nil
 	needRelayPort := req.RelayServerPort != nil && svc.hasUDAPI
 	if !needControlURL && !needRelayPort {
-		return preEditPrefs{}
+		return preEditPrefs{}, nil
 	}
 	prefs, err := svc.ts.GetPrefs(ctx)
 	if err != nil {
-		return preEditPrefs{}
+		return preEditPrefs{}, upstreamError(humanizeLocalAPIError(err), err)
 	}
 	var p preEditPrefs
 	if needControlURL {
@@ -332,7 +335,7 @@ func (svc *SettingsService) fetchPreEditPrefs(ctx context.Context, req *Settings
 	if needRelayPort {
 		p.relayPort = prefs.RelayServerPort
 	}
-	return p
+	return p, nil
 }
 
 func (svc *SettingsService) applyUDPPortChange(newPort *int) (bool, error) {

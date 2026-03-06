@@ -281,6 +281,15 @@ func (a *integrationNotifierAdapter) OnKeyDeleted() {
 	a.broadcast()
 }
 
+func localSubnetProvider() []service.SubnetEntry {
+	raw := parseLocalSubnets()
+	out := make([]service.SubnetEntry, len(raw))
+	for i, s := range raw {
+		out[i] = service.SubnetEntry{CIDR: s.CIDR, Name: s.Name, Type: s.Type}
+	}
+	return out
+}
+
 func subnetValidatorProvider(allowedIPs []string, excludeIfaces ...string) ([]service.SubnetConflict, []service.SubnetConflict) {
 	sys, err := CollectSystemSubnets(excludeIfaces...)
 	if err != nil {
@@ -298,3 +307,9 @@ func subnetValidatorProvider(allowedIPs []string, excludeIfaces ...string) ([]se
 	}
 	return warnings, blocks
 }
+
+// fileKeyStore implements service.KeyStore via package-level file I/O functions.
+type fileKeyStore struct{}
+
+func (fileKeyStore) Save(key string) error  { return service.SaveAPIKey(key) }
+func (fileKeyStore) Delete() error          { return service.DeleteAPIKey() }

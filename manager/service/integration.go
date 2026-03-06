@@ -35,6 +35,17 @@ type IntegrationNotifier interface {
 	OnKeyDeleted()
 }
 
+type KeyStore interface {
+	Save(key string) error
+	Delete() error
+}
+
+// MemKeyStore is a no-op KeyStore for use in tests.
+type MemKeyStore struct{}
+
+func (MemKeyStore) Save(string) error { return nil }
+func (MemKeyStore) Delete() error     { return nil }
+
 // Types — exported for use in HTTP handlers and SSE state.
 
 type IntegrationStatus struct {
@@ -59,11 +70,12 @@ type IntegrationService struct {
 	ic       IntegrationServiceIC
 	manifest IntegrationServiceManifest
 	notify   IntegrationNotifier
+	keyStore KeyStore
 	cache    integrationCache
 }
 
-func NewIntegrationService(ic IntegrationServiceIC, manifest IntegrationServiceManifest, notify IntegrationNotifier) *IntegrationService {
-	return &IntegrationService{ic: ic, manifest: manifest, notify: notify}
+func NewIntegrationService(ic IntegrationServiceIC, manifest IntegrationServiceManifest, notify IntegrationNotifier, ks KeyStore) *IntegrationService {
+	return &IntegrationService{ic: ic, manifest: manifest, notify: notify, keyStore: ks}
 }
 
 func (svc *IntegrationService) GetStatus(ctx context.Context) *IntegrationStatus {
@@ -120,7 +132,7 @@ func (svc *IntegrationService) SetKey(ctx context.Context, key string) (*Integra
 		return nil, validationError("API key validation failed: " + err.Error())
 	}
 
-	if err := saveAPIKey(key); err != nil {
+	if err := svc.keyStore.Save(key); err != nil {
 		slog.Warn("failed to save API key", "err", err)
 		return nil, internalError("failed to save API key")
 	}
@@ -158,7 +170,7 @@ func (svc *IntegrationService) DeleteKey(ctx context.Context) error {
 	if svc.notify != nil {
 		svc.notify.OnBeforeKeyDelete(ctx)
 	}
-	if err := deleteAPIKey(); err != nil {
+	if err := svc.keyStore.Delete(); err != nil {
 		return err
 	}
 	if svc.ic != nil {
@@ -246,7 +258,8 @@ func LoadAPIKey() string {
 	return strings.TrimSpace(string(data))
 }
 
-func saveAPIKey(key string) error {
+// SaveAPIKey persists the API key to disk. Exported for use by fileKeyStore adapter in main package.
+func SaveAPIKey(key string) error {
 	if err := os.MkdirAll(filepath.Dir(apiKeyPath), dirPerm); err != nil {
 		return err
 	}

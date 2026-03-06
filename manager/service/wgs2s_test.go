@@ -326,7 +326,7 @@ func TestCreateTunnelSuccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "t1", resp.ID)
 	assert.Equal(t, "pubkey", resp.PublicKey)
-	assert.Equal(t, "ok", resp.Status)
+	assert.Equal(t, "ok", resp.SetupStatus)
 	assert.Nil(t, resp.Firewall)
 }
 
@@ -363,7 +363,7 @@ func TestCreateTunnelFirewallPartial(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "partial", resp.Status)
+	assert.Equal(t, "partial", resp.SetupStatus)
 	require.NotNil(t, resp.Firewall)
 	assert.Contains(t, resp.Firewall.Errors[0], "UDAPI unreachable")
 }
@@ -375,6 +375,73 @@ func TestDeleteTunnelNotFound(t *testing.T) {
 	var se *Error
 	require.True(t, errors.As(err, &se))
 	assert.Equal(t, ErrNotFound, se.Kind)
+}
+
+func TestDeleteTunnelSuccess(t *testing.T) {
+	tunnel := wgs2s.TunnelConfig{
+		ID: "t1", InterfaceName: "wg-s2s0",
+		ListenPort: 51820, AllowedIPs: []string{"10.0.0.0/24"},
+	}
+
+	var deletedID string
+	var removedFW, closedWan, tornDownZone bool
+
+	wg := &mockWgS2sWireGuard{
+		getTunnelsFn:   func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{tunnel} },
+		deleteTunnelFn: func(id string) error { deletedID = id; return nil },
+	}
+	fw := &mockWgS2sFirewall{
+		removeFirewallFn: func(_ context.Context, id, iface string, ips []string) {
+			removedFW = true
+			assert.Equal(t, "t1", id)
+			assert.Equal(t, "wg-s2s0", iface)
+			assert.Equal(t, []string{"10.0.0.0/24"}, ips)
+		},
+		closeWanPortFn: func(_ context.Context, port int, iface string) {
+			closedWan = true
+			assert.Equal(t, 51820, port)
+		},
+		teardownZoneFn: func(_ context.Context, id string) {
+			tornDownZone = true
+			assert.Equal(t, "t1", id)
+		},
+	}
+
+	svc := newTestWgS2sService(wg, func(s *WgS2sService) { s.fw = fw })
+	err := svc.DeleteTunnel(context.Background(), "t1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "t1", deletedID)
+	assert.True(t, removedFW, "RemoveFirewall should be called")
+	assert.True(t, closedWan, "CloseWanPort should be called")
+	assert.True(t, tornDownZone, "TeardownZone should be called")
+}
+
+func TestDeleteTunnelWgError(t *testing.T) {
+	tunnel := wgs2s.TunnelConfig{
+		ID: "t1", InterfaceName: "wg-s2s0",
+		ListenPort: 51820, AllowedIPs: []string{"10.0.0.0/24"},
+	}
+
+	var fwCalled bool
+	wg := &mockWgS2sWireGuard{
+		getTunnelsFn:   func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{tunnel} },
+		deleteTunnelFn: func(string) error { return fmt.Errorf("wg: interface busy") },
+	}
+	fw := &mockWgS2sFirewall{
+		removeFirewallFn: func(context.Context, string, string, []string) { fwCalled = true },
+		closeWanPortFn:   func(context.Context, int, string) { fwCalled = true },
+		teardownZoneFn:   func(context.Context, string) { fwCalled = true },
+	}
+
+	svc := newTestWgS2sService(wg, func(s *WgS2sService) { s.fw = fw })
+	err := svc.DeleteTunnel(context.Background(), "t1")
+
+	require.Error(t, err)
+	var se *Error
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, ErrUpstream, se.Kind)
+	assert.False(t, fwCalled, "firewall should NOT be called when wg.DeleteTunnel fails")
 }
 
 func TestEnableTunnelFirewallPartial(t *testing.T) {
@@ -399,7 +466,7 @@ func TestEnableTunnelFirewallPartial(t *testing.T) {
 	resp, err := svc.EnableTunnel(context.Background(), "t1")
 	require.NoError(t, err)
 	assert.True(t, resp.OK)
-	assert.Equal(t, "partial", resp.Status)
+	assert.Equal(t, "partial", resp.SetupStatus)
 	require.NotNil(t, resp.Firewall)
 	assert.Contains(t, resp.Firewall.Errors[0], "ipset failed")
 }
