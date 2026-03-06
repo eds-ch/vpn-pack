@@ -205,14 +205,14 @@ func (m *mockWgS2sWireGuard) GetPublicKey(id string) (string, error) {
 }
 
 type mockWgS2sFirewall struct {
-	setupZoneFn       func(context.Context, string, string, string) *ZoneSetupResult
-	setupFirewallFn   func(context.Context, string, string, []string) error
-	removeFirewallFn  func(context.Context, string, string, []string)
-	removeIPSetFn     func(context.Context, string, []string)
-	teardownZoneFn    func(context.Context, string)
-	openWanPortFn     func(context.Context, int, string)
-	closeWanPortFn    func(context.Context, int, string)
-	checkRulesFn      func(context.Context, []string) map[string]bool
+	setupZoneFn        func(context.Context, string, string, string) *ZoneSetupResult
+	setupFirewallFn    func(context.Context, string, string, []string) error
+	removeFirewallFn   func(context.Context, string, string, []string)
+	removeIPSetFn      func(context.Context, string, []string)
+	teardownZoneFn     func(context.Context, string)
+	openWanPortFn      func(context.Context, int, string)
+	closeWanPortFn     func(context.Context, int, string)
+	checkRulesFn       func(context.Context, []string) map[string]bool
 	integrationReadyFn func() bool
 }
 

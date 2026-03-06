@@ -10,14 +10,11 @@ import (
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/internal/wgs2s"
 )
 
-const (
-	wgKeyBase64Len = 44
-	wgKeyBytes     = 32
-	wgMaxPort      = 65535
-)
+const wgMaxPort = 65535
 
 // --- Interfaces ---
 
@@ -108,10 +105,10 @@ type FirewallStatus struct {
 type TunnelInfo struct {
 	wgs2s.TunnelConfig
 	PublicKey string             `json:"publicKey,omitempty"`
-	Status   *wgs2s.WgS2sStatus `json:"status,omitempty"`
-	ZoneID   string             `json:"zoneId,omitempty"`
-	ZoneName string             `json:"zoneName,omitempty"`
-	Warnings []SubnetConflict   `json:"warnings,omitempty"`
+	Status    *wgs2s.WgS2sStatus `json:"status,omitempty"`
+	ZoneID    string             `json:"zoneId,omitempty"`
+	ZoneName  string             `json:"zoneName,omitempty"`
+	Warnings  []SubnetConflict   `json:"warnings,omitempty"`
 }
 
 type TunnelCreateResponse struct {
@@ -599,14 +596,14 @@ func validateCIDR(s string) error {
 }
 
 func validateBase64Key(s string) error {
-	if len(s) != wgKeyBase64Len {
+	if len(s) != config.WGKeyBase64Len {
 		return fmt.Errorf("must be 44 characters (base64-encoded 32 bytes)")
 	}
 	decoded, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
 		return fmt.Errorf("invalid base64 encoding")
 	}
-	if len(decoded) != wgKeyBytes {
+	if len(decoded) != config.WGKeyBytes {
 		return fmt.Errorf("decoded key must be 32 bytes")
 	}
 	return nil

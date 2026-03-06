@@ -48,8 +48,8 @@ type mockFWManifest struct {
 	removeWgS2sTunnelFn func(tunnelID string) error
 }
 
-func (m *mockFWManifest) GetSiteID() string  { return m.siteID }
-func (m *mockFWManifest) HasSiteID() bool    { return m.siteID != "" }
+func (m *mockFWManifest) GetSiteID() string                  { return m.siteID }
+func (m *mockFWManifest) HasSiteID() bool                    { return m.siteID != "" }
 func (m *mockFWManifest) GetTailscaleZone() ZoneManifestData { return m.tailscaleZone }
 func (m *mockFWManifest) GetTailscaleChainPrefix() string {
 	if m.tailscalePrefix != "" {
@@ -97,9 +97,9 @@ func (m *mockFWManifest) RemoveWgS2sTunnel(tunnelID string) error {
 }
 
 type mockFWOps struct {
-	discoverChainPrefix        func(zoneID string) string
-	ensureTailscaleRules       func(chainPrefix string) error
-	removeTailscaleIfaceRules  func() error
+	discoverChainPrefix       func(zoneID string) string
+	ensureTailscaleRules      func(chainPrefix string) error
+	removeTailscaleIfaceRules func() error
 }
 
 func (m *mockFWOps) DiscoverChainPrefix(zoneID string) string {

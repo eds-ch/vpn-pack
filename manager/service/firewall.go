@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unifi-tailscale/manager/config"
 )
 
 // --- Interfaces ---
@@ -97,7 +98,7 @@ func (o *FirewallOrchestrator) requireIntegration() error {
 }
 
 func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *SetupResult {
-	result := &SetupResult{ChainPrefix: defaultChainPrefix}
+	result := &SetupResult{ChainPrefix: config.DefaultChainPrefix}
 
 	if err := o.requireIntegration(); err != nil {
 		slog.Info("skipping tailscale firewall setup: integration not configured")
@@ -192,7 +193,7 @@ func (o *FirewallOrchestrator) rollbackZone(ctx context.Context, siteID, zoneID,
 }
 
 func (o *FirewallOrchestrator) SetupWgS2sZone(ctx context.Context, tunnelID, zoneID, zoneName string) *SetupResult {
-	result := &SetupResult{ChainPrefix: defaultChainPrefix}
+	result := &SetupResult{ChainPrefix: config.DefaultChainPrefix}
 
 	if err := o.requireIntegration(); err != nil {
 		result.addError("integration", err)
@@ -250,7 +251,7 @@ func (o *FirewallOrchestrator) SetupWgS2sZone(ctx context.Context, tunnelID, zon
 
 	chainPrefix := o.ops.DiscoverChainPrefix(zone.ZoneID)
 	if chainPrefix == "" {
-		chainPrefix = defaultChainPrefix
+		chainPrefix = config.DefaultChainPrefix
 	}
 	result.ChainPrefix = chainPrefix
 

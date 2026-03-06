@@ -21,9 +21,9 @@ var (
 )
 
 const (
-	defaultSocketPath    = "/run/ubnt-udapi-server.sock"
-	requestTimeout       = 10 * time.Second
-	bindPathTemplate     = "/tmp/vpn-pack-manager-udapi-%d"
+	defaultSocketPath = "/run/ubnt-udapi-server.sock"
+	requestTimeout    = 10 * time.Second
+	bindPathTemplate  = "/tmp/vpn-pack-manager-udapi-%d"
 )
 
 type UDAPIClient struct {

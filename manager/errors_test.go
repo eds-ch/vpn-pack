@@ -10,8 +10,8 @@ import (
 
 func TestHumanizeLocalAPIError(t *testing.T) {
 	tests := []struct {
-		name     string
-		err      error
+		name string
+		err  error
 		want string
 	}{
 		{"nil", nil, ""},

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unifi-tailscale/manager/config"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -33,22 +34,22 @@ func (s *Server) runNginxWatcher(ctx context.Context) {
 		}
 	}()
 
-	if err := watcher.Add(nginxConfigDir); err != nil {
-		slog.Warn("nginx dir watch failed, polling only", "path", nginxConfigDir, "err", err)
+	if err := watcher.Add(config.NginxConfigDir); err != nil {
+		slog.Warn("nginx dir watch failed, polling only", "path", config.NginxConfigDir, "err", err)
 		s.nginxPollLoop(ctx)
 		return
 	}
 
-	slog.Info("nginx watcher started", "path", nginxConfigDir)
+	slog.Info("nginx watcher started", "path", config.NginxConfigDir)
 	s.nginxWatchLoop(ctx, watcher)
 }
 
 func (s *Server) waitForNginxDir(ctx context.Context) bool {
-	if _, err := os.Stat(nginxConfigDir); err == nil {
+	if _, err := os.Stat(config.NginxConfigDir); err == nil {
 		return true
 	}
 
-	slog.Info("waiting for nginx config dir", "path", nginxConfigDir)
+	slog.Info("waiting for nginx config dir", "path", config.NginxConfigDir)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -61,7 +62,7 @@ func (s *Server) waitForNginxDir(ctx context.Context) bool {
 			slog.Warn("nginx config dir not found after 2m, continuing with polling")
 			return true
 		case <-ticker.C:
-			if _, err := os.Stat(nginxConfigDir); err == nil {
+			if _, err := os.Stat(config.NginxConfigDir); err == nil {
 				slog.Info("nginx config dir appeared")
 				return true
 			}
@@ -70,7 +71,7 @@ func (s *Server) waitForNginxDir(ctx context.Context) bool {
 }
 
 func (s *Server) nginxWatchLoop(ctx context.Context, watcher *fsnotify.Watcher) {
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(config.PollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -99,7 +100,7 @@ func (s *Server) nginxWatchLoop(ctx context.Context, watcher *fsnotify.Watcher) 
 }
 
 func (s *Server) nginxPollLoop(ctx context.Context) {
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(config.PollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -115,7 +116,7 @@ func (s *Server) nginxPollLoop(ctx context.Context) {
 func (s *Server) handleNginxEvent(event fsnotify.Event) {
 	base := filepath.Base(event.Name)
 
-	if base == nginxConfigFile && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) {
+	if base == config.NginxConfigFile && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) {
 		slog.Info("nginx config removed, restoring", "file", event.Name)
 		if err := s.nginx.EnsureConfig(); err != nil {
 			slog.Warn("nginx config restore failed", "err", err)
@@ -123,7 +124,7 @@ func (s *Server) handleNginxEvent(event fsnotify.Event) {
 		return
 	}
 
-	if event.Has(fsnotify.Create) && base != nginxConfigFile {
+	if event.Has(fsnotify.Create) && base != config.NginxConfigFile {
 		if _, err := os.Stat(s.nginx.configDest); os.IsNotExist(err) {
 			slog.Info("nginx dir repopulated, restoring config")
 			if err := s.nginx.EnsureConfig(); err != nil {

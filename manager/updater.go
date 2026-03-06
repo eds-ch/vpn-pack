@@ -9,19 +9,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 
 	"golang.org/x/sync/singleflight"
 )
 
 func githubReleasesURL() string {
-	return "https://api.github.com/repos/" + githubRepo + "/releases/latest"
-}
-
-type UpdateInfo struct {
-	Available      bool   `json:"available"`
-	Version        string `json:"version"`
-	CurrentVersion string `json:"currentVersion"`
-	ChangelogURL   string `json:"changelogURL"`
+	return "https://api.github.com/repos/" + config.GithubRepo + "/releases/latest"
 }
 
 type updateChecker struct {
@@ -34,18 +29,18 @@ type updateChecker struct {
 }
 
 func newUpdateChecker() *updateChecker {
-	current := version
+	current := config.Version
 	if current == "dev" {
 		current = readVersionFile()
 	}
 	return &updateChecker{
 		current:    current,
-		httpClient: &http.Client{Timeout: githubAPITimeout},
+		httpClient: &http.Client{Timeout: config.GithubAPITimeout},
 	}
 }
 
 func readVersionFile() string {
-	return readFileTrimmed(versionFilePath)
+	return readFileTrimmed(config.VersionFilePath)
 }
 
 type githubRelease struct {
@@ -55,7 +50,7 @@ type githubRelease struct {
 
 func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 	uc.mu.Lock()
-	if uc.info != nil && time.Since(uc.checkedAt) < updateCheckPeriod {
+	if uc.info != nil && time.Since(uc.checkedAt) < config.UpdateCheckPeriod {
 		info := uc.info
 		uc.mu.Unlock()
 		return info
@@ -147,7 +142,7 @@ func (s *Server) runUpdateChecker(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(updateInitialDelay):
+	case <-time.After(config.UpdateInitialDelay):
 	}
 
 	for {
@@ -160,13 +155,13 @@ func (s *Server) runUpdateChecker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(updateCheckPeriod):
+		case <-time.After(config.UpdateCheckPeriod):
 		}
 	}
 }
 
 func (s *Server) broadcastUpdate(info *UpdateInfo) {
-	BroadcastEvent(s.hub, "update-available", info)
+	domain.BroadcastEvent(s.hub, "update-available", info)
 }
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {

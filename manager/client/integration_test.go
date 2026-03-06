@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"context"
@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,7 +46,7 @@ func TestIntegrationValidate(t *testing.T) {
 			status:  401,
 			body:    `{"error":"unauthorized"}`,
 			wantErr: true,
-			errIs:   ErrUnauthorized,
+			errIs:   domain.ErrUnauthorized,
 		},
 		{
 			name:    "server error 500",
@@ -51,13 +54,13 @@ func TestIntegrationValidate(t *testing.T) {
 			status:  500,
 			body:    `internal error`,
 			wantErr: true,
-			errIs:   ErrIntegrationAPI,
+			errIs:   domain.ErrIntegrationAPI,
 		},
 		{
 			name:    "no api key",
 			apiKey:  "",
 			wantErr: true,
-			errIs:   ErrUnauthorized,
+			errIs:   domain.ErrUnauthorized,
 		},
 	}
 
@@ -144,7 +147,7 @@ func TestIntegrationDiscoverSiteID(t *testing.T) {
 }
 
 func TestFindExistingPolicy(t *testing.T) {
-	policies := []Policy{
+	policies := []domain.Policy{
 		{ID: "pol-1", Name: "VPN Pack: Allow Tailscale to Internal"},
 		{ID: "pol-2", Name: "VPN Pack: Allow Internal to Tailscale"},
 		{ID: "pol-3", Name: "Block All"},
@@ -152,7 +155,7 @@ func TestFindExistingPolicy(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		policies []Policy
+		policies []domain.Policy
 		search   string
 		wantID   string
 	}{
@@ -200,19 +203,19 @@ func TestWanPortPolicyName(t *testing.T) {
 		{
 			name:   "wg-s2s marker",
 			port:   51820,
-			marker: wanMarkerWgS2sPrefix + "wg0",
+			marker: config.WanMarkerWgS2sPrefix + "wg0",
 			want:   "VPN Pack: WG S2S UDP 51820 (wg0)",
 		},
 		{
 			name:   "relay-server marker",
 			port:   3478,
-			marker: wanMarkerRelay,
+			marker: config.WanMarkerRelay,
 			want:   "VPN Pack: Relay Server UDP 3478",
 		},
 		{
 			name:   "tailscale-wg marker",
 			port:   41641,
-			marker: wanMarkerTailscaleWG,
+			marker: config.WanMarkerTailscaleWG,
 			want:   "VPN Pack: Tailscale WireGuard UDP 41641",
 		},
 		{
@@ -225,7 +228,7 @@ func TestWanPortPolicyName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := wanPortPolicyName(tt.port, tt.marker)
+			got := WanPortPolicyName(tt.port, tt.marker)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -233,7 +236,7 @@ func TestWanPortPolicyName(t *testing.T) {
 
 func TestIntegrationValidateResponseParsing(t *testing.T) {
 	ic := newTestIntegrationClient(t, func(w http.ResponseWriter, r *http.Request) {
-		resp := AppInfo{ApplicationVersion: "9.0.1"}
+		resp := domain.AppInfo{ApplicationVersion: "9.0.1"}
 		w.WriteHeader(200)
 		_ = json.NewEncoder(w).Encode(resp)
 	})

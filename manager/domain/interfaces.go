@@ -1,4 +1,4 @@
-package main
+package domain
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 type SSEHub interface {
-	Subscribe() (chan sseMessage, func(), error)
+	Subscribe() (chan SSEMessage, func(), error)
 	Broadcast(data []byte)
 	BroadcastNamed(event string, data []byte)
 	CurrentState() []byte
@@ -116,4 +116,16 @@ type WgS2sControl interface {
 	GetStatuses() []wgs2s.WgS2sStatus
 	GetPublicKey(id string) (string, error)
 	Close()
+}
+
+type HealthRecorder interface {
+	RecordSuccess(name string)
+	RecordError(name string, err error)
+	SetDegraded(name string, reason string)
+	ClearDegraded(name string)
+	IsDegraded(name string) bool
+	ShouldRetry(name string) bool
+	RecordRetryAttempt(name string)
+	ResetRetries(name string)
+	RetryCount(name string) int
 }

@@ -40,11 +40,11 @@ LDFLAGS           := -s -w -X tailscale.com/version.longStamp=$(VERSION_LONG) \
                      -X tailscale.com/version.shortStamp=$(TAILSCALE_VERSION)
 GOFLAGS           := -trimpath -tags $(BUILD_TAGS) -ldflags "$(LDFLAGS)"
 
-MANAGER_LDFLAGS   := -s -w -X main.version=$(VPNPACK_VERSION) \
-                     -X main.tailscaleVersion=$(TAILSCALE_VERSION) \
-                     -X main.gitCommit=$(GIT_COMMIT) \
-                     -X main.buildDate=$(BUILD_DATE) \
-                     -X main.githubRepo=$(GITHUB_REPO)
+MANAGER_LDFLAGS   := -s -w -X unifi-tailscale/manager/config.Version=$(VPNPACK_VERSION) \
+                     -X unifi-tailscale/manager/config.TailscaleVersion=$(TAILSCALE_VERSION) \
+                     -X unifi-tailscale/manager/config.GitCommit=$(GIT_COMMIT) \
+                     -X unifi-tailscale/manager/config.BuildDate=$(BUILD_DATE) \
+                     -X unifi-tailscale/manager/config.GithubRepo=$(GITHUB_REPO)
 
 .PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums release check check-go check-ui ui-stub
 

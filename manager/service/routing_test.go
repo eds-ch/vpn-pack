@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+	"unifi-tailscale/manager/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func (m *mockRoutingTailscale) Start(ctx context.Context, opts ipn.Options) erro
 }
 
 type mockRoutingFirewall struct {
-	integrationReadyFn          func() bool
+	integrationReadyFn           func() bool
 	checkTailscaleRulesPresentFn func(ctx context.Context) (bool, bool, bool, bool)
 }
 
@@ -473,7 +474,7 @@ func TestGetFirewallStatus_NilManifest(t *testing.T) {
 	})
 
 	resp := svc.GetFirewallStatus(context.Background(), FirewallState{})
-	assert.Equal(t, defaultChainPrefix, resp.ChainPrefix)
+	assert.Equal(t, config.DefaultChainPrefix, resp.ChainPrefix)
 }
 
 // --- BuildRouteStatuses tests ---

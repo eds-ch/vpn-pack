@@ -6,27 +6,6 @@ import (
 	"time"
 )
 
-type WatcherStatus string
-
-const (
-	StatusHealthy   WatcherStatus = "healthy"
-	StatusDegraded  WatcherStatus = "degraded"
-	StatusUnhealthy WatcherStatus = "unhealthy"
-)
-
-type WatcherHealth struct {
-	Status         WatcherStatus `json:"status"`
-	LastSuccess    *time.Time    `json:"lastSuccess,omitempty"`
-	ReconnectCount int           `json:"reconnects"`
-	LastError      string        `json:"error,omitempty"`
-	DegradedReason string        `json:"degradedReason,omitempty"`
-}
-
-type HealthSnapshot struct {
-	Status   WatcherStatus            `json:"status"`
-	Watchers map[string]WatcherHealth `json:"watchers"`
-}
-
 type watcherEntry struct {
 	status         WatcherStatus
 	lastSuccess    time.Time

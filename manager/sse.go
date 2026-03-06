@@ -3,78 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sync"
-	"sync/atomic"
 )
-
-type sseMessage struct {
-	Event string
-	Data  []byte
-}
-
-type Hub struct {
-	mu      sync.Mutex
-	clients map[chan sseMessage]struct{}
-	state   atomic.Value
-}
-
-func NewHub() *Hub {
-	return &Hub{
-		clients: make(map[chan sseMessage]struct{}),
-	}
-}
-
-func (h *Hub) Subscribe() (chan sseMessage, func(), error) {
-	ch := make(chan sseMessage, sseChannelBuffer)
-	h.mu.Lock()
-	if len(h.clients) >= maxSSEClients {
-		h.mu.Unlock()
-		return nil, nil, fmt.Errorf("too many SSE connections (max %d)", maxSSEClients)
-	}
-	h.clients[ch] = struct{}{}
-	h.mu.Unlock()
-
-	unsubscribe := func() {
-		h.mu.Lock()
-		delete(h.clients, ch)
-		close(ch)
-		h.mu.Unlock()
-		for range ch { // drain buffered messages
-		}
-	}
-	return ch, unsubscribe, nil
-}
-
-func (h *Hub) Broadcast(data []byte) {
-	h.state.Store(data)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for ch := range h.clients {
-		select {
-		case ch <- sseMessage{Data: data}:
-		default:
-		}
-	}
-}
-
-func (h *Hub) BroadcastNamed(event string, data []byte) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for ch := range h.clients {
-		select {
-		case ch <- sseMessage{Event: event, Data: data}:
-		default:
-		}
-	}
-}
-
-func (h *Hub) CurrentState() []byte {
-	v := h.state.Load()
-	if v == nil {
-		return nil
-	}
-	return v.([]byte)
-}
 
 func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)

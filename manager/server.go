@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 	"unifi-tailscale/manager/service"
 )
@@ -66,7 +68,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		ts:         opts.Tailscale,
 		hub:        opts.Hub,
 		deviceInfo: opts.DeviceInfo,
-		state:      &TailscaleState{data: stateData{BackendState: "Unavailable"}},
+		state:      domain.NewTailscaleState(),
 		fw:         opts.Firewall,
 		ic:         opts.Integration,
 		manifest:   opts.Manifest,
@@ -132,10 +134,10 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	s.httpServer = &http.Server{
 		Addr:              opts.ListenAddr,
 		Handler:           mux,
-		ReadHeaderTimeout: readHeaderTimeout,
-		ReadTimeout:       readTimeout,
-		IdleTimeout:       idleTimeout,
-		MaxHeaderBytes:    maxHeaderBytes,
+		ReadHeaderTimeout: config.ReadHeaderTimeout,
+		ReadTimeout:       config.ReadTimeout,
+		IdleTimeout:       config.IdleTimeout,
+		MaxHeaderBytes:    config.MaxHeaderBytes,
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
 		},
@@ -241,7 +243,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 		defer cancel()
 		return s.httpServer.Shutdown(shutdownCtx)
 	case err := <-errCh:
@@ -251,7 +253,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) initWgS2s(ctx context.Context) {
 	wgs2sLog := slog.New(newBufferHandler(s.logBuf, "wgs2s", slog.NewJSONHandler(os.Stderr, nil)))
-	wgMgr, err := wgs2s.NewTunnelManager(wgS2sConfigDir, wgs2sLog)
+	wgMgr, err := wgs2s.NewTunnelManager(config.WgS2sConfigDir, wgs2sLog)
 	if err != nil {
 		slog.Warn("wg-s2s manager init failed", "err", err)
 		return
@@ -293,7 +295,7 @@ func (s *Server) openTailscaleWanPort(ctx context.Context) {
 	if port <= 0 {
 		return
 	}
-	if err := s.fw.OpenWanPort(ctx, port, wanMarkerTailscaleWG); err != nil {
+	if err := s.fw.OpenWanPort(ctx, port, config.WanMarkerTailscaleWG); err != nil {
 		slog.Warn("tailscale WG WAN port open failed", "port", port, "err", err)
 	}
 }

@@ -55,7 +55,6 @@ func TestDeleteKeyFiles(t *testing.T) {
 	})
 }
 
-
 func TestLoadPrivateKeyNotFound(t *testing.T) {
 	dir := t.TempDir()
 	_, err := loadPrivateKey(dir, "nonexistent")

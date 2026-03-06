@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/service"
 )
 
@@ -26,8 +27,8 @@ type integrationICAdapter struct {
 	ic IntegrationAPI
 }
 
-func (a integrationICAdapter) SetAPIKey(key string)    { a.ic.SetAPIKey(key) }
-func (a integrationICAdapter) HasAPIKey() bool         { return a.ic.HasAPIKey() }
+func (a integrationICAdapter) SetAPIKey(key string) { a.ic.SetAPIKey(key) }
+func (a integrationICAdapter) HasAPIKey() bool      { return a.ic.HasAPIKey() }
 func (a integrationICAdapter) DiscoverSiteID(ctx context.Context) (string, error) {
 	return a.ic.DiscoverSiteID(ctx)
 }
@@ -81,8 +82,8 @@ type firewallManifestAdapter struct {
 	ms ManifestStore
 }
 
-func (a *firewallManifestAdapter) GetSiteID() string  { return a.ms.GetSiteID() }
-func (a *firewallManifestAdapter) HasSiteID() bool     { return a.ms.HasSiteID() }
+func (a *firewallManifestAdapter) GetSiteID() string { return a.ms.GetSiteID() }
+func (a *firewallManifestAdapter) HasSiteID() bool   { return a.ms.HasSiteID() }
 func (a *firewallManifestAdapter) GetTailscaleChainPrefix() string {
 	return a.ms.GetTailscaleChainPrefix()
 }
@@ -166,7 +167,7 @@ func (a *wgS2sFirewallAdapter) TeardownZone(ctx context.Context, tunnelID string
 }
 
 func (a *wgS2sFirewallAdapter) OpenWanPort(ctx context.Context, port int, iface string) {
-	if err := a.fw.OpenWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
+	if err := a.fw.OpenWanPort(ctx, port, config.WanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
 	} else {
 		go a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
@@ -177,7 +178,7 @@ func (a *wgS2sFirewallAdapter) CloseWanPort(ctx context.Context, port int, iface
 	if port <= 0 {
 		return
 	}
-	if err := a.fw.CloseWanPort(ctx, port, wanMarkerWgS2sPrefix+iface); err != nil {
+	if err := a.fw.CloseWanPort(ctx, port, config.WanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
 	} else {
 		go a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
@@ -237,9 +238,9 @@ func (a *settingsNotifierAdapter) OnRestartRequired() {
 }
 
 func (a *settingsNotifierAdapter) OnDNSChanged(enabled bool) {
-	a.state.mu.Lock()
-	a.state.data.AcceptDNS = enabled
-	a.state.mu.Unlock()
+	a.state.Lock()
+	a.state.Data().AcceptDNS = enabled
+	a.state.Unlock()
 	a.broadcast()
 }
 
@@ -269,16 +270,16 @@ func (a *integrationNotifierAdapter) OnKeyConfigured(ctx context.Context, st *se
 	}
 	a.health.ClearDegraded("firewall")
 	a.health.RecordSuccess("firewall")
-	a.state.mu.Lock()
-	a.state.data.IntegrationStatus = st
-	a.state.mu.Unlock()
+	a.state.Lock()
+	a.state.Data().IntegrationStatus = st
+	a.state.Unlock()
 	a.broadcast()
 }
 
 func (a *integrationNotifierAdapter) OnKeyDeleted() {
-	a.state.mu.Lock()
-	a.state.data.IntegrationStatus = &service.IntegrationStatus{Configured: false}
-	a.state.mu.Unlock()
+	a.state.Lock()
+	a.state.Data().IntegrationStatus = &service.IntegrationStatus{Configured: false}
+	a.state.Unlock()
 	a.broadcast()
 }
 
@@ -292,25 +293,17 @@ func localSubnetProvider() []service.SubnetEntry {
 }
 
 func subnetValidatorProvider(allowedIPs []string, excludeIfaces ...string) ([]service.SubnetConflict, []service.SubnetConflict) {
-	sys, err := CollectSystemSubnets(excludeIfaces...)
+	sys, err := service.CollectSystemSubnets(excludeIfaces...)
 	if err != nil {
 		slog.Warn("subnet collection failed, skipping validation", "err", err)
 		return nil, nil
 	}
-	vr := ValidateAllowedIPs(allowedIPs, sys)
-	warnings := make([]service.SubnetConflict, len(vr.Warnings))
-	for i, w := range vr.Warnings {
-		warnings[i] = service.SubnetConflict{CIDR: w.CIDR, ConflictsWith: w.ConflictsWith, Interface: w.Interface, Severity: w.Severity, Message: w.Message}
-	}
-	blocks := make([]service.SubnetConflict, len(vr.Blocked))
-	for i, b := range vr.Blocked {
-		blocks[i] = service.SubnetConflict{CIDR: b.CIDR, ConflictsWith: b.ConflictsWith, Interface: b.Interface, Severity: b.Severity, Message: b.Message}
-	}
-	return warnings, blocks
+	vr := service.ValidateAllowedIPs(allowedIPs, sys)
+	return vr.Warnings, vr.Blocked
 }
 
 // fileKeyStore implements service.KeyStore via package-level file I/O functions.
 type fileKeyStore struct{}
 
-func (fileKeyStore) Save(key string) error  { return service.SaveAPIKey(key) }
-func (fileKeyStore) Delete() error          { return service.DeleteAPIKey() }
+func (fileKeyStore) Save(key string) error { return service.SaveAPIKey(key) }
+func (fileKeyStore) Delete() error         { return service.DeleteAPIKey() }

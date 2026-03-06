@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"fmt"
@@ -24,14 +24,6 @@ type RouteSubnet struct {
 type SystemSubnets struct {
 	Interfaces []InterfaceSubnet
 	Routes     []RouteSubnet
-}
-
-type SubnetConflict struct {
-	CIDR          string `json:"cidr"`
-	ConflictsWith string `json:"conflictsWith"`
-	Interface     string `json:"interface,omitempty"`
-	Severity      string `json:"severity"`
-	Message       string `json:"message"`
 }
 
 type ValidationResult struct {

@@ -1,54 +1,56 @@
-package main
+package udapi
 
 import (
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+
+	"unifi-tailscale/manager/config"
 )
 
-type udapiNetCfg struct {
-	Interfaces []udapiInterface `json:"interfaces"`
+type netCfg struct {
+	Interfaces []netCfgInterface `json:"interfaces"`
 }
 
-type udapiInterface struct {
+type netCfgInterface struct {
 	Identification struct {
 		Type string `json:"type"`
 		ID   string `json:"id"`
 	} `json:"identification"`
-	Addresses []udapiAddress `json:"addresses"`
+	Addresses []netCfgAddress `json:"addresses"`
 	Status    struct {
 		Comment string `json:"comment"`
 	} `json:"status"`
 }
 
-type udapiAddress struct {
+type netCfgAddress struct {
 	Type    string `json:"type"`
 	Address string `json:"address"`
 	CIDR    string `json:"cidr"`
 	Version string `json:"version"`
 }
 
-type subnetInfo struct {
+type SubnetInfo struct {
 	CIDR string `json:"cidr"`
 	Name string `json:"name"`
 	Type string `json:"type"`
 }
 
-func loadUDAPINetCfg() (*udapiNetCfg, error) {
-	data, err := os.ReadFile(udapiConfigPath)
+func loadNetCfg() (*netCfg, error) {
+	data, err := os.ReadFile(config.UDAPIConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	var cfg udapiNetCfg
+	var cfg netCfg
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
 }
 
-func getWanIP() string {
-	cfg, err := loadUDAPINetCfg()
+func GetWanIP() string {
+	cfg, err := loadNetCfg()
 	if err != nil {
 		return ""
 	}
@@ -64,12 +66,12 @@ func getWanIP() string {
 	return ""
 }
 
-func parseLocalSubnets() []subnetInfo {
-	cfg, err := loadUDAPINetCfg()
+func ParseLocalSubnets() []SubnetInfo {
+	cfg, err := loadNetCfg()
 	if err != nil {
 		return nil
 	}
-	var subnets []subnetInfo
+	var subnets []SubnetInfo
 	for _, iface := range cfg.Interfaces {
 		ifType := iface.Identification.Type
 		if ifType != "bridge" && ifType != "vlan" {
@@ -87,7 +89,7 @@ func parseLocalSubnets() []subnetInfo {
 			if name == "" {
 				name = iface.Identification.ID
 			}
-			subnets = append(subnets, subnetInfo{
+			subnets = append(subnets, SubnetInfo{
 				CIDR: ipNet.String(),
 				Name: fmt.Sprintf("%s (%s)", name, iface.Identification.ID),
 				Type: ifType,

@@ -13,8 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"tailscale.com/tailcfg"
 	"unifi-tailscale/manager/internal/wgs2s"
+
+	"tailscale.com/tailcfg"
 )
 
 type DiagnosticsTailscale interface {
@@ -33,12 +34,12 @@ type DiagnosticsWgS2s interface {
 }
 
 type DiagnosticsResponse struct {
-	IPForwarding  string              `json:"ipForwarding"`
-	FwmarkPatched bool                `json:"fwmarkPatched"`
-	FwmarkValue   string              `json:"fwmarkValue"`
-	PreferredDERP int                 `json:"preferredDERP"`
-	DERPRegions   []DERPRegionInfo    `json:"derpRegions"`
-	WgS2s         *WgS2sDiagnostics   `json:"wgS2s,omitempty"`
+	IPForwarding  string            `json:"ipForwarding"`
+	FwmarkPatched bool              `json:"fwmarkPatched"`
+	FwmarkValue   string            `json:"fwmarkValue"`
+	PreferredDERP int               `json:"preferredDERP"`
+	DERPRegions   []DERPRegionInfo  `json:"derpRegions"`
+	WgS2s         *WgS2sDiagnostics `json:"wgS2s,omitempty"`
 }
 
 type DERPRegionInfo struct {

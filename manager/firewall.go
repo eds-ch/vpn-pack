@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
 )
 
@@ -36,7 +38,7 @@ func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest Manif
 func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error {
 	chainPrefix := fm.manifest.GetWgS2sChainPrefix(tunnelID)
 
-	if chainPrefix == defaultChainPrefix {
+	if chainPrefix == config.DefaultChainPrefix {
 		if zm, ok := fm.manifest.GetWgS2sZone(tunnelID); ok && zm.ZoneID != "" {
 			if rediscovered := fm.DiscoverChainPrefix(zm.ZoneID); rediscovered != "" {
 				chainPrefix = rediscovered
@@ -59,8 +61,8 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 	if len(allowedIPs) > 0 {
 		ipsetName := zoneIPSetName(chainPrefix)
 		blocked := make(map[string]bool)
-		if sys, err := CollectSystemSubnets(iface); err == nil {
-			result := ValidateAllowedIPs(allowedIPs, sys)
+		if sys, err := service.CollectSystemSubnets(iface); err == nil {
+			result := service.ValidateAllowedIPs(allowedIPs, sys)
 			for _, b := range result.Blocked {
 				slog.Warn("skipping conflicting ipset entry", "cidr", b.CIDR, "conflictsWith", b.ConflictsWith, "iface", b.Interface)
 				blocked[b.CIDR] = true
@@ -89,7 +91,7 @@ func (fm *FirewallManager) RemoveWgS2sFirewall(ctx context.Context, tunnelID, if
 
 func (fm *FirewallManager) RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID string, cidrs []string) {
 	chainPrefix := fm.manifest.GetWgS2sChainPrefix(tunnelID)
-	if chainPrefix == defaultChainPrefix || len(cidrs) == 0 {
+	if chainPrefix == config.DefaultChainPrefix || len(cidrs) == 0 {
 		return
 	}
 	ipsetName := zoneIPSetName(chainPrefix)
@@ -178,7 +180,7 @@ func (fm *FirewallManager) EnsureDNSForwarding(ctx context.Context, magicDNSSuff
 		return errIntegrationNotConfigured
 	}
 
-	if entry, ok := fm.manifest.GetDNSPolicy(dnsMarkerTailscale); ok {
+	if entry, ok := fm.manifest.GetDNSPolicy(config.DNSMarkerTailscale); ok {
 		if entry.Domain == magicDNSSuffix {
 			return nil
 		}
@@ -186,27 +188,27 @@ func (fm *FirewallManager) EnsureDNSForwarding(ctx context.Context, magicDNSSuff
 		if err := fm.ic.DeleteDNSPolicy(ctx, siteID, entry.PolicyID); err != nil && !errors.Is(err, ErrNotFound) {
 			slog.Warn("failed to delete old DNS forwarding policy", "domain", entry.Domain, "err", err)
 		}
-		if err := fm.manifest.RemoveDNSPolicy(dnsMarkerTailscale); err != nil {
+		if err := fm.manifest.RemoveDNSPolicy(config.DNSMarkerTailscale); err != nil {
 			slog.Warn("failed to remove old DNS policy from manifest", "err", err)
 		}
 	}
 
 	siteID := fm.manifest.GetSiteID()
-	pol, err := fm.ic.EnsureDNSForwardDomain(ctx, siteID, magicDNSSuffix, tailscaleDNSResolverIP)
+	pol, err := fm.ic.EnsureDNSForwardDomain(ctx, siteID, magicDNSSuffix, config.TailscaleDNSResolverIP)
 	if err != nil {
 		return fmt.Errorf("create DNS forward domain: %w", err)
 	}
 
-	if err := fm.manifest.SetDNSPolicy(dnsMarkerTailscale, pol.ID, magicDNSSuffix, tailscaleDNSResolverIP); err != nil {
+	if err := fm.manifest.SetDNSPolicy(config.DNSMarkerTailscale, pol.ID, magicDNSSuffix, config.TailscaleDNSResolverIP); err != nil {
 		return fmt.Errorf("save manifest: %w", err)
 	}
 
-	slog.Info("DNS forwarding policy created", "domain", magicDNSSuffix, "resolver", tailscaleDNSResolverIP, "policyId", pol.ID)
+	slog.Info("DNS forwarding policy created", "domain", magicDNSSuffix, "resolver", config.TailscaleDNSResolverIP, "policyId", pol.ID)
 	return nil
 }
 
 func (fm *FirewallManager) RemoveDNSForwarding(ctx context.Context) error {
-	entry, ok := fm.manifest.GetDNSPolicy(dnsMarkerTailscale)
+	entry, ok := fm.manifest.GetDNSPolicy(config.DNSMarkerTailscale)
 	if !ok {
 		return nil
 	}
@@ -218,7 +220,7 @@ func (fm *FirewallManager) RemoveDNSForwarding(ctx context.Context) error {
 		}
 	}
 
-	if err := fm.manifest.RemoveDNSPolicy(dnsMarkerTailscale); err != nil {
+	if err := fm.manifest.RemoveDNSPolicy(config.DNSMarkerTailscale); err != nil {
 		return fmt.Errorf("save manifest: %w", err)
 	}
 
@@ -252,12 +254,12 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 
 	chainPrefix := fm.manifest.GetTailscaleChainPrefix()
 
-	marker := firewallMarker
+	marker := config.FirewallMarker
 
 	ts := fm.manifest.GetTailscaleZone()
-	if chainPrefix == defaultChainPrefix && ts.ZoneID != "" {
+	if chainPrefix == config.DefaultChainPrefix && ts.ZoneID != "" {
 		if rediscovered := fm.DiscoverChainPrefix(ts.ZoneID); rediscovered != "" {
-			_ = udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, marker)
+			_ = udapi.RemoveInterfaceRules(fm.udapi, config.TailscaleInterface, marker)
 			chainPrefix = rediscovered
 			if err := fm.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, ts.PolicyIDs, rediscovered); err != nil {
 				slog.Warn("manifest save failed", "err", err)
@@ -270,27 +272,27 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 }
 
 func (fm *FirewallManager) RemoveTailscaleInterfaceRules() error {
-	return udapi.RemoveInterfaceRules(fm.udapi, tailscaleInterface, firewallMarker)
+	return udapi.RemoveInterfaceRules(fm.udapi, config.TailscaleInterface, config.FirewallMarker)
 }
 
 func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
-	if chainPrefix != defaultChainPrefix {
-		fwd := hasChainRule(chainForwardInUser, "-i "+tailscaleInterface)
-		inp := hasChainRule(chainInputUserHook, "-i "+tailscaleInterface)
-		out := hasChainRule(chainOutputUserHook, "-o "+tailscaleInterface)
-		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), tailscaleCGNAT)
+	if chainPrefix != config.DefaultChainPrefix {
+		fwd := hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface)
+		inp := hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface)
+		out := hasChainRule(config.ChainOutputUserHook, "-o "+config.TailscaleInterface)
+		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), config.TailscaleCGNAT)
 		if fwd && inp && out && ipsetOK {
 			return nil
 		}
 	}
 
-	marker := firewallMarker
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, tailscaleInterface, marker, chainPrefix); err != nil {
+	marker := config.FirewallMarker
+	if err := udapi.AddInterfaceRulesForZone(fm.udapi, config.TailscaleInterface, marker, chainPrefix); err != nil {
 		return err
 	}
 
 	ipsetName := zoneIPSetName(chainPrefix)
-	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, tailscaleCGNAT); err != nil {
+	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, config.TailscaleCGNAT); err != nil {
 		slog.Warn("zone ipset failed", "ipset", ipsetName, "err", err)
 	}
 	return nil
@@ -298,23 +300,23 @@ func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
 
 func (fm *FirewallManager) CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool) {
 	prefix := fm.manifest.GetTailscaleChainPrefix()
-	forward = hasChainRule(chainForwardInUser, "-i "+tailscaleInterface) ||
-		hasChainRule(fmt.Sprintf("UBIOS_%s_IN", prefix), "-i "+tailscaleInterface)
-	input = hasChainRule(chainInputUserHook, "-i "+tailscaleInterface) ||
-		hasChainRule(fmt.Sprintf("UBIOS_%s_LOCAL", prefix), "-i "+tailscaleInterface)
-	output = hasChainRule(chainOutputUserHook, "-o "+tailscaleInterface) ||
-		hasChainRule(fmt.Sprintf("UBIOS_LOCAL_%s", prefix), "-o "+tailscaleInterface)
+	forward = hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface) ||
+		hasChainRule(fmt.Sprintf("UBIOS_%s_IN", prefix), "-i "+config.TailscaleInterface)
+	input = hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface) ||
+		hasChainRule(fmt.Sprintf("UBIOS_%s_LOCAL", prefix), "-i "+config.TailscaleInterface)
+	output = hasChainRule(config.ChainOutputUserHook, "-o "+config.TailscaleInterface) ||
+		hasChainRule(fmt.Sprintf("UBIOS_LOCAL_%s", prefix), "-o "+config.TailscaleInterface)
 
-	ipset = hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", prefix), tailscaleCGNAT)
+	ipset = hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", prefix), config.TailscaleCGNAT)
 	return
 }
 
 func (fm *FirewallManager) CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
 	result := make(map[string]bool, len(ifaces))
 	for _, iface := range ifaces {
-		forward := hasChainRule(chainForwardInUser, "-i "+iface)
-		input := hasChainRule(chainInputUserHook, "-i "+iface)
-		output := hasChainRule(chainOutputUserHook, "-o "+iface)
+		forward := hasChainRule(config.ChainForwardInUser, "-i "+iface)
+		input := hasChainRule(config.ChainInputUserHook, "-i "+iface)
+		output := hasChainRule(config.ChainOutputUserHook, "-o "+iface)
 		result[iface] = forward && input && output
 	}
 	return result
@@ -340,7 +342,7 @@ func (fm *FirewallManager) DiscoverChainPrefix(zoneID string) string {
 
 func discoverChainPrefixFromMongo(zoneID string) string {
 	script := `db.getSiblingDB("ace").firewall_zone.find({default_zone:false}).sort({_id:1}).forEach(function(z){print(z.external_id.toString())})`
-	out, err := exec.Command("mongo", "--port", mongoPort, "--quiet", "--eval", script).Output()
+	out, err := exec.Command("mongo", "--port", config.MongoPort, "--quiet", "--eval", script).Output()
 	if err != nil {
 		slog.Debug("mongo chain prefix query failed", "err", err)
 		return ""

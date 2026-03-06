@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	"unifi-tailscale/manager/config"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -23,7 +24,7 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 	signal.Notify(sighup, syscall.SIGHUP)
 	defer signal.Stop(sighup)
 
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(config.PollInterval)
 	defer ticker.Stop()
 
 	debounced := s.startInotifyWatcher(ctx)
@@ -75,7 +76,7 @@ func initFsWatcher() (*fsnotify.Watcher, error) {
 		return nil, err
 	}
 
-	configDir := filepath.Dir(udapiConfigPath)
+	configDir := filepath.Dir(config.UDAPIConfigPath)
 	if err := watcher.Add(configDir); err != nil {
 		slog.Warn("inotify watch failed, polling only", "path", configDir, "err", err)
 		_ = watcher.Close()
@@ -107,10 +108,10 @@ func (s *Server) runInotifyLoop(ctx context.Context, watcher *fsnotify.Watcher, 
 			}
 			if s.handleFsEvent(event) {
 				if debounceTimer == nil {
-					debounceTimer = time.NewTimer(debounceDuration)
+					debounceTimer = time.NewTimer(config.DebounceDuration)
 					debounceCh = debounceTimer.C
 				} else {
-					debounceTimer.Reset(debounceDuration)
+					debounceTimer.Reset(config.DebounceDuration)
 				}
 			}
 
@@ -133,7 +134,7 @@ func (s *Server) runInotifyLoop(ctx context.Context, watcher *fsnotify.Watcher, 
 
 func (s *Server) handleFsEvent(event fsnotify.Event) bool {
 	base := filepath.Base(event.Name)
-	return base == filepath.Base(udapiConfigPath) && event.Has(fsnotify.Write)
+	return base == filepath.Base(config.UDAPIConfigPath) && event.Has(fsnotify.Write)
 }
 
 func (s *Server) checkAndRestoreRules(ctx context.Context) {
@@ -189,7 +190,7 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 	if s.health.IsDegraded("firewall") {
 		return
 	}
-	if !interfaceExists(tailscaleInterface) {
+	if !interfaceExists(config.TailscaleInterface) {
 		return
 	}
 
@@ -303,4 +304,3 @@ func (s *Server) reconcileWanPortPolicies(ctx context.Context) {
 		}
 	}
 }
-

@@ -5,10 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"unifi-tailscale/manager/internal/wgs2s"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/tailcfg"
-	"unifi-tailscale/manager/internal/wgs2s"
 )
 
 // --- Mocks ---

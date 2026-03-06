@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/sse"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,12 +13,12 @@ import (
 
 func TestBroadcastEvent(t *testing.T) {
 	t.Run("unnamed event uses Broadcast", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		ch, unsub, err := h.Subscribe()
 		require.NoError(t, err)
 		defer unsub()
 
-		BroadcastEvent(h, "", map[string]string{"key": "val"})
+		domain.BroadcastEvent(h, "", map[string]string{"key": "val"})
 
 		select {
 		case msg := <-ch:
@@ -30,12 +32,12 @@ func TestBroadcastEvent(t *testing.T) {
 	})
 
 	t.Run("named event uses BroadcastNamed", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		ch, unsub, err := h.Subscribe()
 		require.NoError(t, err)
 		defer unsub()
 
-		BroadcastEvent(h, "health", HealthSnapshot{Status: StatusHealthy})
+		domain.BroadcastEvent(h, "health", HealthSnapshot{Status: StatusHealthy})
 
 		select {
 		case msg := <-ch:

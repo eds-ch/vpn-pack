@@ -8,88 +8,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/service"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/types/netmap"
-	"unifi-tailscale/manager/internal/wgs2s"
-	"unifi-tailscale/manager/service"
 )
-
-type TailscaleState struct {
-	mu              sync.Mutex
-	data            stateData
-	advertiseRoutes []netip.Prefix
-	allowedIPs      []netip.Prefix
-}
-
-type stateData struct {
-	BackendState      string              `json:"backendState"`
-	TailscaleIPs      []string            `json:"tailscaleIPs"`
-	TailnetName       string              `json:"tailnetName"`
-	AuthURL           string              `json:"authURL"`
-	ControlURL        string              `json:"controlURL"`
-	Version           string              `json:"version"`
-	Self              *SelfNode           `json:"self,omitempty"`
-	Health            []string            `json:"health,omitempty"`
-	ExitNode          bool                `json:"exitNode"`
-	Routes            []service.RouteStatus `json:"routes"`
-	Peers             []PeerInfo          `json:"peers"`
-	DERP              []DERPInfo          `json:"derp,omitempty"`
-	FirewallHealth    *FirewallHealth     `json:"firewallHealth,omitempty"`
-	DPIFingerprinting *bool               `json:"dpiFingerprinting,omitempty"`
-	IntegrationStatus *service.IntegrationStatus `json:"integrationStatus,omitempty"`
-	WgS2sTunnels      []wgs2s.WgS2sStatus `json:"wgS2sTunnels,omitempty"`
-
-	service.SettingsFields
-}
-
-type SelfNode struct {
-	HostName string `json:"hostName"`
-	DNSName  string `json:"dnsName"`
-	Online   bool   `json:"online"`
-	TxBytes  int64  `json:"txBytes"`
-	RxBytes  int64  `json:"rxBytes"`
-}
-
-type PeerInfo struct {
-	HostName    string    `json:"hostName"`
-	DNSName     string    `json:"dnsName"`
-	TailscaleIP string    `json:"tailscaleIP"`
-	OS          string    `json:"os"`
-	Online      bool      `json:"online"`
-	LastSeen    time.Time `json:"lastSeen"`
-	CurAddr     string    `json:"curAddr"`
-	Relay       string    `json:"relay"`
-	PeerRelay   string    `json:"peerRelay"`
-	RxBytes     int64     `json:"rxBytes"`
-	TxBytes     int64     `json:"txBytes"`
-	Active      bool      `json:"active"`
-}
-
-type DERPInfo struct {
-	RegionID   int     `json:"regionID"`
-	RegionCode string  `json:"regionCode"`
-	RegionName string  `json:"regionName"`
-	LatencyMs  float64 `json:"latencyMs"`
-	Preferred  bool    `json:"preferred"`
-}
-
-type FirewallHealth struct {
-	ZoneActive     bool   `json:"zoneActive"`
-	WatcherRunning bool   `json:"watcherRunning"`
-	UDAPIReachable bool   `json:"udapiReachable"`
-	ChainPrefix    string `json:"chainPrefix"`
-	ZoneName       string `json:"zoneName,omitempty"`
-}
-
-func (ts *TailscaleState) snapshot() stateData {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	return ts.data
-}
 
 func (s *Server) runWatcher(ctx context.Context) {
 	go s.runStatusRefresh(ctx)
@@ -105,14 +33,14 @@ func (s *Server) runWatcher(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(reconnectDelay):
+			case <-time.After(config.ReconnectDelay):
 			}
 		}
 	}
 }
 
 func (s *Server) runStatusRefresh(ctx context.Context) {
-	ticker := time.NewTicker(statusRefresh)
+	ticker := time.NewTicker(config.StatusRefresh)
 	defer ticker.Stop()
 
 	for {
@@ -166,17 +94,17 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *service.Inte
 }
 
 func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *service.IntegrationStatus) {
-	s.state.mu.Lock()
-	defer s.state.mu.Unlock()
+	s.state.Lock()
+	defer s.state.Unlock()
 	s.applyEnrichment(enrichment)
-	s.state.data.FirewallHealth = s.firewallHealthSnapshot(ctx)
-	s.state.data.IntegrationStatus = integrationStatus
-	s.state.data.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
-	s.state.data.UDPPort = service.ReadTailscaledPort()
+	s.state.Data().FirewallHealth = s.firewallHealthSnapshot(ctx)
+	s.state.Data().IntegrationStatus = integrationStatus
+	s.state.Data().AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+	s.state.Data().UDPPort = service.ReadTailscaledPort()
 	if s.wgManager != nil {
 		tunnels := s.wgManager.GetStatuses()
 		s.wgS2sSvc.EnrichForwardINOk(ctx, tunnels)
-		s.state.data.WgS2sTunnels = tunnels
+		s.state.Data().WgS2sTunnels = tunnels
 	}
 }
 
@@ -205,20 +133,20 @@ func (s *Server) processNotify(ctx context.Context, n *ipn.Notify) {
 }
 
 func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
-	s.state.mu.Lock()
-	defer s.state.mu.Unlock()
+	s.state.Lock()
+	defer s.state.Unlock()
 
 	if n.Version != "" {
-		s.state.data.Version = n.Version
+		s.state.Data().Version = n.Version
 	}
 	if n.State != nil {
-		s.state.data.BackendState = n.State.String()
+		s.state.Data().BackendState = n.State.String()
 	}
 	if n.BrowseToURL != nil {
-		s.state.data.AuthURL = *n.BrowseToURL
+		s.state.Data().AuthURL = *n.BrowseToURL
 	}
 	if n.LoginFinished != nil {
-		s.state.data.AuthURL = ""
+		s.state.Data().AuthURL = ""
 	}
 
 	if n.Prefs != nil && n.Prefs.Valid() {
@@ -233,7 +161,7 @@ func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
 
 	if n.Prefs != nil || n.NetMap != nil {
 		s.recomputeRoutes()
-		s.state.data.DPIFingerprinting = syncDPIFingerprint(s.state.data.ExitNode)
+		s.state.Data().DPIFingerprinting = syncDPIFingerprint(s.state.Data().ExitNode)
 	}
 
 	if n.Health != nil {
@@ -241,36 +169,37 @@ func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
 		for code := range n.Health.Warnings {
 			warnings = append(warnings, string(code))
 		}
-		s.state.data.Health = warnings
+		s.state.Data().Health = warnings
 	}
 
 	return fetchStatus
 }
 
 func (s *Server) applyNotifyPrefs(p ipn.PrefsView) {
-	s.state.data.ControlURL = p.ControlURL()
+	s.state.Data().ControlURL = p.ControlURL()
 
 	ar := p.AdvertiseRoutes()
-	s.state.advertiseRoutes = make([]netip.Prefix, ar.Len())
+	routes := make([]netip.Prefix, ar.Len())
 	for i := range ar.Len() {
-		s.state.advertiseRoutes[i] = ar.At(i)
+		routes[i] = ar.At(i)
 	}
+	s.state.SetAdvertiseRoutes(routes)
 
-	s.state.data.Hostname = p.Hostname()
-	s.state.data.AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(dnsMarkerTailscale)
-	s.state.data.AcceptRoutes = p.RouteAll()
-	s.state.data.ShieldsUp = p.ShieldsUp()
-	s.state.data.RunSSH = p.RunSSH()
-	s.state.data.NoSNAT = p.NoSNAT()
-	s.state.data.RelayServerPort = p.RelayServerPort().Clone()
-	s.state.data.RelayServerEndpoints = service.FormatAddrPorts(p.RelayServerStaticEndpoints().AsSlice())
+	s.state.Data().Hostname = p.Hostname()
+	s.state.Data().AcceptDNS = s.manifest != nil && s.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
+	s.state.Data().AcceptRoutes = p.RouteAll()
+	s.state.Data().ShieldsUp = p.ShieldsUp()
+	s.state.Data().RunSSH = p.RunSSH()
+	s.state.Data().NoSNAT = p.NoSNAT()
+	s.state.Data().RelayServerPort = p.RelayServerPort().Clone()
+	s.state.Data().RelayServerEndpoints = service.FormatAddrPorts(p.RelayServerStaticEndpoints().AsSlice())
 
 	tags := p.AdvertiseTags().AsSlice()
 	if tags == nil {
 		tags = []string{}
 	}
-	s.state.data.AdvertiseTags = tags
-	s.state.data.UDPPort = service.ReadTailscaledPort()
+	s.state.Data().AdvertiseTags = tags
+	s.state.Data().UDPPort = service.ReadTailscaledPort()
 }
 
 func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
@@ -280,11 +209,11 @@ func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 	}
 	integrationStatus := s.integration.GetStatus(ctx)
 
-	s.state.mu.Lock()
+	s.state.Lock()
 	s.applyEnrichment(enrichment)
-	s.state.data.FirewallHealth = s.firewallHealthSnapshot(ctx)
-	s.state.data.IntegrationStatus = integrationStatus
-	s.state.mu.Unlock()
+	s.state.Data().FirewallHealth = s.firewallHealthSnapshot(ctx)
+	s.state.Data().IntegrationStatus = integrationStatus
+	s.state.Unlock()
 }
 
 func (s *Server) processNetMap(nm *netmap.NetworkMap) {
@@ -295,19 +224,20 @@ func (s *Server) processNetMap(nm *netmap.NetworkMap) {
 		for i := range addrs.Len() {
 			ips[i] = addrs.At(i).Addr().String()
 		}
-		s.state.data.TailscaleIPs = ips
+		s.state.Data().TailscaleIPs = ips
 
-		s.state.data.Self = &SelfNode{
+		s.state.Data().Self = &SelfNode{
 			HostName: selfNode.Hostinfo().Hostname(),
 			DNSName:  selfNode.Name(),
-			Online:   s.state.data.BackendState == "Running",
+			Online:   s.state.Data().BackendState == "Running",
 		}
 
 		aips := selfNode.AllowedIPs()
-		s.state.allowedIPs = make([]netip.Prefix, aips.Len())
+		aipSlice := make([]netip.Prefix, aips.Len())
 		for i := range aips.Len() {
-			s.state.allowedIPs[i] = aips.At(i)
+			aipSlice[i] = aips.At(i)
 		}
+		s.state.SetAllowedIPs(aipSlice)
 
 		ni := selfNode.Hostinfo().NetInfo()
 		if ni.Valid() && nm.DERPMap != nil {
@@ -342,12 +272,12 @@ func (s *Server) processNetMap(nm *netmap.NetworkMap) {
 				sort.Slice(derp, func(i, j int) bool {
 					return derp[i].LatencyMs < derp[j].LatencyMs
 				})
-				s.state.data.DERP = derp
+				s.state.Data().DERP = derp
 			}
 		}
 	}
 
-	s.state.data.TailnetName = nm.Domain
+	s.state.Data().TailnetName = nm.Domain
 }
 
 type statusEnrichment struct {
@@ -390,11 +320,11 @@ func (s *Server) applyEnrichment(e *statusEnrichment) {
 	if e == nil {
 		return
 	}
-	s.state.data.Peers = e.peers
-	if s.state.data.Self != nil {
-		s.state.data.Self.TxBytes = e.totalTx
-		s.state.data.Self.RxBytes = e.totalRx
-		s.state.data.Self.Online = e.selfOnline
+	s.state.Data().Peers = e.peers
+	if s.state.Data().Self != nil {
+		s.state.Data().Self.TxBytes = e.totalTx
+		s.state.Data().Self.RxBytes = e.totalRx
+		s.state.Data().Self.Online = e.selfOnline
 	}
 }
 
@@ -446,7 +376,7 @@ func (s *Server) firewallHealthSnapshot(ctx context.Context) *FirewallHealth {
 		ts := s.manifest.GetTailscaleZone()
 		chainPrefix = ts.ChainPrefix
 		if chainPrefix == "" {
-			chainPrefix = defaultChainPrefix
+			chainPrefix = config.DefaultChainPrefix
 		}
 		zoneName = ts.ZoneName
 	}
@@ -461,23 +391,24 @@ func (s *Server) firewallHealthSnapshot(ctx context.Context) *FirewallHealth {
 }
 
 func (s *Server) recomputeRoutes() {
-	allowed := make(map[string]bool, len(s.state.allowedIPs))
-	for _, p := range s.state.allowedIPs {
+	aips := s.state.AllowedIPs()
+	allowed := make(map[string]bool, len(aips))
+	for _, p := range aips {
 		allowed[p.String()] = true
 	}
 
-	routes, isExit := service.BuildRouteStatuses(s.state.advertiseRoutes, allowed)
-	s.state.data.ExitNode = isExit
-	s.state.data.Routes = routes
+	routes, isExit := service.BuildRouteStatuses(s.state.AdvertiseRoutes(), allowed)
+	s.state.Data().ExitNode = isExit
+	s.state.Data().Routes = routes
 }
 
 func (s *Server) broadcastState() {
-	BroadcastEvent(s.hub, "", s.state.snapshot())
+	domain.BroadcastEvent(s.hub, "", s.state.Snapshot())
 }
 
 func (s *Server) setUnavailable() {
-	s.state.mu.Lock()
-	s.state.data.BackendState = "Unavailable"
-	s.state.mu.Unlock()
+	s.state.Lock()
+	s.state.Data().BackendState = "Unavailable"
+	s.state.Unlock()
 	s.broadcastState()
 }

@@ -47,31 +47,31 @@ func (m *mockSSEHub) CurrentState() []byte {
 
 // mockManifestStore implements ManifestStore for testing.
 type mockManifestStore struct {
-	getSiteIDFn              func() string
-	hasSiteIDFn              func() bool
-	getTailscaleZoneFn       func() ZoneManifest
+	getSiteIDFn               func() string
+	hasSiteIDFn               func() bool
+	getTailscaleZoneFn        func() ZoneManifest
 	getTailscaleChainPrefixFn func() string
-	getWgS2sZoneFn           func(tunnelID string) (ZoneManifest, bool)
-	getWgS2sZonesFn          func() []WgS2sZoneInfo
-	getWgS2sChainPrefixFn    func(tunnelID string) string
-	getWanPortPolicyIDFn     func(marker string) string
-	getWanPortEntryFn        func(marker string) (WanPortEntry, bool)
-	getWanPortsSnapshotFn    func() map[string]WanPortEntry
-	getWgS2sSnapshotFn       func() map[string]ZoneManifest
-	getSystemZoneIDsFn       func() (string, string)
-	hasDNSPolicyFn           func(marker string) bool
-	getDNSPolicyFn           func(marker string) (DNSPolicyEntry, bool)
+	getWgS2sZoneFn            func(tunnelID string) (ZoneManifest, bool)
+	getWgS2sZonesFn           func() []WgS2sZoneInfo
+	getWgS2sChainPrefixFn     func(tunnelID string) string
+	getWanPortPolicyIDFn      func(marker string) string
+	getWanPortEntryFn         func(marker string) (WanPortEntry, bool)
+	getWanPortsSnapshotFn     func() map[string]WanPortEntry
+	getWgS2sSnapshotFn        func() map[string]ZoneManifest
+	getSystemZoneIDsFn        func() (string, string)
+	hasDNSPolicyFn            func(marker string) bool
+	getDNSPolicyFn            func(marker string) (DNSPolicyEntry, bool)
 
-	setSiteIDFn          func(siteID string) error
-	setTailscaleZoneFn   func(zoneID, zoneName string, policyIDs []string, chainPrefix string) error
-	setWgS2sZoneFn       func(tunnelID string, zm ZoneManifest) error
-	removeWgS2sTunnelFn  func(tunnelID string) error
-	setWanPortFn         func(marker, policyID, policyName string, port int) error
-	removeWanPortFn      func(marker string) error
-	setSystemZoneIDsFn   func(externalID, gatewayID string) error
-	setDNSPolicyFn       func(marker, policyID, domain, ipAddress string) error
-	removeDNSPolicyFn    func(marker string) error
-	resetIntegrationFn   func() error
+	setSiteIDFn         func(siteID string) error
+	setTailscaleZoneFn  func(zoneID, zoneName string, policyIDs []string, chainPrefix string) error
+	setWgS2sZoneFn      func(tunnelID string, zm ZoneManifest) error
+	removeWgS2sTunnelFn func(tunnelID string) error
+	setWanPortFn        func(marker, policyID, policyName string, port int) error
+	removeWanPortFn     func(marker string) error
+	setSystemZoneIDsFn  func(externalID, gatewayID string) error
+	setDNSPolicyFn      func(marker, policyID, domain, ipAddress string) error
+	removeDNSPolicyFn   func(marker string) error
+	resetIntegrationFn  func() error
 }
 
 func (m *mockManifestStore) GetSiteID() string {
@@ -221,23 +221,23 @@ func (m *mockManifestStore) ResetIntegration() error {
 
 // mockIntegrationAPI implements IntegrationAPI for testing.
 type mockIntegrationAPI struct {
-	setAPIKeyFn            func(key string)
-	hasAPIKeyFn            func() bool
-	validateFn             func(ctx context.Context) (*AppInfo, error)
-	discoverSiteIDFn       func(ctx context.Context) (string, error)
-	createZoneFn           func(ctx context.Context, siteID, name string) (*Zone, error)
-	ensureZoneFn           func(ctx context.Context, siteID, name string) (*Zone, error)
-	ensurePoliciesFn       func(ctx context.Context, siteID, name, zoneID string) ([]string, error)
-	listPoliciesFn         func(ctx context.Context, siteID string) ([]Policy, error)
-	deletePolicyFn         func(ctx context.Context, siteID, policyID string) error
-	deleteZoneFn           func(ctx context.Context, siteID, zoneID string) error
-	findInternalZoneIDFn   func(ctx context.Context, siteID string) (string, error)
-	listZonesFn            func(ctx context.Context, siteID string) ([]Zone, error)
-	findSystemZoneIDsFn    func(ctx context.Context, siteID string) (string, string, error)
-	ensureWanPortPolicyFn  func(ctx context.Context, siteID string, port int, name, extID, gwID string) (string, error)
+	setAPIKeyFn              func(key string)
+	hasAPIKeyFn              func() bool
+	validateFn               func(ctx context.Context) (*AppInfo, error)
+	discoverSiteIDFn         func(ctx context.Context) (string, error)
+	createZoneFn             func(ctx context.Context, siteID, name string) (*Zone, error)
+	ensureZoneFn             func(ctx context.Context, siteID, name string) (*Zone, error)
+	ensurePoliciesFn         func(ctx context.Context, siteID, name, zoneID string) ([]string, error)
+	listPoliciesFn           func(ctx context.Context, siteID string) ([]Policy, error)
+	deletePolicyFn           func(ctx context.Context, siteID, policyID string) error
+	deleteZoneFn             func(ctx context.Context, siteID, zoneID string) error
+	findInternalZoneIDFn     func(ctx context.Context, siteID string) (string, error)
+	listZonesFn              func(ctx context.Context, siteID string) ([]Zone, error)
+	findSystemZoneIDsFn      func(ctx context.Context, siteID string) (string, string, error)
+	ensureWanPortPolicyFn    func(ctx context.Context, siteID string, port int, name, extID, gwID string) (string, error)
 	ensureDNSForwardDomainFn func(ctx context.Context, siteID, domain, resolverIP string) (*DNSPolicy, error)
-	deleteDNSPolicyFn      func(ctx context.Context, siteID, policyID string) error
-	listDNSPoliciesFn      func(ctx context.Context, siteID string) ([]DNSPolicy, error)
+	deleteDNSPolicyFn        func(ctx context.Context, siteID, policyID string) error
+	listDNSPoliciesFn        func(ctx context.Context, siteID string) ([]DNSPolicy, error)
 }
 
 func (m *mockIntegrationAPI) SetAPIKey(key string) {
@@ -344,18 +344,18 @@ func (m *mockIntegrationAPI) ListDNSPolicies(ctx context.Context, siteID string)
 
 // mockTailscaleControl implements TailscaleControl for testing.
 type mockTailscaleControl struct {
-	statusFn               func(ctx context.Context) (*ipnstate.Status, error)
-	statusWithoutPeersFn   func(ctx context.Context) (*ipnstate.Status, error)
-	editPrefsFn            func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error)
-	getPrefsFn             func(ctx context.Context) (*ipn.Prefs, error)
+	statusFn                func(ctx context.Context) (*ipnstate.Status, error)
+	statusWithoutPeersFn    func(ctx context.Context) (*ipnstate.Status, error)
+	editPrefsFn             func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error)
+	getPrefsFn              func(ctx context.Context) (*ipn.Prefs, error)
 	startLoginInteractiveFn func(ctx context.Context) error
-	startFn                func(ctx context.Context, opts ipn.Options) error
-	logoutFn               func(ctx context.Context) error
-	bugReportFn            func(ctx context.Context, note string) (string, error)
-	checkIPForwardingFn    func(ctx context.Context) error
-	currentDERPMapFn       func(ctx context.Context) (*tailcfg.DERPMap, error)
-	watchIPNBusFn          func(ctx context.Context, mask ipn.NotifyWatchOpt) (IPNWatcher, error)
-	tailDaemonLogsFn       func(ctx context.Context) (io.Reader, error)
+	startFn                 func(ctx context.Context, opts ipn.Options) error
+	logoutFn                func(ctx context.Context) error
+	bugReportFn             func(ctx context.Context, note string) (string, error)
+	checkIPForwardingFn     func(ctx context.Context) error
+	currentDERPMapFn        func(ctx context.Context) (*tailcfg.DERPMap, error)
+	watchIPNBusFn           func(ctx context.Context, mask ipn.NotifyWatchOpt) (IPNWatcher, error)
+	tailDaemonLogsFn        func(ctx context.Context) (io.Reader, error)
 }
 
 func (m *mockTailscaleControl) Status(ctx context.Context) (*ipnstate.Status, error) {
@@ -451,21 +451,21 @@ func (m *mockIPNWatcher) Close() error {
 
 // mockFirewallService implements FirewallService for testing.
 type mockFirewallService struct {
-	setupWgS2sFirewallFn        func(ctx context.Context, tunnelID, iface string, allowedIPs []string) error
-	removeWgS2sFirewallFn       func(ctx context.Context, tunnelID, iface string, allowedIPs []string)
-	removeWgS2sIPSetEntriesFn   func(ctx context.Context, tunnelID string, cidrs []string)
-	openWanPortFn               func(ctx context.Context, port int, marker string) error
-	closeWanPortFn              func(ctx context.Context, port int, marker string) error
-	ensureDNSForwardingFn       func(ctx context.Context, magicDNSSuffix string) error
-	removeDNSForwardingFn       func(ctx context.Context) error
-	restoreTailscaleRulesFn     func(ctx context.Context) error
-	restoreRulesWithRetryFn     func(ctx context.Context, retries int, delay time.Duration)
-	checkTailscaleRulesPresentFn func(ctx context.Context) (bool, bool, bool, bool)
-	checkWgS2sRulesPresentFn    func(ctx context.Context, ifaces []string) map[string]bool
-	discoverChainPrefixFn       func(zoneID string) string
-	ensureTailscaleRulesFn      func(chainPrefix string) error
+	setupWgS2sFirewallFn            func(ctx context.Context, tunnelID, iface string, allowedIPs []string) error
+	removeWgS2sFirewallFn           func(ctx context.Context, tunnelID, iface string, allowedIPs []string)
+	removeWgS2sIPSetEntriesFn       func(ctx context.Context, tunnelID string, cidrs []string)
+	openWanPortFn                   func(ctx context.Context, port int, marker string) error
+	closeWanPortFn                  func(ctx context.Context, port int, marker string) error
+	ensureDNSForwardingFn           func(ctx context.Context, magicDNSSuffix string) error
+	removeDNSForwardingFn           func(ctx context.Context) error
+	restoreTailscaleRulesFn         func(ctx context.Context) error
+	restoreRulesWithRetryFn         func(ctx context.Context, retries int, delay time.Duration)
+	checkTailscaleRulesPresentFn    func(ctx context.Context) (bool, bool, bool, bool)
+	checkWgS2sRulesPresentFn        func(ctx context.Context, ifaces []string) map[string]bool
+	discoverChainPrefixFn           func(zoneID string) string
+	ensureTailscaleRulesFn          func(chainPrefix string) error
 	removeTailscaleInterfaceRulesFn func() error
-	integrationReadyFn          func() bool
+	integrationReadyFn              func() bool
 }
 
 func (m *mockFirewallService) SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error {
@@ -558,16 +558,16 @@ func (m *mockFirewallService) IntegrationReady() bool {
 
 // mockWgS2sControl implements WgS2sControl for testing.
 type mockWgS2sControl struct {
-	createTunnelFn func(cfg wgs2s.TunnelConfig, privateKey string) (*wgs2s.TunnelConfig, error)
-	deleteTunnelFn func(id string) error
-	enableTunnelFn func(id string) error
+	createTunnelFn  func(cfg wgs2s.TunnelConfig, privateKey string) (*wgs2s.TunnelConfig, error)
+	deleteTunnelFn  func(id string) error
+	enableTunnelFn  func(id string) error
 	disableTunnelFn func(id string) error
-	updateTunnelFn func(id string, updates wgs2s.TunnelConfig) (*wgs2s.TunnelConfig, error)
-	restoreAllFn   func() error
-	getTunnelsFn   func() []wgs2s.TunnelConfig
-	getStatusesFn  func() []wgs2s.WgS2sStatus
-	getPublicKeyFn func(id string) (string, error)
-	closeFn        func()
+	updateTunnelFn  func(id string, updates wgs2s.TunnelConfig) (*wgs2s.TunnelConfig, error)
+	restoreAllFn    func() error
+	getTunnelsFn    func() []wgs2s.TunnelConfig
+	getStatusesFn   func() []wgs2s.WgS2sStatus
+	getPublicKeyFn  func(id string) (string, error)
+	closeFn         func()
 }
 
 func (m *mockWgS2sControl) CreateTunnel(cfg wgs2s.TunnelConfig, privateKey string) (*wgs2s.TunnelConfig, error) {

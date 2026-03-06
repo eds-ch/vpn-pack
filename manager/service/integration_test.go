@@ -12,10 +12,10 @@ import (
 // --- Mocks ---
 
 type mockIntegrationIC struct {
-	setAPIKeyFn        func(key string)
-	hasAPIKeyFn        func() bool
-	validateFn         func(ctx context.Context) (string, error)
-	discoverSiteIDFn   func(ctx context.Context) (string, error)
+	setAPIKeyFn         func(key string)
+	hasAPIKeyFn         func() bool
+	validateFn          func(ctx context.Context) (string, error)
+	discoverSiteIDFn    func(ctx context.Context) (string, error)
 	findSystemZoneIDsFn func(ctx context.Context, siteID string) (string, string, error)
 
 	lastSetKey string
@@ -298,7 +298,7 @@ func TestSetKey_Success(t *testing.T) {
 	setSiteID := ""
 	svc := newTestIntegrationService(func(s *IntegrationService) {
 		s.ic = &mockIntegrationIC{
-			validateFn:  func(ctx context.Context) (string, error) { return "9.0.1", nil },
+			validateFn:       func(ctx context.Context) (string, error) { return "9.0.1", nil },
 			discoverSiteIDFn: func(ctx context.Context) (string, error) { return "site-discovered", nil },
 		}
 		s.manifest = &mockIntegrationManifest{

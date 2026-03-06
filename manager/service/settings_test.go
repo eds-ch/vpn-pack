@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+	"unifi-tailscale/manager/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,11 +46,11 @@ func (m *mockTailscalePrefs) Status(ctx context.Context) (*ipnstate.Status, erro
 }
 
 type mockSettingsFirewall struct {
-	integrationReadyFn    func() bool
-	ensureDNSForwardingFn func(ctx context.Context, suffix string) error
-	removeDNSForwardingFn func(ctx context.Context) error
-	openWanPortFn         func(ctx context.Context, port int, marker string) error
-	closeWanPortFn        func(ctx context.Context, port int, marker string) error
+	integrationReadyFn      func() bool
+	ensureDNSForwardingFn   func(ctx context.Context, suffix string) error
+	removeDNSForwardingFn   func(ctx context.Context) error
+	openWanPortFn           func(ctx context.Context, port int, marker string) error
+	closeWanPortFn          func(ctx context.Context, port int, marker string) error
 	restoreRulesWithRetryFn func(ctx context.Context, retries int, delay time.Duration)
 }
 
@@ -376,7 +377,7 @@ func TestGetSettings(t *testing.T) {
 			}
 			s.manifest = &mockSettingsManifest{
 				hasDNSPolicyFn: func(marker string) bool {
-					return marker == dnsMarkerTailscale
+					return marker == config.DNSMarkerTailscale
 				},
 			}
 		})

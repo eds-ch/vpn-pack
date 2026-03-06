@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"unifi-tailscale/manager/config"
 )
 
 type NginxManager struct {
@@ -15,8 +16,8 @@ type NginxManager struct {
 
 func NewNginxManager() *NginxManager {
 	return &NginxManager{
-		configSrc:  nginxConfigSrc,
-		configDest: nginxConfigDest,
+		configSrc:  config.NginxConfigSrc,
+		configDest: config.NginxConfigDest,
 	}
 }
 
@@ -31,11 +32,11 @@ func (m *NginxManager) EnsureConfig() error {
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(m.configDest), dirPerm); err != nil {
+	if err := os.MkdirAll(filepath.Dir(m.configDest), config.DirPerm); err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(m.configDest, src, configPerm); err != nil {
+	if err := os.WriteFile(m.configDest, src, config.ConfigPerm); err != nil {
 		return err
 	}
 

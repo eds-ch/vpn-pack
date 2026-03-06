@@ -15,10 +15,10 @@ import (
 // --- Mocks ---
 
 type mockTailscaleClient struct {
-	statusFn              func(ctx context.Context) (*ipnstate.Status, error)
-	editPrefsFn           func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error)
+	statusFn                func(ctx context.Context) (*ipnstate.Status, error)
+	editPrefsFn             func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error)
 	startLoginInteractiveFn func(ctx context.Context) error
-	logoutFn              func(ctx context.Context) error
+	logoutFn                func(ctx context.Context) error
 }
 
 func (m *mockTailscaleClient) Status(ctx context.Context) (*ipnstate.Status, error) {

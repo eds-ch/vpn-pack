@@ -9,6 +9,9 @@ import (
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 )
 
 type RoutingTailscale interface {
@@ -31,10 +34,7 @@ type RoutingManifest interface {
 	GetTailscaleChainPrefix() string
 }
 
-type RouteStatus struct {
-	CIDR     string `json:"cidr"`
-	Approved bool   `json:"approved"`
-}
+type RouteStatus = domain.RouteStatus
 
 type RoutesResponse struct {
 	Routes   []RouteStatus `json:"routes"`
@@ -191,7 +191,7 @@ func (svc *RoutingService) GetFirewallStatus(ctx context.Context, state Firewall
 		forward, input, output, ipset = svc.fw.CheckTailscaleRulesPresent(ctx)
 	}
 
-	chainPrefix := defaultChainPrefix
+	chainPrefix := config.DefaultChainPrefix
 	if svc.manifest != nil {
 		chainPrefix = svc.manifest.GetTailscaleChainPrefix()
 	}
@@ -231,7 +231,4 @@ func BuildRouteStatuses(routes []netip.Prefix, allowed map[string]bool) ([]Route
 	return result, isExit
 }
 
-const (
-	ErrMsgIntegrationKeyRequired = "Integration API key required before activating Tailscale"
-	defaultChainPrefix           = "VPN"
-)
+const ErrMsgIntegrationKeyRequired = "Integration API key required before activating Tailscale"

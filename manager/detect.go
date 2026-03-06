@@ -8,44 +8,30 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unifi-tailscale/manager/config"
 )
-
-type DeviceInfo struct {
-	Hostname         string   `json:"hostname"`
-	Model            string   `json:"model"`
-	ModelShort       string   `json:"modelShort"`
-	Firmware         string   `json:"firmware"`
-	UniFiVersion     string   `json:"unifiVersion"`
-	PackageVersion   string   `json:"packageVersion"`
-	TailscaleVersion string   `json:"tailscaleVersion"`
-	HasTUN           bool     `json:"hasTUN"`
-	HasUDAPISocket   bool     `json:"hasUDAPISocket"`
-	PersistentFree   int64    `json:"persistentFree"`
-	ActiveVPNClients []string `json:"activeVPNClients"`
-	Uptime           int64    `json:"uptime"`
-}
 
 func detectDevice() DeviceInfo {
 	info := DeviceInfo{}
 
 	info.Hostname, _ = os.Hostname()
-	info.Model = cmdOutput(deviceInfoCmd, "model")
+	info.Model = cmdOutput(config.DeviceInfoCmd, "model")
 	if info.Model == "" {
 		info.Model = readFileString("/sys/firmware/devicetree/base/model")
 	}
-	info.ModelShort = cmdOutput(deviceInfoCmd, "model_short")
-	info.Firmware = cmdOutput(deviceInfoCmd, "firmware")
+	info.ModelShort = cmdOutput(config.DeviceInfoCmd, "model_short")
+	info.Firmware = cmdOutput(config.DeviceInfoCmd, "firmware")
 	info.UniFiVersion = cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi")
 	if info.UniFiVersion == "" {
 		info.UniFiVersion = cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi-native")
 	}
-	info.PackageVersion = version
-	info.TailscaleVersion = tailscaleVersion
+	info.PackageVersion = config.Version
+	info.TailscaleVersion = config.TailscaleVersion
 
 	if _, err := os.Stat("/dev/net/tun"); err == nil {
 		info.HasTUN = true
 	}
-	if _, err := os.Stat(udapiSocketPath); err == nil {
+	if _, err := os.Stat(config.UDAPISocketPath); err == nil {
 		info.HasUDAPISocket = true
 	}
 
@@ -74,7 +60,7 @@ func detectVPNClients() []string {
 
 	var clients []string
 	for _, l := range links {
-		if strings.HasPrefix(l.IfName, vpnClientPrefix) {
+		if strings.HasPrefix(l.IfName, config.VPNClientPrefix) {
 			clients = append(clients, l.IfName)
 		}
 	}

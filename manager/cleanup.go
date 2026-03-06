@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
 )
@@ -16,7 +17,7 @@ import (
 func runCleanup() {
 	slog.Info("cleanup: removing UDAPI firewall rules and WG S2S interfaces")
 
-	uc := udapi.NewClient(udapiSocketPath)
+	uc := udapi.NewClient(config.UDAPISocketPath)
 
 	removeTailscaleUDAPIRules(uc)
 	removeWgS2sUDAPIRules(uc)
@@ -35,8 +36,8 @@ func runCleanup() {
 }
 
 func removeTailscaleUDAPIRules(uc *udapi.UDAPIClient) {
-	marker := firewallMarker
-	if err := udapi.RemoveInterfaceRules(uc, tailscaleInterface, marker); err != nil {
+	marker := config.FirewallMarker
+	if err := udapi.RemoveInterfaceRules(uc, config.TailscaleInterface, marker); err != nil {
 		slog.Warn("cleanup: tailscale UDAPI rules removal failed", "err", err)
 	} else {
 		slog.Info("cleanup: tailscale UDAPI rules removed")
@@ -74,20 +75,20 @@ func removeWgS2sInterfaces() {
 }
 
 func removeSubnetsEntries(uc *udapi.UDAPIClient) {
-	manifest, err := LoadManifest(manifestPath)
-	if err == nil && manifest.Tailscale.ChainPrefix != "" && manifest.Tailscale.ChainPrefix != defaultChainPrefix {
+	manifest, err := LoadManifest(config.ManifestPath)
+	if err == nil && manifest.Tailscale.ChainPrefix != "" && manifest.Tailscale.ChainPrefix != config.DefaultChainPrefix {
 		ipsetName := zoneIPSetName(manifest.Tailscale.ChainPrefix)
-		if err := udapi.RemoveZoneSubnet(uc, ipsetName, tailscaleCGNAT); err != nil {
+		if err := udapi.RemoveZoneSubnet(uc, ipsetName, config.TailscaleCGNAT); err != nil {
 			slog.Warn("cleanup: zone ipset entry removal failed", "ipset", ipsetName, "err", err)
 		} else {
-			slog.Info("cleanup: zone ipset entry removed", "ipset", ipsetName, "cidr", tailscaleCGNAT)
+			slog.Info("cleanup: zone ipset entry removed", "ipset", ipsetName, "cidr", config.TailscaleCGNAT)
 		}
 	}
 
-	if err := udapi.RemoveVPNSubnet(uc, tailscaleCGNAT); err != nil {
+	if err := udapi.RemoveVPNSubnet(uc, config.TailscaleCGNAT); err != nil {
 		slog.Warn("cleanup: VPN_subnets entry removal failed", "err", err)
 	} else {
-		slog.Info("cleanup: VPN_subnets entry removed", "cidr", tailscaleCGNAT)
+		slog.Info("cleanup: VPN_subnets entry removed", "cidr", config.TailscaleCGNAT)
 	}
 }
 
@@ -112,7 +113,7 @@ func removeIntegrationResources() {
 		return
 	}
 
-	manifest, err := LoadManifest(manifestPath)
+	manifest, err := LoadManifest(config.ManifestPath)
 	if err != nil {
 		slog.Warn("cleanup: cannot load manifest, skipping zone/policy cleanup", "err", err)
 		return

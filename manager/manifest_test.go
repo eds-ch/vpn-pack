@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"unifi-tailscale/manager/state"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -143,9 +145,9 @@ func TestWanPortCycle(t *testing.T) {
 func TestManifest_SetterPersistence(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		dir := t.TempDir()
-		m := &Manifest{path: filepath.Join(dir, "manifest.json"), Version: 2}
+		m := state.NewManifest(filepath.Join(dir, "manifest.json"))
 		require.NoError(t, m.SetSiteID("test-site"))
-		data, err := os.ReadFile(m.path)
+		data, err := os.ReadFile(m.Path())
 		require.NoError(t, err)
 		var loaded Manifest
 		require.NoError(t, json.Unmarshal(data, &loaded))
@@ -154,7 +156,7 @@ func TestManifest_SetterPersistence(t *testing.T) {
 	})
 
 	t.Run("unwritable path", func(t *testing.T) {
-		m := &Manifest{path: "/proc/nonexistent/manifest.json", Version: 2}
+		m := state.NewManifest("/proc/nonexistent/manifest.json")
 		err := m.SetSiteID("test-site")
 		assert.Error(t, err)
 	})
@@ -164,7 +166,7 @@ func TestManifest_AtomicPersistence(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "manifest.json")
 
-	m := &Manifest{path: path, Version: 2}
+	m := state.NewManifest(path)
 	require.NoError(t, m.SetSiteID("initial"))
 
 	require.NoError(t, m.SetSiteID("updated"))

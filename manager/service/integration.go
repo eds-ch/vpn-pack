@@ -9,6 +9,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 )
 
 var ErrUnauthorized = errors.New("unauthorized")
@@ -48,15 +51,7 @@ func (MemKeyStore) Delete() error     { return nil }
 
 // Types — exported for use in HTTP handlers and SSE state.
 
-type IntegrationStatus struct {
-	Configured bool   `json:"configured"`
-	Valid      bool   `json:"valid"`
-	SiteID     string `json:"siteId,omitempty"`
-	AppVersion string `json:"appVersion,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	ZBFEnabled *bool  `json:"zbfEnabled,omitempty"`
-}
+type IntegrationStatus = domain.IntegrationStatus
 
 type TestKeyResult struct {
 	OK         bool   `json:"ok"`
@@ -251,7 +246,7 @@ func (c *integrationCache) invalidate() {
 // --- File I/O ---
 
 func LoadAPIKey() string {
-	data, err := os.ReadFile(apiKeyPath)
+	data, err := os.ReadFile(config.APIKeyPath)
 	if err != nil {
 		return ""
 	}
@@ -260,14 +255,14 @@ func LoadAPIKey() string {
 
 // SaveAPIKey persists the API key to disk. Exported for use by fileKeyStore adapter in main package.
 func SaveAPIKey(key string) error {
-	if err := os.MkdirAll(filepath.Dir(apiKeyPath), dirPerm); err != nil {
+	if err := os.MkdirAll(filepath.Dir(config.APIKeyPath), config.DirPerm); err != nil {
 		return err
 	}
-	return os.WriteFile(apiKeyPath, []byte(key), secretPerm)
+	return os.WriteFile(config.APIKeyPath, []byte(key), config.SecretPerm)
 }
 
 func deleteAPIKey() error {
-	if err := os.Remove(apiKeyPath); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(config.APIKeyPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
@@ -278,11 +273,4 @@ func DeleteAPIKey() error {
 	return deleteAPIKey()
 }
 
-// --- Local constants (duplicated from consts.go for package isolation) ---
-
-const (
-	apiKeyPath = "/persistent/vpn-pack/config/api-key"
-	cacheTTL   = 30 * time.Second
-	dirPerm    = 0755
-	secretPerm = 0600
-)
+const cacheTTL = 30 * time.Second

@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/sse"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,12 +13,12 @@ import (
 
 func TestHub(t *testing.T) {
 	t.Run("CurrentState returns nil initially", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		assert.Nil(t, h.CurrentState())
 	})
 
 	t.Run("Subscribe returns channel and unsubscribe", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		ch, unsub, err := h.Subscribe()
 		require.NoError(t, err)
 		assert.NotNil(t, ch)
@@ -25,13 +27,13 @@ func TestHub(t *testing.T) {
 	})
 
 	t.Run("Broadcast stores state", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		h.Broadcast([]byte("hello"))
 		assert.Equal(t, []byte("hello"), h.CurrentState())
 	})
 
 	t.Run("Broadcast delivers to subscriber", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		ch, unsub, err := h.Subscribe()
 		require.NoError(t, err)
 		defer unsub()
@@ -47,7 +49,7 @@ func TestHub(t *testing.T) {
 	})
 
 	t.Run("Broadcast to 3 subscribers", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		channels := make([]chan sseMessage, 3)
 		unsubs := make([]func(), 3)
 		for i := 0; i < 3; i++ {
@@ -74,7 +76,7 @@ func TestHub(t *testing.T) {
 	})
 
 	t.Run("Unsubscribe then Broadcast", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		ch, unsub, err := h.Subscribe()
 		require.NoError(t, err)
 		unsub()
@@ -93,9 +95,9 @@ func TestHub(t *testing.T) {
 	})
 
 	t.Run("max clients limit", func(t *testing.T) {
-		h := NewHub()
-		unsubs := make([]func(), 0, maxSSEClients)
-		for i := 0; i < maxSSEClients; i++ {
+		h := sse.NewHub()
+		unsubs := make([]func(), 0, config.MaxSSEClients)
+		for i := 0; i < config.MaxSSEClients; i++ {
 			_, unsub, err := h.Subscribe()
 			require.NoError(t, err, "subscribe %d", i)
 			unsubs = append(unsubs, unsub)
@@ -110,7 +112,7 @@ func TestHub(t *testing.T) {
 	})
 
 	t.Run("concurrent subscribe and broadcast", func(t *testing.T) {
-		h := NewHub()
+		h := sse.NewHub()
 		var wg sync.WaitGroup
 		for i := 0; i < 20; i++ {
 			wg.Add(1)

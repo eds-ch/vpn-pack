@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/service"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"unifi-tailscale/manager/service"
 )
 
 func TestWriteJSON(t *testing.T) {
@@ -70,15 +72,15 @@ func TestWriteJSON(t *testing.T) {
 func newTestServer(opts ...func(*Server)) *Server {
 	hub := &mockSSEHub{}
 	s := &Server{
-		ts:         &mockTailscaleControl{},
-		hub:        hub,
-		state:      &TailscaleState{data: stateData{BackendState: "Unavailable"}},
-		fw:         &mockFirewallService{},
-		ic:         &mockIntegrationAPI{},
-		manifest:   &mockManifestStore{},
-		logBuf:     NewLogBuffer(100),
-		updater:    &updateChecker{current: "1.0.0-test", httpClient: &http.Client{}},
-		health:     NewHealthTracker(hub),
+		ts:       &mockTailscaleControl{},
+		hub:      hub,
+		state:    domain.NewTailscaleState(),
+		fw:       &mockFirewallService{},
+		ic:       &mockIntegrationAPI{},
+		manifest: &mockManifestStore{},
+		logBuf:   NewLogBuffer(100),
+		updater:  &updateChecker{current: "1.0.0-test", httpClient: &http.Client{}},
+		health:   NewHealthTracker(hub),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -177,10 +179,10 @@ func TestRouteRegistration(t *testing.T) {
 
 func TestHandleStatusWithMocks(t *testing.T) {
 	s := newTestServer()
-	s.state.mu.Lock()
-	s.state.data.BackendState = "Running"
-	s.state.data.TailscaleIPs = []string{"100.64.0.1"}
-	s.state.mu.Unlock()
+	s.state.Lock()
+	s.state.Data().BackendState = "Running"
+	s.state.Data().TailscaleIPs = []string{"100.64.0.1"}
+	s.state.Unlock()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	w := httptest.NewRecorder()

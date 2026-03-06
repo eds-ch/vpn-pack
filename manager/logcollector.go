@@ -7,63 +7,13 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
+
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/state"
 )
 
-type logEntry struct {
-	Timestamp string `json:"timestamp"`
-	Level     string `json:"level"`
-	Message   string `json:"message"`
-	Source    string `json:"source,omitempty"`
-}
-
-func newLogEntry(level, message, source string) logEntry {
-	return logEntry{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Level:     level,
-		Message:   message,
-		Source:    source,
-	}
-}
-
-type LogBuffer struct {
-	mu      sync.Mutex
-	entries []logEntry
-	head    int
-	count   int
-	maxSize int
-}
-
-func NewLogBuffer(maxSize int) *LogBuffer {
-	return &LogBuffer{
-		entries: make([]logEntry, maxSize),
-		maxSize: maxSize,
-	}
-}
-
-func (lb *LogBuffer) Add(e logEntry) {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	lb.entries[lb.head] = e
-	lb.head = (lb.head + 1) % lb.maxSize
-	if lb.count < lb.maxSize {
-		lb.count++
-	}
-}
-
-func (lb *LogBuffer) Snapshot() []logEntry {
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
-	out := make([]logEntry, lb.count)
-	for i := range lb.count {
-		idx := (lb.head - 1 - i + lb.maxSize) % lb.maxSize
-		out[i] = lb.entries[idx]
-	}
-	return out
-}
-
-func runLogCollector(ctx context.Context, ts TailscaleControl, buf *LogBuffer) {
+func runLogCollector(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) {
 	for {
 		if ctx.Err() != nil {
 			return
@@ -77,12 +27,12 @@ func runLogCollector(ctx context.Context, ts TailscaleControl, buf *LogBuffer) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(logReconnectDelay):
+		case <-time.After(config.LogReconnectDelay):
 		}
 	}
 }
 
-func tailLogs(ctx context.Context, ts TailscaleControl, buf *LogBuffer) error {
+func tailLogs(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) error {
 	reader, err := ts.TailDaemonLogs(ctx)
 	if err != nil {
 		return err
@@ -105,7 +55,7 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *LogBuffer) error {
 			} `json:"logtail"`
 		}
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
-			buf.Add(newLogEntry("info", line, ""))
+			buf.Add(state.NewLogEntry("info", line, ""))
 			continue
 		}
 
@@ -127,7 +77,7 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *LogBuffer) error {
 			level = "warn"
 		}
 
-		buf.Add(logEntry{
+		buf.Add(state.LogEntry{
 			Timestamp: ts,
 			Level:     level,
 			Message:   text,

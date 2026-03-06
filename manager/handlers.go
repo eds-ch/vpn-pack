@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/internal/wgs2s"
 	"unifi-tailscale/manager/service"
 )
@@ -59,7 +60,7 @@ func writeOK(w http.ResponseWriter) {
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
@@ -107,12 +108,12 @@ func writeWgS2sError(w http.ResponseWriter, err error) {
 }
 
 func isUDAPIReachable() bool {
-	_, err := os.Stat(udapiSocketPath)
+	_, err := os.Stat(config.UDAPISocketPath)
 	return err == nil
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.state.snapshot())
+	writeJSON(w, http.StatusOK, s.state.Snapshot())
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

@@ -15,6 +15,9 @@ import (
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 )
 
 // Dependency interfaces — minimal subsets, satisfied by concrete types via duck typing.
@@ -50,18 +53,7 @@ type SettingsNotifier interface {
 
 // Types — exported for use in HTTP handlers and SSE state.
 
-type SettingsFields struct {
-	Hostname             string   `json:"hostname"`
-	AcceptDNS            bool     `json:"acceptDNS"`
-	AcceptRoutes         bool     `json:"acceptRoutes"`
-	ShieldsUp            bool     `json:"shieldsUp"`
-	RunSSH               bool     `json:"runSSH"`
-	NoSNAT               bool     `json:"noSNAT"`
-	UDPPort              int      `json:"udpPort"`
-	RelayServerPort      *uint16  `json:"relayServerPort"`
-	RelayServerEndpoints string   `json:"relayServerEndpoints"`
-	AdvertiseTags        []string `json:"advertiseTags"`
-}
+type SettingsFields = domain.SettingsFields
 
 type SettingsResponse struct {
 	SettingsFields
@@ -159,7 +151,7 @@ func (svc *SettingsService) GetSettings(ctx context.Context) (*SettingsResponse,
 		return nil, upstreamError(humanizeLocalAPIError(err), err)
 	}
 	resp := ToSettingsResponse(prefs)
-	resp.AcceptDNS = svc.manifest != nil && svc.manifest.HasDNSPolicy(dnsMarkerTailscale)
+	resp.AcceptDNS = svc.manifest != nil && svc.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
 	return &resp, nil
 }
 
@@ -205,7 +197,7 @@ func (svc *SettingsService) SetSettings(ctx context.Context, req *SettingsReques
 	svc.updateRelayPortRules(ctx, req.RelayServerPort, old.relayPort)
 	svc.updateTailscaleWgPortRules(ctx, req.UDPPort)
 
-	acceptDNSEnabled := svc.manifest != nil && svc.manifest.HasDNSPolicy(dnsMarkerTailscale)
+	acceptDNSEnabled := svc.manifest != nil && svc.manifest.HasDNSPolicy(config.DNSMarkerTailscale)
 
 	resp := ToSettingsResponse(updated)
 	resp.AcceptDNS = acceptDNSEnabled
@@ -257,14 +249,14 @@ func (svc *SettingsService) validate(ctx context.Context, req *SettingsRequest) 
 
 	if req.UDPPort != nil {
 		port := *req.UDPPort
-		if port < 1 || port > maxPort {
+		if port < 1 || port > config.MaxPort {
 			return nil, validationError("UDP port must be between 1 and 65535")
 		}
 	}
 
 	if req.RelayServerPort != nil {
 		port := *req.RelayServerPort
-		if port < -1 || port > maxPort {
+		if port < -1 || port > config.MaxPort {
 			return nil, validationError("Relay server port must be between 0 and 65535, or -1 to disable")
 		}
 	}
@@ -382,18 +374,18 @@ func (svc *SettingsService) updateRelayPortRules(ctx context.Context, newRelayPo
 	if oldRelayPort != nil {
 		oldPort = int(*oldRelayPort)
 	}
-	svc.swapWanPort(ctx, oldPort, *newRelayPort, wanMarkerRelay)
+	svc.swapWanPort(ctx, oldPort, *newRelayPort, config.WanMarkerRelay)
 }
 
 func (svc *SettingsService) updateTailscaleWgPortRules(ctx context.Context, newPort *int) {
 	if newPort == nil || svc.ic == nil || !svc.ic.HasAPIKey() {
 		return
 	}
-	currentPort, _ := svc.manifest.WanPort(wanMarkerTailscaleWG)
+	currentPort, _ := svc.manifest.WanPort(config.WanMarkerTailscaleWG)
 	if currentPort == *newPort {
 		return
 	}
-	svc.swapWanPort(ctx, currentPort, *newPort, wanMarkerTailscaleWG)
+	svc.swapWanPort(ctx, currentPort, *newPort, config.WanMarkerTailscaleWG)
 }
 
 // --- Exported pure functions ---
@@ -516,26 +508,26 @@ func ReadTailscaledPort() int {
 }
 
 func readPortFromFile() int {
-	data, err := os.ReadFile(tailscaledDefaultsPath)
+	data, err := os.ReadFile(config.TailscaledDefaultsPath)
 	if err != nil {
-		return defaultTailscalePort
+		return config.DefaultTailscalePort
 	}
 	m := portRe.FindSubmatch(data)
 	if m == nil {
-		return defaultTailscalePort
+		return config.DefaultTailscalePort
 	}
 	port, err := strconv.Atoi(string(m[1]))
-	if err != nil || port < 1 || port > maxPort {
-		return defaultTailscalePort
+	if err != nil || port < 1 || port > config.MaxPort {
+		return config.DefaultTailscalePort
 	}
 	return port
 }
 
 func WriteTailscaledPort(port int) error {
-	data, err := os.ReadFile(tailscaledDefaultsPath)
+	data, err := os.ReadFile(config.TailscaledDefaultsPath)
 	if err != nil {
 		data = []byte(fmt.Sprintf("PORT=\"%d\"\nFLAGS=\"\"\n", port))
-		if err := os.WriteFile(tailscaledDefaultsPath, data, configPerm); err != nil {
+		if err := os.WriteFile(config.TailscaledDefaultsPath, data, config.ConfigPerm); err != nil {
 			return err
 		}
 		cachedTailscaledPort.Store(&port)
@@ -548,7 +540,7 @@ func WriteTailscaledPort(port int) error {
 	} else {
 		content = newLine + "\n" + strings.TrimRight(content, "\n") + "\n"
 	}
-	if err := os.WriteFile(tailscaledDefaultsPath, []byte(content), configPerm); err != nil {
+	if err := os.WriteFile(config.TailscaledDefaultsPath, []byte(content), config.ConfigPerm); err != nil {
 		return err
 	}
 	cachedTailscaledPort.Store(&port)
@@ -618,15 +610,3 @@ func humanizeLocalAPIError(err error) string {
 		return fmt.Sprintf("Tailscale error: %s. If this persists, check logs: journalctl -u tailscaled -n 50", msg)
 	}
 }
-
-// --- Local constants (duplicated from consts.go for package isolation) ---
-
-const (
-	dnsMarkerTailscale     = "tailscale-dns"
-	wanMarkerTailscaleWG   = "tailscale-wg"
-	wanMarkerRelay         = "relay-server"
-	defaultTailscalePort   = 41641
-	maxPort                = 65535
-	tailscaledDefaultsPath = "/persistent/vpn-pack/tailscaled.defaults"
-	configPerm             = 0644
-)

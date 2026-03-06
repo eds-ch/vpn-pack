@@ -132,4 +132,3 @@ func HasMarkerRule(c *UDAPIClient, chain, marker string) (bool, error) {
 	}
 	return false, nil
 }
-

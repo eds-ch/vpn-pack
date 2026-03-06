@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/service"
+	"unifi-tailscale/manager/sse"
+	"unifi-tailscale/manager/state"
 )
 
 func main() {
@@ -21,7 +23,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("vpn-pack %s (tailscale %s, commit: %s, built: %s)\n", version, tailscaleVersion, gitCommit, buildDate)
+		fmt.Printf("vpn-pack %s (tailscale %s, commit: %s, built: %s)\n", config.Version, config.TailscaleVersion, config.GitCommit, config.BuildDate)
 		os.Exit(0)
 	}
 
@@ -32,7 +34,7 @@ func main() {
 		return
 	}
 
-	slog.Info("starting vpn-pack", "version", version, "tailscale", tailscaleVersion, "commit", gitCommit, "buildDate", buildDate)
+	slog.Info("starting vpn-pack", "version", config.Version, "tailscale", config.TailscaleVersion, "commit", config.GitCommit, "buildDate", config.BuildDate)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -57,10 +59,10 @@ func main() {
 	apiKey := service.LoadAPIKey()
 	ic := NewIntegrationClient(apiKey)
 
-	manifest, err := LoadManifest(manifestPath)
+	manifest, err := LoadManifest(config.ManifestPath)
 	if err != nil {
 		slog.Warn("manifest load failed", "err", err)
-		manifest = &Manifest{path: manifestPath, Version: 2, CreatedAt: time.Now().UTC()}
+		manifest = state.NewManifest(config.ManifestPath)
 	}
 
 	srv := NewServer(ctx, ServerOptions{
@@ -68,12 +70,12 @@ func main() {
 		SocketPath:  *socket,
 		DeviceInfo:  info,
 		Tailscale:   NewTailscaleControl(*socket),
-		Hub:         NewHub(),
+		Hub:         sse.NewHub(),
 		Manifest:    manifest,
 		Integration: ic,
-		Firewall:    NewFirewallManager(udapiSocketPath, ic, manifest),
+		Firewall:    NewFirewallManager(config.UDAPISocketPath, ic, manifest),
 		Nginx:       NewNginxManager(),
-		LogBuf:      NewLogBuffer(logBufferSize),
+		LogBuf:      NewLogBuffer(config.LogBufferSize),
 		Updater:     newUpdateChecker(),
 	})
 

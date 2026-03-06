@@ -47,7 +47,6 @@ func TestBufferHandlerHandle(t *testing.T) {
 	assert.Equal(t, "manager", snap[0].Source)
 }
 
-
 func TestBufferHandlerHandleSkipsDebug(t *testing.T) {
 	buf := NewLogBuffer(10)
 	h := newBufferHandler(buf, "test", nil)
