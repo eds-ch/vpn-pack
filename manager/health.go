@@ -30,7 +30,8 @@ type HealthSnapshot struct {
 type watcherEntry struct {
 	status         WatcherStatus
 	lastSuccess    time.Time
-	reconnectCount int
+	errorCount     int
+	retryCount     int
 	lastError      string
 	degradedReason string
 	lastRetry      time.Time
@@ -40,7 +41,7 @@ type HealthTracker struct {
 	mu       sync.RWMutex
 	watchers map[string]*watcherEntry
 	hub      SSEHub
-	last     []byte
+	lastKey  string
 }
 
 func NewHealthTracker(hub SSEHub) *HealthTracker {
@@ -59,7 +60,8 @@ func (ht *HealthTracker) RecordSuccess(name string) {
 	e.lastSuccess = time.Now()
 	e.lastError = ""
 	e.degradedReason = ""
-	e.reconnectCount = 0
+	e.errorCount = 0
+	e.retryCount = 0
 	ht.broadcastIfChanged()
 }
 
@@ -70,7 +72,7 @@ func (ht *HealthTracker) RecordError(name string, err error) {
 	e := ht.getOrCreate(name)
 	e.status = StatusUnhealthy
 	e.lastError = err.Error()
-	e.reconnectCount++
+	e.errorCount++
 	ht.broadcastIfChanged()
 }
 
@@ -116,7 +118,7 @@ func (ht *HealthTracker) ShouldRetry(name string) bool {
 	if e.status == StatusDegraded {
 		return false
 	}
-	iv := retryInterval(e.reconnectCount)
+	iv := retryInterval(e.retryCount)
 	return iv == 0 || time.Since(e.lastRetry) >= iv
 }
 
@@ -126,7 +128,7 @@ func (ht *HealthTracker) RecordRetryAttempt(name string) {
 
 	e := ht.getOrCreate(name)
 	e.lastRetry = time.Now()
-	e.reconnectCount++
+	e.retryCount++
 }
 
 func (ht *HealthTracker) ResetRetries(name string) {
@@ -134,7 +136,7 @@ func (ht *HealthTracker) ResetRetries(name string) {
 	defer ht.mu.Unlock()
 
 	if e, ok := ht.watchers[name]; ok {
-		e.reconnectCount = 0
+		e.retryCount = 0
 	}
 }
 
@@ -143,7 +145,7 @@ func (ht *HealthTracker) RetryCount(name string) int {
 	defer ht.mu.RUnlock()
 
 	if e, ok := ht.watchers[name]; ok {
-		return e.reconnectCount
+		return e.retryCount
 	}
 	return 0
 }
@@ -187,7 +189,7 @@ func (ht *HealthTracker) snapshotLocked() HealthSnapshot {
 	for name, e := range ht.watchers {
 		wh := WatcherHealth{
 			Status:         e.status,
-			ReconnectCount: e.reconnectCount,
+			ReconnectCount: e.errorCount,
 			LastError:      e.lastError,
 			DegradedReason: e.degradedReason,
 		}
@@ -207,20 +209,35 @@ func (ht *HealthTracker) snapshotLocked() HealthSnapshot {
 }
 
 func (ht *HealthTracker) broadcastIfChanged() {
+	key := ht.statusFingerprint()
+	if key == ht.lastKey {
+		return
+	}
+	ht.lastKey = key
+
 	snap := ht.snapshotLocked()
 	data, err := json.Marshal(snap)
 	if err != nil {
 		return
 	}
-
-	if ht.last != nil && string(data) == string(ht.last) {
-		return
-	}
-	ht.last = data
-
 	if ht.hub != nil {
 		ht.hub.BroadcastNamed("health", data)
 	}
+}
+
+func (ht *HealthTracker) statusFingerprint() string {
+	type entry struct {
+		S WatcherStatus `json:"s"`
+		E int           `json:"e"`
+		R string        `json:"r,omitempty"`
+		D string        `json:"d,omitempty"`
+	}
+	m := make(map[string]entry, len(ht.watchers))
+	for name, e := range ht.watchers {
+		m[name] = entry{S: e.status, E: e.errorCount, R: e.lastError, D: e.degradedReason}
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 func retryInterval(count int) time.Duration {

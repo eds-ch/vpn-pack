@@ -177,7 +177,6 @@ func (s *Server) retryIntegrationSetup(ctx context.Context) {
 	}
 
 	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.health.RetryCount("firewall"))
-	s.health.ResetRetries("firewall")
 	s.health.RecordSuccess("firewall")
 
 	s.openTailscaleWanPort(ctx)

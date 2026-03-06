@@ -163,6 +163,23 @@ func TestRetryCount(t *testing.T) {
 	assert.Equal(t, 0, ht.RetryCount("firewall"))
 }
 
+func TestErrorCountAndRetryCountSeparate(t *testing.T) {
+	ht := NewHealthTracker(&mockSSEHub{})
+
+	ht.RecordError("firewall", fmt.Errorf("fail"))
+	ht.RecordError("firewall", fmt.Errorf("fail again"))
+	assert.Equal(t, 0, ht.RetryCount("firewall"), "RecordError must not affect RetryCount")
+	assert.Equal(t, 2, ht.Snapshot().Watchers["firewall"].ReconnectCount, "RecordError increments display count")
+
+	ht.RecordRetryAttempt("firewall")
+	assert.Equal(t, 1, ht.RetryCount("firewall"), "RecordRetryAttempt increments RetryCount")
+	assert.Equal(t, 2, ht.Snapshot().Watchers["firewall"].ReconnectCount, "RecordRetryAttempt must not affect display count")
+
+	ht.RecordSuccess("firewall")
+	assert.Equal(t, 0, ht.RetryCount("firewall"), "RecordSuccess resets RetryCount")
+	assert.Equal(t, 0, ht.Snapshot().Watchers["firewall"].ReconnectCount, "RecordSuccess resets display count")
+}
+
 func TestBroadcastOnChange(t *testing.T) {
 	var broadcasts int
 	var lastEvent string
@@ -194,9 +211,9 @@ func TestNoBroadcastWhenUnchanged(t *testing.T) {
 	ht.RecordSuccess("firewall")
 	assert.Equal(t, 1, broadcasts)
 
-	// Second RecordSuccess with same state — lastSuccess changes but status is same.
-	// Due to time change in LastSuccess, this will broadcast again. That's expected.
-	// But calling ClearDegraded on healthy watcher should NOT broadcast.
+	ht.RecordSuccess("firewall")
+	assert.Equal(t, 1, broadcasts, "repeated RecordSuccess with same status should not broadcast")
+
 	ht.ClearDegraded("firewall")
 	assert.Equal(t, 1, broadcasts, "ClearDegraded on healthy watcher should not broadcast")
 }
