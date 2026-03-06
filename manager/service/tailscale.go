@@ -29,7 +29,7 @@ func NewTailscaleService(ts TailscaleClient, fw TailscaleFirewall) *TailscaleSer
 
 func (svc *TailscaleService) Activate(ctx context.Context) error {
 	if !svc.integrationReady() {
-		return &Error{Kind: ErrPrecondition, Message: ErrMsgIntegrationKeyRequired}
+		return preconditionError(ErrMsgIntegrationKeyRequired)
 	}
 
 	st, err := svc.ts.Status(ctx)
@@ -70,7 +70,7 @@ func (svc *TailscaleService) Deactivate(ctx context.Context) error {
 
 func (svc *TailscaleService) Login(ctx context.Context) error {
 	if !svc.integrationReady() {
-		return &Error{Kind: ErrPrecondition, Message: ErrMsgIntegrationKeyRequired}
+		return preconditionError(ErrMsgIntegrationKeyRequired)
 	}
 
 	if err := svc.disableCorpDNS(ctx); err != nil {

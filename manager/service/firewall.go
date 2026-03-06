@@ -78,6 +78,7 @@ func (r *SetupResult) addError(step string, err error) {
 
 // --- FirewallOrchestrator ---
 
+// Duplicated in manager/firewall.go — different packages, can't share.
 var errIntegrationNotConfigured = errors.New("integration API not configured")
 
 type FirewallOrchestrator struct {

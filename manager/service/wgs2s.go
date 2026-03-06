@@ -312,7 +312,7 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 func (svc *WgS2sService) DeleteTunnel(ctx context.Context, id string) error {
 	t := svc.findTunnelByID(id)
 	if t == nil {
-		return &Error{Kind: ErrNotFound, Message: "tunnel not found"}
+		return notFoundError("tunnel not found")
 	}
 
 	if err := svc.wg.DeleteTunnel(id); err != nil {
@@ -328,7 +328,7 @@ func (svc *WgS2sService) DeleteTunnel(ctx context.Context, id string) error {
 
 func (svc *WgS2sService) EnableTunnel(ctx context.Context, id string) (*EnableTunnelResponse, error) {
 	if svc.findTunnelByID(id) == nil {
-		return nil, &Error{Kind: ErrNotFound, Message: "tunnel not found"}
+		return nil, notFoundError("tunnel not found")
 	}
 	if err := svc.wg.EnableTunnel(id); err != nil {
 		return nil, upstreamError(humanizeWgS2sError(err), err)
@@ -355,7 +355,7 @@ func (svc *WgS2sService) EnableTunnel(ctx context.Context, id string) (*EnableTu
 func (svc *WgS2sService) DisableTunnel(ctx context.Context, id string) error {
 	t := svc.findTunnelByID(id)
 	if t == nil {
-		return &Error{Kind: ErrNotFound, Message: "tunnel not found"}
+		return notFoundError("tunnel not found")
 	}
 
 	if err := svc.wg.DisableTunnel(id); err != nil {
@@ -380,7 +380,7 @@ func (svc *WgS2sService) GenerateKeypair() (*Keypair, error) {
 func (svc *WgS2sService) GetConfig(_ context.Context, id string) (string, error) {
 	tunnel := svc.findTunnelByID(id)
 	if tunnel == nil {
-		return "", &Error{Kind: ErrNotFound, Message: "tunnel not found"}
+		return "", notFoundError("tunnel not found")
 	}
 
 	pubKey, err := svc.wg.GetPublicKey(id)

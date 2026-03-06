@@ -153,7 +153,7 @@ func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest,
 
 func (svc *RoutingService) ActivateWithKey(ctx context.Context, authKey string) error {
 	if svc.fw == nil || !svc.fw.IntegrationReady() {
-		return &Error{Kind: ErrPrecondition, Message: ErrMsgIntegrationKeyRequired}
+		return preconditionError(ErrMsgIntegrationKeyRequired)
 	}
 
 	if authKey == "" {
@@ -230,5 +230,3 @@ func BuildRouteStatuses(routes []netip.Prefix, allowed map[string]bool) ([]Route
 	}
 	return result, isExit
 }
-
-const ErrMsgIntegrationKeyRequired = "Integration API key required before activating Tailscale"

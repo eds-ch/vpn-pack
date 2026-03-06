@@ -17,6 +17,7 @@ import (
 	"unifi-tailscale/manager/udapi"
 )
 
+// Duplicated in service/firewall.go — different packages, can't share.
 var errIntegrationNotConfigured = errors.New("integration API not configured")
 
 type FirewallManager struct {
