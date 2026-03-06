@@ -100,6 +100,7 @@ func (s *Server) runWatcher(ctx context.Context) {
 				return
 			}
 			slog.Warn("watcher disconnected, reconnecting", "err", err)
+			s.health.RecordError("tailscale", err)
 			s.setUnavailable()
 			select {
 			case <-ctx.Done():
@@ -141,13 +142,13 @@ func (s *Server) handleAPIKeyExpiry(ctx context.Context, status *service.Integra
 	s.ic.SetAPIKey("")
 	_ = service.DeleteAPIKey()
 	_ = s.manifest.ResetIntegration()
-	s.intRetry.markDegraded()
+	s.health.SetDegraded("firewall", "key_expired")
 	s.integration.InvalidateCache()
 	return s.integration.GetStatus(ctx)
 }
 
 func (s *Server) repairMissingPolicies(ctx context.Context, status *service.IntegrationStatus) *service.IntegrationStatus {
-	if status == nil || status.ZBFEnabled == nil || !*status.ZBFEnabled || s.intRetry.isDegraded() {
+	if status == nil || status.ZBFEnabled == nil || !*status.ZBFEnabled || s.health.IsDegraded("firewall") {
 		return status
 	}
 	ts := s.manifest.GetTailscaleZone()
@@ -157,7 +158,7 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *service.Inte
 	slog.Info("ZBF enabled but policies missing, retrying firewall setup")
 	if result := s.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
 		slog.Warn("firewall setup retry failed, will not retry until restart", "err", result.Err())
-		s.intRetry.markDegraded()
+		s.health.SetDegraded("firewall", "setup_failed")
 	} else {
 		s.openTailscaleWanPort(ctx)
 	}
@@ -186,6 +187,7 @@ func (s *Server) watchLoop(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = watcher.Close() }()
+	s.health.RecordSuccess("tailscale")
 
 	for {
 		n, err := watcher.Next()

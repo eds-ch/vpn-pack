@@ -30,6 +30,7 @@ let status = $state({
     relayServerPort: null,
     relayServerEndpoints: '',
     advertiseTags: [],
+    watcherHealth: null,
 });
 
 let errors = $state([]);
@@ -167,6 +168,14 @@ export function connect() {
             updateInfo.dismissed = false;
         } catch (e) {
             addLog('error', `Failed to parse update event: ${e.message}`);
+        }
+    });
+
+    eventSource.addEventListener('health', (event) => {
+        try {
+            status.watcherHealth = JSON.parse(event.data);
+        } catch (e) {
+            addLog('error', `Failed to parse health event: ${e.message}`);
         }
     });
 

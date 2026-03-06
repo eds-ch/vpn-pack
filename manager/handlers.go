@@ -115,6 +115,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.state.snapshot())
 }
 
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.health.Snapshot())
+}
+
 func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	s.vpnClientsMu.Lock()
 	info := s.deviceInfo

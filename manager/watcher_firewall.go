@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -19,43 +18,6 @@ func interfaceExists(name string) bool {
 	return err == nil
 }
 
-type integrationRetryState struct {
-	degraded   atomic.Bool
-	retryCount int
-	lastRetry  time.Time
-}
-
-func (r *integrationRetryState) isDegraded() bool  { return r.degraded.Load() }
-func (r *integrationRetryState) markDegraded()      { r.degraded.Store(true) }
-func (r *integrationRetryState) clearDegraded()     { r.degraded.Store(false) }
-
-func (r *integrationRetryState) interval() time.Duration {
-	switch r.retryCount {
-	case 0:
-		return 0
-	case 1:
-		return 5 * time.Second
-	default:
-		return 10 * time.Second
-	}
-}
-
-func (r *integrationRetryState) shouldRetry() bool {
-	if r.degraded.Load() {
-		return false
-	}
-	iv := r.interval()
-	return iv == 0 || time.Since(r.lastRetry) >= iv
-}
-
-func (r *integrationRetryState) recordAttempt() {
-	r.lastRetry = time.Now()
-	r.retryCount++
-}
-
-func (r *integrationRetryState) reset() { r.retryCount = 0 }
-func (r *integrationRetryState) count() int { return r.retryCount }
-
 func (s *Server) runFirewallWatcher(ctx context.Context) {
 	sighup := make(chan os.Signal, 1)
 	signal.Notify(sighup, syscall.SIGHUP)
@@ -66,6 +28,7 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 
 	debounced := s.startInotifyWatcher(ctx)
 	s.watcherRunning.Store(true)
+	s.health.RecordSuccess("firewall")
 	defer s.watcherRunning.Store(false)
 
 	for {
@@ -191,20 +154,20 @@ func (s *Server) retryIntegrationSetup(ctx context.Context) {
 
 	ts := s.manifest.GetTailscaleZone()
 	if ts.ZoneID != "" {
-		s.intRetry.reset()
+		s.health.ResetRetries("firewall")
 		return
 	}
 
-	if !s.intRetry.shouldRetry() {
+	if !s.health.ShouldRetry("firewall") {
 		return
 	}
-	s.intRetry.recordAttempt()
+	s.health.RecordRetryAttempt("firewall")
 
-	slog.Info("retrying integration zone/policy setup", "attempt", s.intRetry.count())
+	slog.Info("retrying integration zone/policy setup", "attempt", s.health.RetryCount("firewall"))
 
 	result := s.fwOrch.SetupTailscaleFirewall(ctx)
 	if result.Err() != nil {
-		slog.Warn("integration setup retry failed", "attempt", s.intRetry.count(), "err", result.Err())
+		slog.Warn("integration setup retry failed", "attempt", s.health.RetryCount("firewall"), "err", result.Err())
 		return
 	}
 
@@ -213,8 +176,9 @@ func (s *Server) retryIntegrationSetup(ctx context.Context) {
 		return
 	}
 
-	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.intRetry.count())
-	s.intRetry.reset()
+	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.health.RetryCount("firewall"))
+	s.health.ResetRetries("firewall")
+	s.health.RecordSuccess("firewall")
 
 	s.openTailscaleWanPort(ctx)
 }
@@ -223,7 +187,7 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 	if !s.integrationReady() {
 		return
 	}
-	if s.intRetry.isDegraded() {
+	if s.health.IsDegraded("firewall") {
 		return
 	}
 	if !interfaceExists(tailscaleInterface) {
@@ -260,19 +224,21 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 
 	if err := s.fw.RestoreTailscaleRules(ctx); err != nil {
 		slog.Warn("firewall restore failed", "err", err)
+		s.health.RecordError("firewall", err)
 		return
 	}
 
 	t := time.Now()
 	s.lastRestore.Store(&t)
 	slog.Info("firewall rules restored")
+	s.health.RecordSuccess("firewall")
 }
 
 func (s *Server) restoreWgS2sRules(ctx context.Context) {
 	if s.wgManager == nil {
 		return
 	}
-	if s.intRetry.isDegraded() {
+	if s.health.IsDegraded("firewall") {
 		return
 	}
 
@@ -305,7 +271,7 @@ func (s *Server) restoreWgS2sRules(ctx context.Context) {
 }
 
 func (s *Server) reconcileWanPortPolicies(ctx context.Context) {
-	if s.intRetry.isDegraded() {
+	if s.health.IsDegraded("firewall") {
 		return
 	}
 	wanPorts := s.manifest.GetWanPortsSnapshot()

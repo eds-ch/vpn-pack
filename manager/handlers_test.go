@@ -883,3 +883,23 @@ func TestReadJSONInvalidBody(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func TestHandleHealth(t *testing.T) {
+	s := newTestServer()
+	s.health.RecordSuccess("tailscale")
+	s.health.SetDegraded("firewall", "key_expired")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	w := httptest.NewRecorder()
+	s.handleHealth(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var snap HealthSnapshot
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snap))
+	assert.Equal(t, StatusDegraded, snap.Status)
+	assert.Contains(t, snap.Watchers, "tailscale")
+	assert.Contains(t, snap.Watchers, "firewall")
+	assert.Equal(t, StatusHealthy, snap.Watchers["tailscale"].Status)
+	assert.Equal(t, StatusDegraded, snap.Watchers["firewall"].Status)
+	assert.Equal(t, "key_expired", snap.Watchers["firewall"].DegradedReason)
+}

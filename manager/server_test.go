@@ -68,15 +68,17 @@ func TestWriteJSON(t *testing.T) {
 }
 
 func newTestServer(opts ...func(*Server)) *Server {
+	hub := &mockSSEHub{}
 	s := &Server{
 		ts:         &mockTailscaleControl{},
-		hub:        &mockSSEHub{},
+		hub:        hub,
 		state:      &TailscaleState{data: stateData{BackendState: "Unavailable"}},
 		fw:         &mockFirewallService{},
 		ic:         &mockIntegrationAPI{},
 		manifest:   &mockManifestStore{},
 		logBuf:     NewLogBuffer(100),
 		updater:    &updateChecker{current: "1.0.0-test", httpClient: &http.Client{}},
+		health:     NewHealthTracker(hub),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -126,6 +128,7 @@ func TestRouteRegistration(t *testing.T) {
 		path   string
 	}{
 		{"GET", "/api/status"},
+		{"GET", "/api/health"},
 		{"POST", "/api/tailscale/up"},
 		{"POST", "/api/tailscale/down"},
 		{"POST", "/api/tailscale/login"},

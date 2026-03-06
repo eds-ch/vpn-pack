@@ -47,7 +47,7 @@ type Server struct {
 	watcherRunning atomic.Bool
 	lastRestore    atomic.Pointer[time.Time]
 	restoring      atomic.Bool
-	intRetry       integrationRetryState
+	health         *HealthTracker
 	logBuf         *LogBuffer
 	wgManager      WgS2sControl
 	vpnClientsMu   sync.Mutex
@@ -73,6 +73,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		nginx:      opts.Nginx,
 		logBuf:     opts.LogBuf,
 		updater:    opts.Updater,
+		health:     NewHealthTracker(opts.Hub),
 	}
 	s.settings = service.NewSettingsService(
 		opts.Tailscale, opts.Firewall, opts.Integration,
@@ -98,7 +99,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		&integrationNotifierAdapter{
 			fw:          opts.Firewall,
 			fwOrch:      s.fwOrch,
-			intRetry:    &s.intRetry,
+			health:      s.health,
 			state:       s.state,
 			broadcast:   s.broadcastState,
 			openWanPort: s.openTailscaleWanPort,
@@ -149,6 +150,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/status", s.handleStatus)
+	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
 	mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
 	mux.HandleFunc("POST /api/tailscale/login", s.handleLogin)
@@ -308,7 +310,7 @@ func (s *Server) validateIntegration(ctx context.Context) {
 			s.ic.SetAPIKey("")
 			_ = service.DeleteAPIKey()
 			_ = s.manifest.ResetIntegration()
-			s.intRetry.markDegraded()
+			s.health.SetDegraded("firewall", "key_invalid")
 			return
 		}
 		slog.Warn("integration validation failed", "err", err)

@@ -246,7 +246,7 @@ func (a *settingsNotifierAdapter) OnDNSChanged(enabled bool) {
 type integrationNotifierAdapter struct {
 	fw          FirewallService
 	fwOrch      *service.FirewallOrchestrator
-	intRetry    *integrationRetryState
+	health      *HealthTracker
 	state       *TailscaleState
 	broadcast   func()
 	openWanPort func(context.Context)
@@ -267,7 +267,8 @@ func (a *integrationNotifierAdapter) OnKeyConfigured(ctx context.Context, st *se
 		}
 		a.openWanPort(ctx)
 	}
-	a.intRetry.clearDegraded()
+	a.health.ClearDegraded("firewall")
+	a.health.RecordSuccess("firewall")
 	a.state.mu.Lock()
 	a.state.data.IntegrationStatus = st
 	a.state.mu.Unlock()

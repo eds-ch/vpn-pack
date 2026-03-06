@@ -20,6 +20,16 @@
 
     let healthIssues = $derived(healthChecks.filter(c => !c.ok).length);
 
+    let watcherEntries = $derived(status.watcherHealth?.watchers
+        ? Object.entries(status.watcherHealth.watchers)
+        : []);
+    let watcherIssues = $derived(
+        watcherEntries.filter(([, w]) => w.status !== 'healthy').length
+    );
+    let totalIssues = $derived(healthIssues + watcherIssues);
+
+    const watcherDot = (s) => s === 'healthy' ? 'bg-success' : s === 'degraded' ? 'bg-warning' : 'bg-error';
+
     function handleWindowClick(e) {
         if (open && root && !root.contains(e.target)) open = false;
     }
@@ -44,8 +54,8 @@
             <span class="text-text-tertiary hidden sm:inline">·</span>
             <span class="text-text-secondary font-mono hidden sm:inline">{primaryIP}</span>
         {/if}
-        {#if health && healthIssues > 0}
-            <span class="ml-0.5 w-4 h-4 rounded-full bg-warning/20 text-warning text-micro font-bold flex items-center justify-center">{healthIssues}</span>
+        {#if totalIssues > 0}
+            <span class="ml-0.5 w-4 h-4 rounded-full bg-warning/20 text-warning text-micro font-bold flex items-center justify-center">{totalIssues}</span>
         {/if}
     </button>
 
@@ -89,6 +99,26 @@
                                 <div>
                                     <div class="text-caption text-text">{check.label}</div>
                                     <div class="text-caption text-text-tertiary">{check.desc}</div>
+                                </div>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
+
+            {#if watcherEntries.length > 0}
+                <div class="border-t border-border"></div>
+                <div class="px-4 pt-3 pb-4">
+                    <div class="text-micro font-bold text-text-tertiary uppercase tracking-wider mb-3">Watcher Health</div>
+                    <div class="space-y-3">
+                        {#each watcherEntries as [name, w] (name)}
+                            <div class="flex items-start gap-2.5">
+                                <span class="w-2 h-2 rounded-full mt-0.5 shrink-0 {watcherDot(w.status)}"></span>
+                                <div>
+                                    <div class="text-caption text-text capitalize">{name}</div>
+                                    <div class="text-caption text-text-tertiary">
+                                        {#if w.status === 'healthy'}OK{:else}{w.error || w.degradedReason || w.status}{/if}{#if w.reconnects > 0} &middot; {w.reconnects} reconnect{w.reconnects !== 1 ? 's' : ''}{/if}
+                                    </div>
                                 </div>
                             </div>
                         {/each}

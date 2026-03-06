@@ -35,7 +35,7 @@ func TestBroadcastEvent(t *testing.T) {
 		require.NoError(t, err)
 		defer unsub()
 
-		BroadcastEvent(h, "health", SSEHealthEvent{})
+		BroadcastEvent(h, "health", HealthSnapshot{Status: StatusHealthy})
 
 		select {
 		case msg := <-ch:

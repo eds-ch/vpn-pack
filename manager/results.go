@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/json"
 	"log/slog"
-
-	"unifi-tailscale/manager/service"
 )
 
 // OperationResponse is a lightweight response for operations that don't return entity data.
@@ -15,11 +13,6 @@ type OperationResponse struct {
 // SSE event structs for type-safe broadcasting.
 
 type SSEStatusEvent = stateData
-
-type SSEHealthEvent struct {
-	FirewallHealth *FirewallHealth    `json:"firewallHealth,omitempty"`
-	Integration    *service.IntegrationStatus `json:"integrationStatus,omitempty"`
-}
 
 type SSEDNSEvent struct {
 	Enabled bool   `json:"enabled"`
