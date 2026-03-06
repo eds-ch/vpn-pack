@@ -17,7 +17,7 @@ func detectDevice() DeviceInfo {
 	info.Hostname, _ = os.Hostname()
 	info.Model = cmdOutput(config.DeviceInfoCmd, "model")
 	if info.Model == "" {
-		info.Model = readFileString("/sys/firmware/devicetree/base/model")
+		info.Model = readFileTrimmed("/sys/firmware/devicetree/base/model")
 	}
 	info.ModelShort = cmdOutput(config.DeviceInfoCmd, "model_short")
 	info.Firmware = cmdOutput(config.DeviceInfoCmd, "firmware")
@@ -82,20 +82,12 @@ func cmdOutput(name string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func readFileString(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimRight(string(data), "\x00\n")
-}
-
 func readFileTrimmed(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	return strings.TrimSpace(strings.TrimRight(string(data), "\x00"))
 }
 
 const minNetworkMajor = 10

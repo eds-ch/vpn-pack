@@ -332,7 +332,7 @@ func (m *TunnelManager) hotUpdate(cfg TunnelConfig, oldAllowedIPs []string) erro
 		return fmt.Errorf("interface %s not found", cfg.InterfaceName)
 	}
 
-	if !slicesEqual(oldAllowedIPs, cfg.AllowedIPs) {
+	if !slices.Equal(oldAllowedIPs, cfg.AllowedIPs) {
 		if err := deleteRoutes(m.rtConn, ifIndex, oldAllowedIPs); err != nil {
 			m.log.Warn("hot update: deleteRoutes failed", "iface", cfg.InterfaceName, "err", err)
 		}
@@ -343,18 +343,6 @@ func (m *TunnelManager) hotUpdate(cfg TunnelConfig, oldAllowedIPs []string) erro
 
 	m.log.Info("tunnel hot-updated", "id", cfg.ID, "name", cfg.Name)
 	return nil
-}
-
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func (m *TunnelManager) RestoreAll() error {

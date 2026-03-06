@@ -261,16 +261,11 @@ func SaveAPIKey(key string) error {
 	return os.WriteFile(config.APIKeyPath, []byte(key), config.SecretPerm)
 }
 
-func deleteAPIKey() error {
+func DeleteAPIKey() error {
 	if err := os.Remove(config.APIKeyPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
-}
-
-// DeleteAPIKey is the exported version for use from the main package (e.g. validateIntegration).
-func DeleteAPIKey() error {
-	return deleteAPIKey()
 }
 
 const cacheTTL = 30 * time.Second

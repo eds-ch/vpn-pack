@@ -135,22 +135,6 @@ func (ht *HealthTracker) Snapshot() HealthSnapshot {
 	return ht.snapshotLocked()
 }
 
-func (ht *HealthTracker) OverallStatus() WatcherStatus {
-	ht.mu.RLock()
-	defer ht.mu.RUnlock()
-
-	worst := StatusHealthy
-	for _, e := range ht.watchers {
-		if e.status == StatusUnhealthy {
-			return StatusUnhealthy
-		}
-		if e.status == StatusDegraded {
-			worst = StatusDegraded
-		}
-	}
-	return worst
-}
-
 func (ht *HealthTracker) getOrCreate(name string) *watcherEntry {
 	e, ok := ht.watchers[name]
 	if !ok {

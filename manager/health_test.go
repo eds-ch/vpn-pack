@@ -15,7 +15,6 @@ func TestHealthTrackerInitialState(t *testing.T) {
 	snap := ht.Snapshot()
 	assert.Equal(t, StatusHealthy, snap.Status)
 	assert.Empty(t, snap.Watchers)
-	assert.Equal(t, StatusHealthy, ht.OverallStatus())
 }
 
 func TestRecordSuccess(t *testing.T) {
@@ -90,21 +89,21 @@ func TestOverallStatus(t *testing.T) {
 		ht := NewHealthTracker(&mockSSEHub{})
 		ht.RecordSuccess("a")
 		ht.RecordSuccess("b")
-		assert.Equal(t, StatusHealthy, ht.OverallStatus())
+		assert.Equal(t, StatusHealthy, ht.Snapshot().Status)
 	})
 
 	t.Run("degraded when any degraded", func(t *testing.T) {
 		ht := NewHealthTracker(&mockSSEHub{})
 		ht.RecordSuccess("a")
 		ht.SetDegraded("b", "reason")
-		assert.Equal(t, StatusDegraded, ht.OverallStatus())
+		assert.Equal(t, StatusDegraded, ht.Snapshot().Status)
 	})
 
 	t.Run("unhealthy when any unhealthy", func(t *testing.T) {
 		ht := NewHealthTracker(&mockSSEHub{})
 		ht.SetDegraded("a", "reason")
 		ht.RecordError("b", fmt.Errorf("fail"))
-		assert.Equal(t, StatusUnhealthy, ht.OverallStatus())
+		assert.Equal(t, StatusUnhealthy, ht.Snapshot().Status)
 	})
 }
 
@@ -245,7 +244,6 @@ func TestConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			_ = ht.Snapshot()
-			_ = ht.OverallStatus()
 			_ = ht.IsDegraded(name)
 			_ = ht.ShouldRetry(name)
 		}()

@@ -9,8 +9,6 @@ type OperationResponse struct {
 	OK bool `json:"ok"`
 }
 
-type SSEStatusEvent = StateData
-
 type SSEDNSEvent struct {
 	Enabled bool   `json:"enabled"`
 	Domain  string `json:"domain,omitempty"`
