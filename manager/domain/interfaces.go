@@ -95,6 +95,7 @@ type FirewallService interface {
 	RemoveDNSForwarding(ctx context.Context) error
 	RestoreTailscaleRules(ctx context.Context) error
 	RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration)
+	WaitBackground()
 	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
 	CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool
 	DiscoverChainPrefix(zoneID string) string

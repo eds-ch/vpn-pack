@@ -170,7 +170,7 @@ func (a *wgS2sFirewallAdapter) OpenWanPort(ctx context.Context, port int, iface 
 	if err := a.fw.OpenWanPort(ctx, port, config.WanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port open failed", "port", port, "err", err)
 	} else {
-		go a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
+		a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
 	}
 }
 
@@ -181,7 +181,7 @@ func (a *wgS2sFirewallAdapter) CloseWanPort(ctx context.Context, port int, iface
 	if err := a.fw.CloseWanPort(ctx, port, config.WanMarkerWgS2sPrefix+iface); err != nil {
 		slog.Warn("wg-s2s WAN port close failed", "port", port, "err", err)
 	} else {
-		go a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
+		a.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
 	}
 }
 

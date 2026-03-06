@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
@@ -98,5 +99,8 @@ func (svc *TailscaleService) disableCorpDNS(ctx context.Context) error {
 		Prefs:      ipn.Prefs{CorpDNS: false},
 		CorpDNSSet: true,
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("disable corp DNS: %w", err)
+	}
+	return nil
 }

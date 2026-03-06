@@ -243,6 +243,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		if s.fw != nil {
+			s.fw.WaitBackground()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 		defer cancel()
 		return s.httpServer.Shutdown(shutdownCtx)
@@ -278,7 +281,9 @@ func (s *Server) initWgS2s(ctx context.Context) {
 
 func (s *Server) restartTailscaled() {
 	go func() {
-		if out, err := exec.Command("systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if out, err := exec.CommandContext(ctx, "systemctl", "restart", "tailscaled").CombinedOutput(); err != nil {
 			slog.Warn("tailscaled restart failed", "err", err, "output", string(out))
 		} else {
 			slog.Info("tailscaled restarted for settings change")
@@ -310,8 +315,12 @@ func (s *Server) validateIntegration(ctx context.Context) {
 		if errors.Is(err, ErrUnauthorized) {
 			slog.Warn("API key invalid (likely factory reset), clearing")
 			s.ic.SetAPIKey("")
-			_ = service.DeleteAPIKey()
-			_ = s.manifest.ResetIntegration()
+			if err := service.DeleteAPIKey(); err != nil {
+				slog.Warn("failed to delete API key file", "err", err)
+			}
+			if err := s.manifest.ResetIntegration(); err != nil {
+				slog.Warn("failed to reset manifest integration", "err", err)
+			}
 			s.health.SetDegraded("firewall", "key_invalid")
 			return
 		}
@@ -325,12 +334,18 @@ func (s *Server) validateIntegration(ctx context.Context) {
 		return
 	}
 	if s.manifest.GetSiteID() == "" {
-		_ = s.manifest.SetSiteID(siteID)
+		if err := s.manifest.SetSiteID(siteID); err != nil {
+			slog.Warn("failed to save site ID", "err", err)
+		}
 		slog.Info("discovered site ID", "siteId", siteID)
 	} else if siteID != s.manifest.GetSiteID() {
 		slog.Warn("site ID changed, resetting manifest", "old", s.manifest.GetSiteID(), "new", siteID)
-		_ = s.manifest.SetSiteID(siteID)
-		_ = s.manifest.ResetIntegration()
+		if err := s.manifest.SetSiteID(siteID); err != nil {
+			slog.Warn("failed to save site ID", "err", err)
+		}
+		if err := s.manifest.ResetIntegration(); err != nil {
+			slog.Warn("failed to reset manifest integration", "err", err)
+		}
 	}
 
 	s.validateManifestZones(ctx, siteID)
@@ -355,7 +370,9 @@ func (s *Server) validateManifestZones(ctx context.Context, siteID string) {
 	}
 	if !zoneFound {
 		slog.Warn("manifest zone not found in API, resetting", "staleZoneId", ts.ZoneID)
-		_ = s.manifest.ResetIntegration()
+		if err := s.manifest.ResetIntegration(); err != nil {
+			slog.Warn("failed to reset manifest integration", "err", err)
+		}
 		return
 	}
 
@@ -377,7 +394,9 @@ func (s *Server) validateManifestZones(ctx context.Context, siteID string) {
 		}
 		if len(valid) != len(ts.PolicyIDs) {
 			slog.Warn("stale policy IDs in manifest, clearing", "had", len(ts.PolicyIDs), "valid", len(valid))
-			_ = s.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, valid, ts.ChainPrefix)
+			if err := s.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, valid, ts.ChainPrefix); err != nil {
+				slog.Warn("failed to save manifest tailscale zone", "err", err)
+			}
 		}
 	}
 }

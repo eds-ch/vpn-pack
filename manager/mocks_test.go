@@ -519,6 +519,7 @@ func (m *mockFirewallService) RestoreRulesWithRetry(ctx context.Context, retries
 		m.restoreRulesWithRetryFn(ctx, retries, delay)
 	}
 }
+func (m *mockFirewallService) WaitBackground() {}
 func (m *mockFirewallService) CheckTailscaleRulesPresent(ctx context.Context) (bool, bool, bool, bool) {
 	if m.checkTailscaleRulesPresentFn != nil {
 		return m.checkTailscaleRulesPresentFn(ctx)

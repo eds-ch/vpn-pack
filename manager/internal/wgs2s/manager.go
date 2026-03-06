@@ -1,6 +1,7 @@
 package wgs2s
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -349,7 +350,7 @@ func (m *TunnelManager) RestoreAll() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var lastErr error
+	var errs []error
 	for _, cfg := range m.config.Tunnels {
 		if !cfg.Enabled {
 			continue
@@ -358,19 +359,19 @@ func (m *TunnelManager) RestoreAll() error {
 		privKey, err := loadPrivateKey(m.configDir, cfg.ID)
 		if err != nil {
 			m.log.Warn("restore: failed to load key", "id", cfg.ID, "err", err)
-			lastErr = err
+			errs = append(errs, err)
 			continue
 		}
 
 		if err := m.bringUp(cfg, privKey); err != nil {
 			m.log.Warn("restore: failed to bring up tunnel", "id", cfg.ID, "err", err)
-			lastErr = err
+			errs = append(errs, err)
 			continue
 		}
 
 		m.log.Info("tunnel restored", "id", cfg.ID, "name", cfg.Name, "iface", cfg.InterfaceName)
 	}
-	return lastErr
+	return errors.Join(errs...)
 }
 
 func (m *TunnelManager) GetTunnels() []TunnelConfig {

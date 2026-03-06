@@ -24,6 +24,7 @@ type FirewallManager struct {
 	udapi    *udapi.UDAPIClient
 	ic       *IntegrationClient
 	manifest ManifestStore
+	bgWg     sync.WaitGroup
 }
 
 func (fm *FirewallManager) IntegrationReady() bool {
@@ -232,7 +233,15 @@ func (fm *FirewallManager) RemoveDNSForwarding(ctx context.Context) error {
 }
 
 func (fm *FirewallManager) RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration) {
-	retryLoop(ctx, retries, delay, fm.RestoreTailscaleRules)
+	fm.bgWg.Add(1)
+	go func() {
+		defer fm.bgWg.Done()
+		retryLoop(ctx, retries, delay, fm.RestoreTailscaleRules)
+	}()
+}
+
+func (fm *FirewallManager) WaitBackground() {
+	fm.bgWg.Wait()
 }
 
 func retryLoop(ctx context.Context, retries int, delay time.Duration, fn func(context.Context) error) {
@@ -298,7 +307,7 @@ func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
 
 	ipsetName := zoneIPSetName(chainPrefix)
 	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, config.TailscaleCGNAT); err != nil {
-		slog.Warn("zone ipset failed", "ipset", ipsetName, "err", err)
+		return fmt.Errorf("zone ipset %s: %w", ipsetName, err)
 	}
 	return nil
 }

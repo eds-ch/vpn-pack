@@ -68,8 +68,12 @@ func (s *Server) handleAPIKeyExpiry(ctx context.Context, status *service.Integra
 	}
 	slog.Warn("periodic check: API key rejected, clearing")
 	s.ic.SetAPIKey("")
-	_ = service.DeleteAPIKey()
-	_ = s.manifest.ResetIntegration()
+	if err := service.DeleteAPIKey(); err != nil {
+		slog.Warn("failed to delete API key file", "err", err)
+	}
+	if err := s.manifest.ResetIntegration(); err != nil {
+		slog.Warn("failed to reset manifest integration", "err", err)
+	}
 	s.health.SetDegraded("firewall", "key_expired")
 	s.integration.InvalidateCache()
 	return s.integration.GetStatus(ctx)

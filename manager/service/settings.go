@@ -327,7 +327,7 @@ func (svc *SettingsService) swapWanPort(ctx context.Context, oldPort, newPort in
 		}
 	}
 	if changed {
-		go svc.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
+		svc.fw.RestoreRulesWithRetry(context.WithoutCancel(ctx), 3, 2*time.Second)
 	}
 }
 

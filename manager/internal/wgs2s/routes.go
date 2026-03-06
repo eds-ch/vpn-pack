@@ -65,6 +65,7 @@ func deleteRoutes(conn *rtnetlink.Conn, ifIndex uint32, cidrs []string) error {
 	for _, cidr := range cidrs {
 		msg, err := buildRouteMessage(cidr, ifIndex)
 		if err != nil {
+			slog.Warn("delete route: invalid CIDR", "cidr", cidr, "err", err)
 			continue
 		}
 		if err := conn.Route.Delete(msg); err != nil && !errors.Is(err, unix.ESRCH) {
