@@ -178,10 +178,10 @@ func TestRouteRegistration(t *testing.T) {
 
 func TestHandleStatusWithMocks(t *testing.T) {
 	s := newTestServer()
-	s.state.Lock()
-	s.state.Data().BackendState = "Running"
-	s.state.Data().TailscaleIPs = []string{"100.64.0.1"}
-	s.state.Unlock()
+	s.state.Update(func(d *domain.StateData) {
+		d.BackendState = "Running"
+		d.TailscaleIPs = []string{"100.64.0.1"}
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	w := httptest.NewRecorder()

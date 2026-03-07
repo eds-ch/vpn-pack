@@ -152,6 +152,8 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 		result.ChainPrefix = discovered
 	}
 
+	oldPrefix := o.manifest.GetTailscaleChainPrefix()
+
 	if err := o.manifest.SetTailscaleZone(zone.ZoneID, zone.ZoneName, policyIDs, result.ChainPrefix); err != nil {
 		result.addError("manifest", err)
 		o.rollbackZone(ctx, siteID, zone.ZoneID, "tailscale manifest save failed", policyIDs...)
@@ -165,7 +167,6 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 		return result
 	}
 
-	oldPrefix := o.manifest.GetTailscaleChainPrefix()
 	if result.ChainPrefix != oldPrefix {
 		if err := o.ops.RemoveTailscaleInterfaceRules(); err != nil {
 			slog.Warn("failed to remove old tailscale rules during chain prefix migration",

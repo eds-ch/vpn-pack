@@ -222,10 +222,11 @@ func (ts *TailscaleState) Snapshot() StateData {
 	return s
 }
 
-func (ts *TailscaleState) Lock()   { ts.mu.Lock() }
-func (ts *TailscaleState) Unlock() { ts.mu.Unlock() }
-
-func (ts *TailscaleState) Data() *StateData { return &ts.data }
+func (ts *TailscaleState) Update(fn func(*StateData)) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	fn(&ts.data)
+}
 
 func (ts *TailscaleState) SetBackendState(s string) {
 	ts.mu.Lock()
@@ -245,7 +246,7 @@ func (ts *TailscaleState) SetAcceptDNS(v bool) {
 	ts.mu.Unlock()
 }
 
-// AdvertiseRoutes and AllowedIPs are called within Lock/Unlock blocks (watcher.go).
+// AdvertiseRoutes and AllowedIPs are called within Update() closures (watcher.go).
 // Clone on read to prevent callers from mutating internal state.
 func (ts *TailscaleState) AdvertiseRoutes() []netip.Prefix { return slices.Clone(ts.advertiseRoutes) }
 func (ts *TailscaleState) SetAdvertiseRoutes(r []netip.Prefix) { ts.advertiseRoutes = r }

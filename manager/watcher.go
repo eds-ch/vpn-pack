@@ -135,18 +135,18 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *service.Inte
 }
 
 func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *service.IntegrationStatus) {
-	s.state.Lock()
-	defer s.state.Unlock()
-	s.applyEnrichment(enrichment)
-	s.state.Data().FirewallHealth = s.firewallHealthSnapshot(ctx)
-	s.state.Data().IntegrationStatus = integrationStatus
-	s.state.Data().AcceptDNS = s.isDNSForwardingEnabled()
-	s.state.Data().UDPPort = service.ReadTailscaledPort()
-	if s.wgManager != nil {
-		tunnels := s.wgManager.GetStatuses()
-		s.wgS2sSvc.EnrichForwardINOk(ctx, tunnels)
-		s.state.Data().WgS2sTunnels = tunnels
-	}
+	s.state.Update(func(d *stateData) {
+		s.applyEnrichment(d, enrichment)
+		d.FirewallHealth = s.firewallHealthSnapshot(ctx)
+		d.IntegrationStatus = integrationStatus
+		d.AcceptDNS = s.isDNSForwardingEnabled()
+		d.UDPPort = service.ReadTailscaledPort()
+		if s.wgManager != nil {
+			tunnels := s.wgManager.GetStatuses()
+			s.wgS2sSvc.EnrichForwardINOk(ctx, tunnels)
+			d.WgS2sTunnels = tunnels
+		}
+	})
 }
 
 func (s *Server) watchLoop(ctx context.Context) error {
@@ -174,50 +174,48 @@ func (s *Server) processNotify(ctx context.Context, n *ipn.Notify) {
 }
 
 func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
-	s.state.Lock()
-	defer s.state.Unlock()
-
-	if n.Version != "" {
-		s.state.Data().Version = n.Version
-	}
-	if n.State != nil {
-		s.state.Data().BackendState = n.State.String()
-	}
-	if n.BrowseToURL != nil {
-		s.state.Data().AuthURL = *n.BrowseToURL
-	}
-	if n.LoginFinished != nil {
-		s.state.Data().AuthURL = ""
-	}
-
-	if n.Prefs != nil && n.Prefs.Valid() {
-		s.applyNotifyPrefs(*n.Prefs)
-	}
-
 	var fetchStatus bool
-	if n.NetMap != nil {
-		s.processNetMap(n.NetMap)
-		fetchStatus = true
-	}
-
-	if n.Prefs != nil || n.NetMap != nil {
-		s.recomputeRoutes()
-		s.state.Data().DPIFingerprinting = syncDPIFingerprint(s.state.Data().ExitNode)
-	}
-
-	if n.Health != nil {
-		warnings := make([]string, 0, len(n.Health.Warnings))
-		for code := range n.Health.Warnings {
-			warnings = append(warnings, string(code))
+	s.state.Update(func(d *stateData) {
+		if n.Version != "" {
+			d.Version = n.Version
 		}
-		s.state.Data().Health = warnings
-	}
+		if n.State != nil {
+			d.BackendState = n.State.String()
+		}
+		if n.BrowseToURL != nil {
+			d.AuthURL = *n.BrowseToURL
+		}
+		if n.LoginFinished != nil {
+			d.AuthURL = ""
+		}
 
+		if n.Prefs != nil && n.Prefs.Valid() {
+			s.applyNotifyPrefs(d, *n.Prefs)
+		}
+
+		if n.NetMap != nil {
+			s.processNetMap(d, n.NetMap)
+			fetchStatus = true
+		}
+
+		if n.Prefs != nil || n.NetMap != nil {
+			s.recomputeRoutes(d)
+			d.DPIFingerprinting = syncDPIFingerprint(d.ExitNode)
+		}
+
+		if n.Health != nil {
+			warnings := make([]string, 0, len(n.Health.Warnings))
+			for code := range n.Health.Warnings {
+				warnings = append(warnings, string(code))
+			}
+			d.Health = warnings
+		}
+	})
 	return fetchStatus
 }
 
-func (s *Server) applyNotifyPrefs(p ipn.PrefsView) {
-	s.state.Data().ControlURL = p.ControlURL()
+func (s *Server) applyNotifyPrefs(d *stateData, p ipn.PrefsView) {
+	d.ControlURL = p.ControlURL()
 
 	ar := p.AdvertiseRoutes()
 	routes := make([]netip.Prefix, ar.Len())
@@ -226,21 +224,21 @@ func (s *Server) applyNotifyPrefs(p ipn.PrefsView) {
 	}
 	s.state.SetAdvertiseRoutes(routes)
 
-	s.state.Data().Hostname = p.Hostname()
-	s.state.Data().AcceptDNS = s.isDNSForwardingEnabled()
-	s.state.Data().AcceptRoutes = p.RouteAll()
-	s.state.Data().ShieldsUp = p.ShieldsUp()
-	s.state.Data().RunSSH = p.RunSSH()
-	s.state.Data().NoSNAT = p.NoSNAT()
-	s.state.Data().RelayServerPort = p.RelayServerPort().Clone()
-	s.state.Data().RelayServerEndpoints = service.FormatAddrPorts(p.RelayServerStaticEndpoints().AsSlice())
+	d.Hostname = p.Hostname()
+	d.AcceptDNS = s.isDNSForwardingEnabled()
+	d.AcceptRoutes = p.RouteAll()
+	d.ShieldsUp = p.ShieldsUp()
+	d.RunSSH = p.RunSSH()
+	d.NoSNAT = p.NoSNAT()
+	d.RelayServerPort = p.RelayServerPort().Clone()
+	d.RelayServerEndpoints = service.FormatAddrPorts(p.RelayServerStaticEndpoints().AsSlice())
 
 	tags := p.AdvertiseTags().AsSlice()
 	if tags == nil {
 		tags = []string{}
 	}
-	s.state.Data().AdvertiseTags = tags
-	s.state.Data().UDPPort = service.ReadTailscaledPort()
+	d.AdvertiseTags = tags
+	d.UDPPort = service.ReadTailscaledPort()
 }
 
 func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
@@ -250,14 +248,14 @@ func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 	}
 	integrationStatus := s.integration.GetStatus(ctx)
 
-	s.state.Lock()
-	s.applyEnrichment(enrichment)
-	s.state.Data().FirewallHealth = s.firewallHealthSnapshot(ctx)
-	s.state.Data().IntegrationStatus = integrationStatus
-	s.state.Unlock()
+	s.state.Update(func(d *stateData) {
+		s.applyEnrichment(d, enrichment)
+		d.FirewallHealth = s.firewallHealthSnapshot(ctx)
+		d.IntegrationStatus = integrationStatus
+	})
 }
 
-func (s *Server) processNetMap(nm *netmap.NetworkMap) {
+func (s *Server) processNetMap(d *stateData, nm *netmap.NetworkMap) {
 	selfNode := nm.SelfNode
 	if selfNode.Valid() {
 		addrs := selfNode.Addresses()
@@ -265,12 +263,12 @@ func (s *Server) processNetMap(nm *netmap.NetworkMap) {
 		for i := range addrs.Len() {
 			ips[i] = addrs.At(i).Addr().String()
 		}
-		s.state.Data().TailscaleIPs = ips
+		d.TailscaleIPs = ips
 
-		s.state.Data().Self = &SelfNode{
+		d.Self = &SelfNode{
 			HostName: selfNode.Hostinfo().Hostname(),
 			DNSName:  selfNode.Name(),
-			Online:   s.state.Data().BackendState == "Running",
+			Online:   d.BackendState == "Running",
 		}
 
 		aips := selfNode.AllowedIPs()
@@ -284,12 +282,12 @@ func (s *Server) processNetMap(nm *netmap.NetworkMap) {
 		if ni.Valid() && nm.DERPMap != nil {
 			latMap := ni.DERPLatency()
 			if latMap.Len() > 0 {
-				s.state.Data().DERP = buildDERPInfo(latMap.AsMap(), nm.DERPMap.Regions, ni.PreferredDERP())
+				d.DERP = buildDERPInfo(latMap.AsMap(), nm.DERPMap.Regions, ni.PreferredDERP())
 			}
 		}
 	}
 
-	s.state.Data().TailnetName = nm.Domain
+	d.TailnetName = nm.Domain
 }
 
 type statusEnrichment struct {
@@ -328,15 +326,15 @@ func (s *Server) fetchStatusEnrichment(ctx context.Context) *statusEnrichment {
 	}
 }
 
-func (s *Server) applyEnrichment(e *statusEnrichment) {
+func (s *Server) applyEnrichment(d *stateData, e *statusEnrichment) {
 	if e == nil {
 		return
 	}
-	s.state.Data().Peers = e.peers
-	if s.state.Data().Self != nil {
-		s.state.Data().Self.TxBytes = e.totalTx
-		s.state.Data().Self.RxBytes = e.totalRx
-		s.state.Data().Self.Online = e.selfOnline
+	d.Peers = e.peers
+	if d.Self != nil {
+		d.Self.TxBytes = e.totalTx
+		d.Self.RxBytes = e.totalRx
+		d.Self.Online = e.selfOnline
 	}
 }
 
@@ -402,7 +400,7 @@ func (s *Server) firewallHealthSnapshot(ctx context.Context) *FirewallHealth {
 	}
 }
 
-func (s *Server) recomputeRoutes() {
+func (s *Server) recomputeRoutes(d *stateData) {
 	aips := s.state.AllowedIPs()
 	allowed := make(map[string]bool, len(aips))
 	for _, p := range aips {
@@ -410,8 +408,8 @@ func (s *Server) recomputeRoutes() {
 	}
 
 	routes, isExit := service.BuildRouteStatuses(s.state.AdvertiseRoutes(), allowed)
-	s.state.Data().ExitNode = isExit
-	s.state.Data().Routes = routes
+	d.ExitNode = isExit
+	d.Routes = routes
 }
 
 func (s *Server) broadcastState() {
@@ -419,8 +417,8 @@ func (s *Server) broadcastState() {
 }
 
 func (s *Server) setUnavailable() {
-	s.state.Lock()
-	s.state.Data().BackendState = "Unavailable"
-	s.state.Unlock()
+	s.state.Update(func(d *stateData) {
+		d.BackendState = "Unavailable"
+	})
 	s.broadcastState()
 }

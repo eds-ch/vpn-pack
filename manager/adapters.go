@@ -246,9 +246,9 @@ func (a *settingsNotifierAdapter) OnRestartRequired() {
 }
 
 func (a *settingsNotifierAdapter) OnDNSChanged(enabled bool) {
-	a.state.Lock()
-	a.state.Data().AcceptDNS = enabled
-	a.state.Unlock()
+	a.state.Update(func(d *stateData) {
+		d.AcceptDNS = enabled
+	})
 	a.broadcast()
 }
 
@@ -278,16 +278,16 @@ func (a *integrationNotifierAdapter) OnKeyConfigured(ctx context.Context, st *se
 	}
 	a.health.ClearDegraded("firewall")
 	a.health.RecordSuccess("firewall")
-	a.state.Lock()
-	a.state.Data().IntegrationStatus = st
-	a.state.Unlock()
+	a.state.Update(func(d *stateData) {
+		d.IntegrationStatus = st
+	})
 	a.broadcast()
 }
 
 func (a *integrationNotifierAdapter) OnKeyDeleted() {
-	a.state.Lock()
-	a.state.Data().IntegrationStatus = &service.IntegrationStatus{Configured: false}
-	a.state.Unlock()
+	a.state.Update(func(d *stateData) {
+		d.IntegrationStatus = &service.IntegrationStatus{Configured: false}
+	})
 	a.broadcast()
 }
 
