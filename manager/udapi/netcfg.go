@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"unifi-tailscale/manager/config"
 )
@@ -54,16 +55,64 @@ func GetWanIP() string {
 	if err != nil {
 		return ""
 	}
+
+	var wanIfnames []string
 	for _, iface := range cfg.Interfaces {
-		if iface.Identification.Type == "wan" {
-			for _, addr := range iface.Addresses {
-				if addr.Type == "dhcp" || addr.Type == "static" {
-					return addr.Address
-				}
+		if strings.HasPrefix(strings.ToUpper(iface.Status.Comment), "WAN") {
+			wanIfnames = append(wanIfnames, iface.Identification.ID)
+		}
+	}
+
+	var publicIPs, privateIPs []string
+	for _, name := range wanIfnames {
+		iface, err := net.InterfaceByName(name)
+		if err != nil {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			ipNet, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip4 := ipNet.IP.To4()
+			if ip4 == nil {
+				continue
+			}
+			s := ip4.String()
+			if isPrivateIP(ip4) {
+				privateIPs = append(privateIPs, s)
+			} else {
+				publicIPs = append(publicIPs, s)
 			}
 		}
 	}
+
+	if len(publicIPs) > 0 {
+		return publicIPs[0]
+	}
+	if len(privateIPs) > 0 {
+		return privateIPs[0]
+	}
 	return ""
+}
+
+func isPrivateIP(ip net.IP) bool {
+	rfc1918 := []net.IPNet{
+		{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)},
+		{IP: net.IP{172, 16, 0, 0}, Mask: net.CIDRMask(12, 32)},
+		{IP: net.IP{192, 168, 0, 0}, Mask: net.CIDRMask(16, 32)},
+		{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
+	}
+	for _, n := range rfc1918 {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func ParseLocalSubnets() []SubnetInfo {
