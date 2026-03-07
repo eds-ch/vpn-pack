@@ -27,6 +27,21 @@ type FirewallManager struct {
 	ic       *IntegrationClient
 	manifest ManifestStore
 	bgWg     sync.WaitGroup
+
+	filterMu     sync.Mutex
+	filterCache  string
+	filterTime   time.Time
+	filterFlight singleflight.Group
+
+	ipsetMu     sync.Mutex
+	ipsetCache  string
+	ipsetSet    string
+	ipsetTime   time.Time
+	ipsetFlight singleflight.Group
+
+	mongoMu    sync.Mutex
+	mongoCache map[string]string
+	mongoTime  time.Time
 }
 
 func (fm *FirewallManager) IntegrationReady() bool {
@@ -46,12 +61,7 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 
 	if chainPrefix == config.DefaultChainPrefix {
 		if zm, ok := fm.manifest.GetWgS2sZone(tunnelID); ok && zm.ZoneID != "" {
-			if rediscovered := fm.DiscoverChainPrefix(zm.ZoneID); rediscovered != "" {
-				chainPrefix = rediscovered
-				if err := fm.manifest.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, PolicyIDs: zm.PolicyIDs, ChainPrefix: chainPrefix}); err != nil {
-					slog.Warn("manifest save failed", "err", err)
-				}
-			}
+			chainPrefix = fm.rediscoverAndSaveWgS2s(ctx, tunnelID, zm, chainPrefix)
 		}
 	}
 
@@ -74,17 +84,29 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 				blocked[b.CIDR] = true
 			}
 		}
+		filtered := make([]string, 0, len(allowedIPs))
 		for _, cidr := range allowedIPs {
-			if blocked[cidr] {
-				continue
+			if !blocked[cidr] {
+				filtered = append(filtered, cidr)
 			}
-			if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, cidr); err != nil {
-				slog.Warn("wg-s2s zone ipset failed", "ipset", ipsetName, "cidr", cidr, "err", err)
-			}
+		}
+		if err := udapi.EnsureZoneSubnets(fm.udapi, ipsetName, filtered); err != nil {
+			slog.Warn("wg-s2s zone ipset failed", "ipset", ipsetName, "err", err)
 		}
 	}
 
 	return nil
+}
+
+func (fm *FirewallManager) rediscoverAndSaveWgS2s(ctx context.Context, tunnelID string, zm ZoneManifest, current string) string {
+	rediscovered := fm.DiscoverChainPrefix(ctx, zm.ZoneID)
+	if rediscovered == "" {
+		return current
+	}
+	if err := fm.manifest.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, PolicyIDs: zm.PolicyIDs, ChainPrefix: rediscovered}); err != nil {
+		slog.Warn("manifest save failed", "err", err)
+	}
+	return rediscovered
 }
 
 func (fm *FirewallManager) RemoveWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) {
@@ -269,12 +291,11 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 	}
 
 	chainPrefix := fm.manifest.GetTailscaleChainPrefix()
-
 	marker := config.FirewallMarker
 
 	ts := fm.manifest.GetTailscaleZone()
 	if chainPrefix == config.DefaultChainPrefix && ts.ZoneID != "" {
-		if rediscovered := fm.DiscoverChainPrefix(ts.ZoneID); rediscovered != "" {
+		if rediscovered := fm.DiscoverChainPrefix(ctx, ts.ZoneID); rediscovered != "" {
 			_ = udapi.RemoveInterfaceRules(fm.udapi, config.TailscaleInterface, marker)
 			chainPrefix = rediscovered
 			if err := fm.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, ts.PolicyIDs, rediscovered); err != nil {
@@ -293,10 +314,10 @@ func (fm *FirewallManager) RemoveTailscaleInterfaceRules() error {
 
 func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
 	if chainPrefix != config.DefaultChainPrefix {
-		fwd := hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface)
-		inp := hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface)
-		out := hasChainRule(config.ChainOutputUserHook, "-o "+config.TailscaleInterface)
-		ipsetOK := hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), config.TailscaleCGNAT)
+		fwd := fm.hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface)
+		inp := fm.hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface)
+		out := fm.hasChainRule(config.ChainOutputUserHook, "-o "+config.TailscaleInterface)
+		ipsetOK := fm.hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", chainPrefix), config.TailscaleCGNAT)
 		if fwd && inp && out && ipsetOK {
 			return nil
 		}
@@ -316,37 +337,37 @@ func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
 
 func (fm *FirewallManager) CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool) {
 	prefix := fm.manifest.GetTailscaleChainPrefix()
-	forward = hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface) ||
-		hasChainRule(fmt.Sprintf("UBIOS_%s_IN", prefix), "-i "+config.TailscaleInterface)
-	input = hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface) ||
-		hasChainRule(fmt.Sprintf("UBIOS_%s_LOCAL", prefix), "-i "+config.TailscaleInterface)
-	output = hasChainRule(config.ChainOutputUserHook, "-o "+config.TailscaleInterface) ||
-		hasChainRule(fmt.Sprintf("UBIOS_LOCAL_%s", prefix), "-o "+config.TailscaleInterface)
+	forward = fm.hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface) ||
+		fm.hasChainRule(fmt.Sprintf("UBIOS_%s_IN", prefix), "-i "+config.TailscaleInterface)
+	input = fm.hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface) ||
+		fm.hasChainRule(fmt.Sprintf("UBIOS_%s_LOCAL", prefix), "-i "+config.TailscaleInterface)
+	output = fm.hasChainRule(config.ChainOutputUserHook, "-o "+config.TailscaleInterface) ||
+		fm.hasChainRule(fmt.Sprintf("UBIOS_LOCAL_%s", prefix), "-o "+config.TailscaleInterface)
 
-	ipset = hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", prefix), config.TailscaleCGNAT)
+	ipset = fm.hasIPSetEntry(fmt.Sprintf("UBIOS4%s_subnets", prefix), config.TailscaleCGNAT)
 	return
 }
 
 func (fm *FirewallManager) CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
 	result := make(map[string]bool, len(ifaces))
 	for _, iface := range ifaces {
-		forward := hasChainRule(config.ChainForwardInUser, "-i "+iface)
-		input := hasChainRule(config.ChainInputUserHook, "-i "+iface)
-		output := hasChainRule(config.ChainOutputUserHook, "-o "+iface)
+		forward := fm.hasChainRule(config.ChainForwardInUser, "-i "+iface)
+		input := fm.hasChainRule(config.ChainInputUserHook, "-i "+iface)
+		output := fm.hasChainRule(config.ChainOutputUserHook, "-o "+iface)
 		result[iface] = forward && input && output
 	}
 	return result
 }
 
-func (fm *FirewallManager) DiscoverChainPrefix(zoneID string) string {
+func (fm *FirewallManager) DiscoverChainPrefix(ctx context.Context, zoneID string) string {
 	if zoneID == "" {
 		return ""
 	}
 
-	prefix := discoverChainPrefixFromMongo(zoneID)
+	prefix := fm.discoverChainPrefixFromMongo(ctx, zoneID)
 	if prefix != "" {
 		chain := fmt.Sprintf("UBIOS_%s_IN_USER", prefix)
-		if hasChainRule(chain, "") {
+		if fm.hasChainRule(chain, "") {
 			slog.Info("chain prefix discovered via MongoDB", "zoneId", zoneID, "prefix", prefix)
 			return prefix
 		}
@@ -356,21 +377,35 @@ func (fm *FirewallManager) DiscoverChainPrefix(zoneID string) string {
 	return ""
 }
 
-func discoverChainPrefixFromMongo(zoneID string) string {
+func (fm *FirewallManager) discoverChainPrefixFromMongo(ctx context.Context, zoneID string) string {
+	fm.mongoMu.Lock()
+	if fm.mongoCache != nil && time.Since(fm.mongoTime) < 30*time.Second {
+		if prefix, ok := fm.mongoCache[zoneID]; ok {
+			fm.mongoMu.Unlock()
+			return prefix
+		}
+	}
+	fm.mongoMu.Unlock()
+
 	script := `db.getSiblingDB("ace").firewall_zone.find({default_zone:false}).sort({_id:1}).forEach(function(z){print(z.external_id.toString())})`
-	out, err := exec.Command("mongo", "--port", config.MongoPort, "--quiet", "--eval", script).Output()
+	out, err := exec.CommandContext(ctx, "mongo", "--port", config.MongoPort, "--quiet", "--eval", script).Output()
 	if err != nil {
 		slog.Debug("mongo chain prefix query failed", "err", err)
 		return ""
 	}
 
+	cache := make(map[string]string)
 	for i, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		cleaned := stripUUIDWrapper(strings.TrimSpace(line))
-		if cleaned == zoneID {
-			return fmt.Sprintf("CUSTOM%d", i+1)
-		}
+		cache[cleaned] = fmt.Sprintf("CUSTOM%d", i+1)
 	}
-	return ""
+
+	fm.mongoMu.Lock()
+	fm.mongoCache = cache
+	fm.mongoTime = time.Now()
+	fm.mongoMu.Unlock()
+
+	return cache[zoneID]
 }
 
 func stripUUIDWrapper(s string) string {
@@ -384,33 +419,26 @@ func zoneIPSetName(chainPrefix string) string {
 	return chainPrefix + "_subnets"
 }
 
-var (
-	filterRulesCacheMu   sync.Mutex
-	filterRulesCache     string
-	filterRulesCacheTime time.Time
-	filterRulesFlight    singleflight.Group
-)
-
-func cachedFilterRules() string {
-	filterRulesCacheMu.Lock()
-	if filterRulesCache != "" && time.Since(filterRulesCacheTime) < time.Second {
-		c := filterRulesCache
-		filterRulesCacheMu.Unlock()
+func (fm *FirewallManager) cachedFilterRules() string {
+	fm.filterMu.Lock()
+	if fm.filterCache != "" && time.Since(fm.filterTime) < time.Second {
+		c := fm.filterCache
+		fm.filterMu.Unlock()
 		return c
 	}
-	filterRulesCacheMu.Unlock()
+	fm.filterMu.Unlock()
 
-	v, _, _ := filterRulesFlight.Do("iptables-save", func() (any, error) {
+	v, _, _ := fm.filterFlight.Do("iptables-save", func() (any, error) {
 		out, err := exec.Command("iptables-save", "-t", "filter").Output()
 		if err != nil {
 			return "", err
 		}
 		result := string(out)
 
-		filterRulesCacheMu.Lock()
-		filterRulesCache = result
-		filterRulesCacheTime = time.Now()
-		filterRulesCacheMu.Unlock()
+		fm.filterMu.Lock()
+		fm.filterCache = result
+		fm.filterTime = time.Now()
+		fm.filterMu.Unlock()
 		return result, nil
 	})
 	return v.(string)
@@ -430,8 +458,8 @@ func hasChainRuleIn(rules, chain, match string) bool {
 	return false
 }
 
-func hasChainRule(chain, match string) bool {
-	if rules := cachedFilterRules(); rules != "" {
+func (fm *FirewallManager) hasChainRule(chain, match string) bool {
+	if rules := fm.cachedFilterRules(); rules != "" {
 		return hasChainRuleIn(rules, chain, match)
 	}
 	out, err := exec.Command("iptables", "-w", "2", "-S", chain).Output()
@@ -444,10 +472,28 @@ func hasChainRule(chain, match string) bool {
 	return strings.Contains(string(out), match)
 }
 
-func hasIPSetEntry(setName, match string) bool {
-	out, err := exec.Command("ipset", "list", setName).Output()
-	if err != nil {
-		return false
+func (fm *FirewallManager) hasIPSetEntry(setName, match string) bool {
+	fm.ipsetMu.Lock()
+	if fm.ipsetSet == setName && fm.ipsetCache != "" && time.Since(fm.ipsetTime) < time.Second {
+		c := fm.ipsetCache
+		fm.ipsetMu.Unlock()
+		return strings.Contains(c, match)
 	}
-	return strings.Contains(string(out), match)
+	fm.ipsetMu.Unlock()
+
+	v, _, _ := fm.ipsetFlight.Do("ipset-"+setName, func() (any, error) {
+		out, err := exec.Command("ipset", "list", setName).Output()
+		if err != nil {
+			return "", err
+		}
+		result := string(out)
+
+		fm.ipsetMu.Lock()
+		fm.ipsetCache = result
+		fm.ipsetSet = setName
+		fm.ipsetTime = time.Now()
+		fm.ipsetMu.Unlock()
+		return result, nil
+	})
+	return strings.Contains(v.(string), match)
 }

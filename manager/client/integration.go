@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
@@ -21,6 +22,11 @@ type IntegrationClient struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+
+	zonesMu     sync.Mutex
+	zonesCache  []domain.Zone
+	zonesSiteID string
+	zonesTime   time.Time
 }
 
 type paginatedResponse struct {
@@ -145,7 +151,26 @@ func (c *IntegrationClient) getSites(ctx context.Context) ([]domain.SiteInfo, er
 }
 
 func (c *IntegrationClient) ListZones(ctx context.Context, siteID string) ([]domain.Zone, error) {
-	return doListRequest[domain.Zone](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/zones?limit=%d", siteID, config.PaginationLimit))
+	c.zonesMu.Lock()
+	if c.zonesSiteID == siteID && c.zonesCache != nil && time.Since(c.zonesTime) < 5*time.Second {
+		zones := c.zonesCache
+		c.zonesMu.Unlock()
+		return zones, nil
+	}
+	c.zonesMu.Unlock()
+
+	zones, err := doListRequest[domain.Zone](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/zones?limit=%d", siteID, config.PaginationLimit))
+	if err != nil {
+		return nil, err
+	}
+
+	c.zonesMu.Lock()
+	c.zonesCache = zones
+	c.zonesSiteID = siteID
+	c.zonesTime = time.Now()
+	c.zonesMu.Unlock()
+
+	return zones, nil
 }
 
 func (c *IntegrationClient) CreateZone(ctx context.Context, siteID, name string) (*domain.Zone, error) {

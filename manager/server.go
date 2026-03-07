@@ -61,6 +61,7 @@ type Server struct {
 	routing        *service.RoutingService
 	tailscaleSvc   *service.TailscaleService
 	wgS2sSvc       *service.WgS2sService
+	lastBroadcast  []byte
 }
 
 func NewServer(ctx context.Context, opts ServerOptions) *Server {

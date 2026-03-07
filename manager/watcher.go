@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"math"
 	"net/netip"
@@ -11,7 +13,6 @@ import (
 	"time"
 
 	"unifi-tailscale/manager/config"
-	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/service"
 
 	"tailscale.com/ipn"
@@ -247,12 +248,7 @@ func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 		enrichment = s.fetchStatusEnrichment(ctx)
 	}
 	integrationStatus := s.integration.GetStatus(ctx)
-
-	s.state.Update(func(d *stateData) {
-		s.applyEnrichment(d, enrichment)
-		d.FirewallHealth = s.firewallHealthSnapshot(ctx)
-		d.IntegrationStatus = integrationStatus
-	})
+	s.applyRefreshState(ctx, enrichment, integrationStatus)
 }
 
 func (s *Server) processNetMap(d *stateData, nm *netmap.NetworkMap) {
@@ -413,7 +409,16 @@ func (s *Server) recomputeRoutes(d *stateData) {
 }
 
 func (s *Server) broadcastState() {
-	domain.BroadcastEvent(s.hub, "", s.state.Snapshot())
+	snap := s.state.Snapshot()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return
+	}
+	if bytes.Equal(data, s.lastBroadcast) {
+		return
+	}
+	s.lastBroadcast = data
+	s.hub.Broadcast(data)
 }
 
 func (s *Server) setUnavailable() {

@@ -56,6 +56,41 @@ func EnsureZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
 	return nil
 }
 
+func EnsureZoneSubnets(c *UDAPIClient, ipsetName string, cidrs []string) error {
+	if len(cidrs) == 0 {
+		return nil
+	}
+	target, _, err := findIPSet(c, ipsetName)
+	if err != nil {
+		return err
+	}
+	if target == nil {
+		return fmt.Errorf("%s ipset not found", ipsetName)
+	}
+
+	existing := make(map[string]bool, len(target.Entries))
+	for _, e := range target.Entries {
+		existing[e] = true
+	}
+
+	var added bool
+	for _, cidr := range cidrs {
+		if !existing[cidr] {
+			target.Entries = append(target.Entries, cidr)
+			added = true
+		}
+	}
+	if !added {
+		return nil
+	}
+
+	_, err = c.Request("PUT", "/firewall/sets/set", target)
+	if err != nil {
+		return fmt.Errorf("update %s: %w", ipsetName, err)
+	}
+	return nil
+}
+
 func EnsureVPNSubnet(c *UDAPIClient, cidr string) error {
 	return EnsureZoneSubnet(c, "VPN_subnets", cidr)
 }

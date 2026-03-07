@@ -128,8 +128,8 @@ type firewallOpsAdapter struct {
 	fw FirewallService
 }
 
-func (a *firewallOpsAdapter) DiscoverChainPrefix(zoneID string) string {
-	return a.fw.DiscoverChainPrefix(zoneID)
+func (a *firewallOpsAdapter) DiscoverChainPrefix(ctx context.Context, zoneID string) string {
+	return a.fw.DiscoverChainPrefix(ctx, zoneID)
 }
 func (a *firewallOpsAdapter) EnsureTailscaleRules(chainPrefix string) error {
 	return a.fw.EnsureTailscaleRules(chainPrefix)

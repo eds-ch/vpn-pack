@@ -97,14 +97,14 @@ func (m *mockFWManifest) RemoveWgS2sTunnel(tunnelID string) error {
 }
 
 type mockFWOps struct {
-	discoverChainPrefix       func(zoneID string) string
+	discoverChainPrefix       func(ctx context.Context, zoneID string) string
 	ensureTailscaleRules      func(chainPrefix string) error
 	removeTailscaleIfaceRules func() error
 }
 
-func (m *mockFWOps) DiscoverChainPrefix(zoneID string) string {
+func (m *mockFWOps) DiscoverChainPrefix(ctx context.Context, zoneID string) string {
 	if m.discoverChainPrefix != nil {
-		return m.discoverChainPrefix(zoneID)
+		return m.discoverChainPrefix(ctx, zoneID)
 	}
 	return ""
 }

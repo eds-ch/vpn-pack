@@ -206,13 +206,7 @@ func (svc *WgS2sService) ListTunnels(ctx context.Context) []TunnelInfo {
 		if st, ok := statusMap[t.ID]; ok {
 			info.Status = st
 		}
-		if pubKey, err := wg.GetPublicKey(t.ID); err == nil {
-			info.PublicKey = pubKey
-		}
-		if zm, ok := svc.manifest.GetZone(t.ID); ok {
-			info.ZoneID = zm.ZoneID
-			info.ZoneName = zm.ZoneName
-		}
+		svc.enrichTunnelInfo(&info, t.ID)
 		result = append(result, info)
 	}
 	return result
@@ -255,13 +249,7 @@ func (svc *WgS2sService) CreateTunnel(ctx context.Context, req *WgS2sCreateReque
 	}
 
 	info := TunnelInfo{TunnelConfig: *tunnel, Warnings: warnings}
-	if pubKey, err := wg.GetPublicKey(tunnel.ID); err == nil {
-		info.PublicKey = pubKey
-	}
-	if zm, ok := svc.manifest.GetZone(tunnel.ID); ok {
-		info.ZoneID = zm.ZoneID
-		info.ZoneName = zm.ZoneName
-	}
+	svc.enrichTunnelInfo(&info, tunnel.ID)
 
 	resp := &TunnelCreateResponse{TunnelInfo: info}
 	resp.SetupStatus = firewallResultStatus(zoneResult, fwErr)
@@ -306,9 +294,7 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 	}
 
 	info := TunnelInfo{TunnelConfig: *tunnel, Warnings: warnings}
-	if pubKey, err := wg.GetPublicKey(tunnel.ID); err == nil {
-		info.PublicKey = pubKey
-	}
+	svc.enrichTunnelInfo(&info, tunnel.ID)
 
 	resp := &TunnelUpdateResponse{TunnelInfo: info}
 	resp.SetupStatus = firewallResultStatus(nil, fwErr)
@@ -543,6 +529,17 @@ func buildFirewallStatus(zoneResult *ZoneSetupResult, fwErr error) *FirewallStat
 	return fs
 }
 
+func (svc *WgS2sService) enrichTunnelInfo(info *TunnelInfo, tunnelID string) {
+	wg := svc.loadWG()
+	if pubKey, err := wg.GetPublicKey(tunnelID); err == nil {
+		info.PublicKey = pubKey
+	}
+	if zm, ok := svc.manifest.GetZone(tunnelID); ok {
+		info.ZoneID = zm.ZoneID
+		info.ZoneName = zm.ZoneName
+	}
+}
+
 // --- Validation ---
 
 func validateCreateRequest(req *WgS2sCreateRequest) error {
@@ -559,17 +556,10 @@ func validateCreateRequest(req *WgS2sCreateRequest) error {
 	if err := validateBase64Key(cfg.PeerPublicKey); err != nil {
 		return fmt.Errorf("invalid peerPublicKey: %s", err)
 	}
-	for _, cidr := range cfg.AllowedIPs {
-		if err := validateCIDR(cidr); err != nil {
-			return fmt.Errorf("invalid allowedIP %q: %s", cidr, err)
-		}
+	if err := validateCIDRList(cfg.AllowedIPs, "allowedIP"); err != nil {
+		return err
 	}
-	for _, cidr := range cfg.LocalSubnets {
-		if err := validateCIDR(cidr); err != nil {
-			return fmt.Errorf("invalid localSubnet %q: %s", cidr, err)
-		}
-	}
-	return nil
+	return validateCIDRList(cfg.LocalSubnets, "localSubnet")
 }
 
 func validateUpdateRequest(updates *wgs2s.TunnelConfig) error {
@@ -586,14 +576,16 @@ func validateUpdateRequest(updates *wgs2s.TunnelConfig) error {
 			return fmt.Errorf("invalid peerPublicKey: %s", err)
 		}
 	}
-	for _, cidr := range updates.AllowedIPs {
-		if err := validateCIDR(cidr); err != nil {
-			return fmt.Errorf("invalid allowedIP %q: %s", cidr, err)
-		}
+	if err := validateCIDRList(updates.AllowedIPs, "allowedIP"); err != nil {
+		return err
 	}
-	for _, cidr := range updates.LocalSubnets {
+	return validateCIDRList(updates.LocalSubnets, "localSubnet")
+}
+
+func validateCIDRList(cidrs []string, fieldName string) error {
+	for _, cidr := range cidrs {
 		if err := validateCIDR(cidr); err != nil {
-			return fmt.Errorf("invalid localSubnet %q: %s", cidr, err)
+			return fmt.Errorf("invalid %s %q: %s", fieldName, cidr, err)
 		}
 	}
 	return nil

@@ -32,7 +32,7 @@ type FirewallManifest interface {
 }
 
 type FirewallOps interface {
-	DiscoverChainPrefix(zoneID string) string
+	DiscoverChainPrefix(ctx context.Context, zoneID string) string
 	EnsureTailscaleRules(chainPrefix string) error
 	RemoveTailscaleInterfaceRules() error
 }
@@ -147,7 +147,7 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 	result.PolicyIDs = policyIDs
 	slog.Info("integration policies ready", "count", len(policyIDs))
 
-	discovered := o.ops.DiscoverChainPrefix(zone.ZoneID)
+	discovered := o.ops.DiscoverChainPrefix(ctx, zone.ZoneID)
 	if discovered != "" {
 		result.ChainPrefix = discovered
 	}
@@ -253,7 +253,7 @@ func (o *FirewallOrchestrator) SetupWgS2sZone(ctx context.Context, tunnelID, zon
 	result.PolicyIDs = policyIDs
 	slog.Info("wg-s2s integration policies ready", "count", len(policyIDs))
 
-	chainPrefix := o.ops.DiscoverChainPrefix(zone.ZoneID)
+	chainPrefix := o.ops.DiscoverChainPrefix(ctx, zone.ZoneID)
 	if chainPrefix == "" {
 		chainPrefix = config.DefaultChainPrefix
 	}
