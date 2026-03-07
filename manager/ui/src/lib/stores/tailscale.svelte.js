@@ -95,16 +95,18 @@ export function getLogs() {
     return logs;
 }
 
+const LOG_CAP = 500;
+
 function addLog(level, message) {
     logs.unshift({
         level,
         message,
         timestamp: new Date().toISOString(),
     });
-    if (logs.length > 500) logs.length = 500;
+    if (logs.length > LOG_CAP) logs.length = LOG_CAP;
 }
 
-function valuesEqual(a, b) {
+export function valuesEqual(a, b) {
     if (a === b) return true;
     if (a == null || b == null) return a === b;
     if (typeof a !== 'object') return false;

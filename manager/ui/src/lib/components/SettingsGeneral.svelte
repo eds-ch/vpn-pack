@@ -1,5 +1,6 @@
 <script>
     import Toggle from './Toggle.svelte';
+    import Icon from './Icon.svelte';
     import { isValidEndpoint } from '../utils.js';
     import { TS_DEFAULT_UDP_PORT, TS_DEFAULT_RELAY_PORT, PORT_MIN, PORT_MAX, RELAY_PORT_MIN, HOSTNAME_MAX_LENGTH } from '../constants.js';
 
@@ -217,18 +218,14 @@
 
                 <div class="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-caption text-text-secondary">
                     <div class="flex gap-2">
-                        <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-                        </svg>
+                        <Icon name="alert-triangle" size={16} class="text-amber-500 shrink-0 mt-0.5" />
                         <p>Adding tags transfers device ownership from your user to ACL-managed. Ensure your ACL has SSH and access rules for tagged devices.</p>
                     </div>
                 </div>
 
                 <div class="rounded-lg border border-blue/20 bg-blue/5 px-4 py-3 text-caption text-text-secondary">
                     <div class="flex gap-2">
-                        <svg class="w-4 h-4 text-blue shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />
-                        </svg>
+                        <Icon name="info" size={16} class="text-blue shrink-0 mt-0.5" />
                         <div>
                             <p><span class="text-text">ACL Policy Required:</span> Peer relay requires a grant in your Tailscale ACL policy with the <code class="px-1 py-0.5 rounded bg-surface text-text font-mono text-caption">tailscale.com/cap/relay</code> capability for this device. <a href="https://tailscale.com/kb/1450/peer-relay" target="_blank" rel="noopener noreferrer" class="text-blue hover:underline">Documentation</a></p>
                         </div>

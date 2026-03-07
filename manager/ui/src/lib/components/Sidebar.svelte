@@ -30,7 +30,7 @@
             >
                 <Icon name={tab.icon} size={18} />
             </button>
-            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-[#1c1e21] rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                 {tab.label}
             </span>
         </div>
@@ -50,7 +50,7 @@
             >
                 <Icon name={tab.icon} size={18} />
             </button>
-            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-[#1c1e21] rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                 {tab.label}
             </span>
         </div>
@@ -65,7 +65,7 @@
             >
                 <Icon name="ubiquiti" size={18} />
             </a>
-            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-[#1c1e21] rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                 UniFi Network
             </span>
         </div>
@@ -81,7 +81,7 @@
                 >
                     <Icon name="github" size={18} />
                 </a>
-                <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-[#1c1e21] rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+                <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                     GitHub
                 </span>
             </div>

@@ -49,6 +49,9 @@
             loginError = false;
             if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
         }
+        return () => {
+            if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        };
     });
 
     function retryLogin() {

@@ -28,6 +28,7 @@
     --text-secondary: #b7bcc2;
     --text-tertiary: #737c87;
     --text-heading: #f9fafa;
+    --bg-tooltip: #1c1e21;
     --shadow: rgba(0,0,0,.5);
     --accent-blue: #4797ff;
     --accent-blue-hover: #80b7ff;
@@ -55,6 +56,7 @@ html.light {
     --text-secondary: #5f6672;
     --text-tertiary: #6d747e;
     --text-heading: #1a1d21;
+    --bg-tooltip: #1c1e21;
     --shadow: rgba(33,35,39,.16);
     --accent-blue: #006fff;
     --accent-blue-hover: #0058cc;
@@ -94,6 +96,7 @@ html.light {
     --color-oncolor: hsla(0, 0%, 100%, 0.92);
     --color-oncolor-muted: hsla(0, 0%, 100%, 0.6);
     --color-oncolor-faint: hsla(0, 0%, 100%, 0.28);
+    --color-tooltip: var(--bg-tooltip);
     --shadow-card: 0 5px 25px 0 var(--shadow);
 
     --text-title: 1.125rem;

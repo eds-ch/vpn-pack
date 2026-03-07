@@ -1,5 +1,6 @@
 <script>
     import { setSettings } from '../api.js';
+    import { valuesEqual } from '../stores/tailscale.svelte.js';
     import SettingsGeneral from './SettingsGeneral.svelte';
     import SettingsAdvanced from './SettingsAdvanced.svelte';
     import SettingsIntegration from './SettingsIntegration.svelte';
@@ -30,7 +31,7 @@
 
     let hasChanges = $derived(
         Object.keys(dirtyOverrides).some(k =>
-            JSON.stringify(dirtyOverrides[k]) !== JSON.stringify(serverSettings[k])
+            !valuesEqual(dirtyOverrides[k], serverSettings[k])
         )
     );
 
@@ -51,7 +52,7 @@
     let showApply = $derived(subTab === 'general' || subTab === 'advanced');
 
     function stageChange(key, value) {
-        if (JSON.stringify(value) === JSON.stringify(serverSettings[key])) {
+        if (valuesEqual(value, serverSettings[key])) {
             const { [key]: _, ...rest } = dirtyOverrides;
             dirtyOverrides = rest;
         } else {
@@ -63,7 +64,7 @@
         saving = true;
         const delta = {};
         for (const [key, value] of Object.entries(dirtyOverrides)) {
-            if (JSON.stringify(value) !== JSON.stringify(serverSettings[key])) {
+            if (!valuesEqual(value, serverSettings[key])) {
                 delta[key] = value;
             }
         }
