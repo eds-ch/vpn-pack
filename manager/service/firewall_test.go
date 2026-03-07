@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"unifi-tailscale/manager/domain"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -40,17 +41,17 @@ func (m *mockFWIntegration) DeleteZone(ctx context.Context, siteID, zoneID strin
 
 type mockFWManifest struct {
 	siteID              string
-	tailscaleZone       ZoneManifestData
+	tailscaleZone       domain.ZoneManifest
 	tailscalePrefix     string
-	wgS2sZones          map[string]ZoneManifestData
+	wgS2sZones          map[string]domain.ZoneManifest
 	setTailscaleZoneFn  func(zoneID, zoneName string, policyIDs []string, chainPrefix string) error
-	setWgS2sZoneFn      func(tunnelID string, zs ZoneManifestData) error
+	setWgS2sZoneFn      func(tunnelID string, zs domain.ZoneManifest) error
 	removeWgS2sTunnelFn func(tunnelID string) error
 }
 
 func (m *mockFWManifest) GetSiteID() string                  { return m.siteID }
 func (m *mockFWManifest) HasSiteID() bool                    { return m.siteID != "" }
-func (m *mockFWManifest) GetTailscaleZone() ZoneManifestData { return m.tailscaleZone }
+func (m *mockFWManifest) GetTailscaleZone() domain.ZoneManifest { return m.tailscaleZone }
 func (m *mockFWManifest) GetTailscaleChainPrefix() string {
 	if m.tailscalePrefix != "" {
 		return m.tailscalePrefix
@@ -61,29 +62,29 @@ func (m *mockFWManifest) SetTailscaleZone(zoneID, zoneName string, policyIDs []s
 	if m.setTailscaleZoneFn != nil {
 		return m.setTailscaleZoneFn(zoneID, zoneName, policyIDs, chainPrefix)
 	}
-	m.tailscaleZone = ZoneManifestData{ZoneID: zoneID, ZoneName: zoneName, PolicyIDs: policyIDs, ChainPrefix: chainPrefix}
+	m.tailscaleZone = domain.ZoneManifest{ZoneID: zoneID, ZoneName: zoneName, PolicyIDs: policyIDs, ChainPrefix: chainPrefix}
 	return nil
 }
-func (m *mockFWManifest) GetWgS2sSnapshot() map[string]ZoneManifestData {
+func (m *mockFWManifest) GetWgS2sSnapshot() map[string]domain.ZoneManifest {
 	if m.wgS2sZones == nil {
-		return map[string]ZoneManifestData{}
+		return map[string]domain.ZoneManifest{}
 	}
-	cp := make(map[string]ZoneManifestData, len(m.wgS2sZones))
+	cp := make(map[string]domain.ZoneManifest, len(m.wgS2sZones))
 	for k, v := range m.wgS2sZones {
 		cp[k] = v
 	}
 	return cp
 }
-func (m *mockFWManifest) GetWgS2sZone(tunnelID string) (ZoneManifestData, bool) {
+func (m *mockFWManifest) GetWgS2sZone(tunnelID string) (domain.ZoneManifest, bool) {
 	zm, ok := m.wgS2sZones[tunnelID]
 	return zm, ok
 }
-func (m *mockFWManifest) SetWgS2sZone(tunnelID string, zs ZoneManifestData) error {
+func (m *mockFWManifest) SetWgS2sZone(tunnelID string, zs domain.ZoneManifest) error {
 	if m.setWgS2sZoneFn != nil {
 		return m.setWgS2sZoneFn(tunnelID, zs)
 	}
 	if m.wgS2sZones == nil {
-		m.wgS2sZones = make(map[string]ZoneManifestData)
+		m.wgS2sZones = make(map[string]domain.ZoneManifest)
 	}
 	m.wgS2sZones[tunnelID] = zs
 	return nil
@@ -406,7 +407,7 @@ func TestSetupWgS2sZone_ManifestFail_RollbackZoneAndPolicies(t *testing.T) {
 	}
 	mf := &mockFWManifest{
 		siteID: "site-1",
-		setWgS2sZoneFn: func(tunnelID string, zs ZoneManifestData) error {
+		setWgS2sZoneFn: func(tunnelID string, zs domain.ZoneManifest) error {
 			return errors.New("disk full")
 		},
 	}
@@ -427,7 +428,7 @@ func TestSetupWgS2sZone_ZoneReuse_NoRollback(t *testing.T) {
 	ic := &mockFWIntegration{hasAPIKey: true}
 	mf := &mockFWManifest{
 		siteID: "site-1",
-		wgS2sZones: map[string]ZoneManifestData{
+		wgS2sZones: map[string]domain.ZoneManifest{
 			"tun-existing": {ZoneID: "zone-shared", ZoneName: "Shared", PolicyIDs: []string{"pol-1"}, ChainPrefix: "VPN"},
 		},
 	}
@@ -461,7 +462,7 @@ func TestTeardownWgS2sZone_LastTunnel_DeletesZoneAndPolicies(t *testing.T) {
 	}
 	mf := &mockFWManifest{
 		siteID: "site-1",
-		wgS2sZones: map[string]ZoneManifestData{
+		wgS2sZones: map[string]domain.ZoneManifest{
 			"tun-1": {ZoneID: "zone-wg", ZoneName: "WG S2S", PolicyIDs: []string{"pol-a", "pol-b"}, ChainPrefix: "CUSTOM1"},
 		},
 	}
@@ -484,10 +485,10 @@ func TestTeardownWgS2sZone_SharedZone_KeepsZone(t *testing.T) {
 			return nil
 		},
 	}
-	zm := ZoneManifestData{ZoneID: "zone-shared", ZoneName: "Shared", PolicyIDs: []string{"pol-1"}, ChainPrefix: "VPN"}
+	zm := domain.ZoneManifest{ZoneID: "zone-shared", ZoneName: "Shared", PolicyIDs: []string{"pol-1"}, ChainPrefix: "VPN"}
 	mf := &mockFWManifest{
 		siteID: "site-1",
-		wgS2sZones: map[string]ZoneManifestData{
+		wgS2sZones: map[string]domain.ZoneManifest{
 			"tun-1": zm,
 			"tun-2": zm,
 		},

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 )
 
 // --- Interfaces ---
@@ -22,12 +23,12 @@ type FirewallIntegration interface {
 type FirewallManifest interface {
 	GetSiteID() string
 	HasSiteID() bool
-	GetTailscaleZone() ZoneManifestData
+	GetTailscaleZone() domain.ZoneManifest
 	GetTailscaleChainPrefix() string
 	SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) error
-	GetWgS2sSnapshot() map[string]ZoneManifestData
-	GetWgS2sZone(tunnelID string) (ZoneManifestData, bool)
-	SetWgS2sZone(tunnelID string, zs ZoneManifestData) error
+	GetWgS2sSnapshot() map[string]domain.ZoneManifest
+	GetWgS2sZone(tunnelID string) (domain.ZoneManifest, bool)
+	SetWgS2sZone(tunnelID string, zs domain.ZoneManifest) error
 	RemoveWgS2sTunnel(tunnelID string) error
 }
 
@@ -38,13 +39,6 @@ type FirewallOps interface {
 }
 
 // --- Types ---
-
-type ZoneManifestData struct {
-	ZoneID      string
-	ZoneName    string
-	PolicyIDs   []string
-	ChainPrefix string
-}
 
 type SetupResult struct {
 	ZoneCreated   bool
@@ -259,7 +253,7 @@ func (o *FirewallOrchestrator) SetupWgS2sZone(ctx context.Context, tunnelID, zon
 	}
 	result.ChainPrefix = chainPrefix
 
-	if err := o.manifest.SetWgS2sZone(tunnelID, ZoneManifestData{ZoneID: zone.ZoneID, ZoneName: zone.ZoneName, PolicyIDs: policyIDs, ChainPrefix: chainPrefix}); err != nil {
+	if err := o.manifest.SetWgS2sZone(tunnelID, domain.ZoneManifest{ZoneID: zone.ZoneID, ZoneName: zone.ZoneName, PolicyIDs: policyIDs, ChainPrefix: chainPrefix}); err != nil {
 		result.addError("manifest", fmt.Errorf("save manifest: %w", err))
 		o.rollbackZone(ctx, siteID, zone.ZoneID, "wg-s2s manifest save failed", policyIDs...)
 		result.resetZone()

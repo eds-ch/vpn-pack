@@ -87,38 +87,20 @@ func (a *firewallManifestAdapter) HasSiteID() bool   { return a.ms.HasSiteID() }
 func (a *firewallManifestAdapter) GetTailscaleChainPrefix() string {
 	return a.ms.GetTailscaleChainPrefix()
 }
-func toZoneManifestData(z ZoneManifest) service.ZoneManifestData {
-	return service.ZoneManifestData{
-		ZoneID:      z.ZoneID,
-		ZoneName:    z.ZoneName,
-		PolicyIDs:   z.PolicyIDs,
-		ChainPrefix: z.ChainPrefix,
-	}
-}
-
-func (a *firewallManifestAdapter) GetTailscaleZone() service.ZoneManifestData {
-	return toZoneManifestData(a.ms.GetTailscaleZone())
+func (a *firewallManifestAdapter) GetTailscaleZone() ZoneManifest {
+	return a.ms.GetTailscaleZone()
 }
 func (a *firewallManifestAdapter) SetTailscaleZone(zoneID, zoneName string, policyIDs []string, chainPrefix string) error {
 	return a.ms.SetTailscaleZone(zoneID, zoneName, policyIDs, chainPrefix)
 }
-func (a *firewallManifestAdapter) GetWgS2sSnapshot() map[string]service.ZoneManifestData {
-	raw := a.ms.GetWgS2sSnapshot()
-	out := make(map[string]service.ZoneManifestData, len(raw))
-	for k, v := range raw {
-		out[k] = toZoneManifestData(v)
-	}
-	return out
+func (a *firewallManifestAdapter) GetWgS2sSnapshot() map[string]ZoneManifest {
+	return a.ms.GetWgS2sSnapshot()
 }
-func (a *firewallManifestAdapter) GetWgS2sZone(tunnelID string) (service.ZoneManifestData, bool) {
-	zm, ok := a.ms.GetWgS2sZone(tunnelID)
-	if !ok {
-		return service.ZoneManifestData{}, false
-	}
-	return toZoneManifestData(zm), true
+func (a *firewallManifestAdapter) GetWgS2sZone(tunnelID string) (ZoneManifest, bool) {
+	return a.ms.GetWgS2sZone(tunnelID)
 }
-func (a *firewallManifestAdapter) SetWgS2sZone(tunnelID string, zs service.ZoneManifestData) error {
-	return a.ms.SetWgS2sZone(tunnelID, ZoneManifest{ZoneID: zs.ZoneID, ZoneName: zs.ZoneName, PolicyIDs: zs.PolicyIDs, ChainPrefix: zs.ChainPrefix})
+func (a *firewallManifestAdapter) SetWgS2sZone(tunnelID string, zs ZoneManifest) error {
+	return a.ms.SetWgS2sZone(tunnelID, zs)
 }
 func (a *firewallManifestAdapter) RemoveWgS2sTunnel(tunnelID string) error {
 	return a.ms.RemoveWgS2sTunnel(tunnelID)
@@ -276,8 +258,8 @@ func (a *integrationNotifierAdapter) OnKeyConfigured(ctx context.Context, st *se
 		}
 		a.openWanPort(ctx)
 	}
-	a.health.ClearDegraded("firewall")
-	a.health.RecordSuccess("firewall")
+	a.health.ClearDegraded(WatcherFirewall)
+	a.health.RecordSuccess(WatcherFirewall)
 	a.state.Update(func(d *stateData) {
 		d.IntegrationStatus = st
 	})

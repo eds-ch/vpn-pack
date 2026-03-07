@@ -84,6 +84,9 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		case service.ErrValidation:
 			writeError(w, http.StatusBadRequest, se.Message)
 		case service.ErrUpstream:
+			if se.Cause != nil {
+				slog.Debug("upstream error", "msg", se.Message, "cause", se.Cause)
+			}
 			writeError(w, http.StatusBadGateway, se.Message)
 		case service.ErrPrecondition:
 			writeError(w, http.StatusPreconditionFailed, se.Message)

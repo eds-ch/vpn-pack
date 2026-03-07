@@ -324,7 +324,7 @@ func (s *Server) validateIntegration(ctx context.Context) {
 			if err := s.manifest.ResetIntegration(); err != nil {
 				slog.Warn("failed to reset manifest integration", "err", err)
 			}
-			s.health.SetDegraded("firewall", "key_invalid")
+			s.health.SetDegraded(WatcherFirewall, "key_invalid")
 			return
 		}
 		slog.Warn("integration validation failed", "err", err)

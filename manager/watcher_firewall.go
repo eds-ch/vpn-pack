@@ -29,7 +29,7 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 
 	debounced := s.startInotifyWatcher(ctx)
 	s.watcherRunning.Store(true)
-	s.health.RecordSuccess("firewall")
+	s.health.RecordSuccess(WatcherFirewall)
 	defer s.watcherRunning.Store(false)
 
 	for {
@@ -155,20 +155,20 @@ func (s *Server) retryIntegrationSetup(ctx context.Context) {
 
 	ts := s.manifest.GetTailscaleZone()
 	if ts.ZoneID != "" {
-		s.health.ResetRetries("firewall")
+		s.health.ResetRetries(WatcherFirewall)
 		return
 	}
 
-	if !s.health.ShouldRetry("firewall") {
+	if !s.health.ShouldRetry(WatcherFirewall) {
 		return
 	}
-	s.health.RecordRetryAttempt("firewall")
+	s.health.RecordRetryAttempt(WatcherFirewall)
 
-	slog.Info("retrying integration zone/policy setup", "attempt", s.health.RetryCount("firewall"))
+	slog.Info("retrying integration zone/policy setup", "attempt", s.health.RetryCount(WatcherFirewall))
 
 	result := s.fwOrch.SetupTailscaleFirewall(ctx)
 	if result.Err() != nil {
-		slog.Warn("integration setup retry failed", "attempt", s.health.RetryCount("firewall"), "err", result.Err())
+		slog.Warn("integration setup retry failed", "attempt", s.health.RetryCount(WatcherFirewall), "err", result.Err())
 		return
 	}
 
@@ -177,8 +177,8 @@ func (s *Server) retryIntegrationSetup(ctx context.Context) {
 		return
 	}
 
-	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.health.RetryCount("firewall"))
-	s.health.RecordSuccess("firewall")
+	slog.Info("integration setup succeeded", "zoneId", ts.ZoneID, "attempt", s.health.RetryCount(WatcherFirewall))
+	s.health.RecordSuccess(WatcherFirewall)
 
 	s.openTailscaleWanPort(ctx)
 }
@@ -187,7 +187,7 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 	if !s.integrationReady() {
 		return
 	}
-	if s.health.IsDegraded("firewall") {
+	if s.health.IsDegraded(WatcherFirewall) {
 		return
 	}
 	if !interfaceExists(config.TailscaleInterface) {
@@ -224,21 +224,21 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 
 	if err := s.fw.RestoreTailscaleRules(ctx); err != nil {
 		slog.Warn("firewall restore failed", "err", err)
-		s.health.RecordError("firewall", err)
+		s.health.RecordError(WatcherFirewall, err)
 		return
 	}
 
 	t := time.Now()
 	s.lastRestore.Store(&t)
 	slog.Info("firewall rules restored")
-	s.health.RecordSuccess("firewall")
+	s.health.RecordSuccess(WatcherFirewall)
 }
 
 func (s *Server) restoreWgS2sRules(ctx context.Context) {
 	if s.wgManager == nil {
 		return
 	}
-	if s.health.IsDegraded("firewall") {
+	if s.health.IsDegraded(WatcherFirewall) {
 		return
 	}
 
@@ -271,7 +271,7 @@ func (s *Server) restoreWgS2sRules(ctx context.Context) {
 }
 
 func (s *Server) reconcileWanPortPolicies(ctx context.Context) {
-	if s.health.IsDegraded("firewall") {
+	if s.health.IsDegraded(WatcherFirewall) {
 		return
 	}
 	wanPorts := s.manifest.GetWanPortsSnapshot()

@@ -390,9 +390,13 @@ func (m *TunnelManager) GetTunnels() []TunnelConfig {
 
 func (m *TunnelManager) GetStatuses() []WgS2sStatus {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	tunnels := make([]TunnelConfig, len(m.config.Tunnels))
+	copy(tunnels, m.config.Tunnels)
+	wgClient := m.wgClient
+	log := m.log
+	m.mu.Unlock()
 
-	return getAllStatuses(m.wgClient, m.config.Tunnels, m.log)
+	return getAllStatuses(wgClient, tunnels, log)
 }
 
 func (m *TunnelManager) GetPublicKey(id string) (string, error) {

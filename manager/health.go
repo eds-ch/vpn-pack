@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+const (
+	WatcherFirewall  = "firewall"
+	WatcherTailscale = "tailscale"
+)
+
 type watcherEntry struct {
 	status         WatcherStatus
 	lastSuccess    time.Time

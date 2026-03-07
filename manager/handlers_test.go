@@ -888,8 +888,8 @@ func TestReadJSONInvalidBody(t *testing.T) {
 
 func TestHandleHealth(t *testing.T) {
 	s := newTestServer()
-	s.health.RecordSuccess("tailscale")
-	s.health.SetDegraded("firewall", "key_expired")
+	s.health.RecordSuccess(WatcherTailscale)
+	s.health.SetDegraded(WatcherFirewall, "key_expired")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	w := httptest.NewRecorder()

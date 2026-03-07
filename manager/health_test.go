@@ -19,11 +19,11 @@ func TestHealthTrackerInitialState(t *testing.T) {
 
 func TestRecordSuccess(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
-	ht.RecordSuccess("tailscale")
+	ht.RecordSuccess(WatcherTailscale)
 
 	snap := ht.Snapshot()
-	require.Contains(t, snap.Watchers, "tailscale")
-	w := snap.Watchers["tailscale"]
+	require.Contains(t, snap.Watchers, WatcherTailscale)
+	w := snap.Watchers[WatcherTailscale]
 	assert.Equal(t, StatusHealthy, w.Status)
 	assert.NotNil(t, w.LastSuccess)
 	assert.Equal(t, 0, w.ReconnectCount)
@@ -32,54 +32,54 @@ func TestRecordSuccess(t *testing.T) {
 
 func TestRecordError(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
-	ht.RecordError("tailscale", fmt.Errorf("connection lost"))
+	ht.RecordError(WatcherTailscale, fmt.Errorf("connection lost"))
 
 	snap := ht.Snapshot()
-	w := snap.Watchers["tailscale"]
+	w := snap.Watchers[WatcherTailscale]
 	assert.Equal(t, StatusUnhealthy, w.Status)
 	assert.Equal(t, "connection lost", w.LastError)
 	assert.Equal(t, 1, w.ReconnectCount)
 
-	ht.RecordError("tailscale", fmt.Errorf("still down"))
+	ht.RecordError(WatcherTailscale, fmt.Errorf("still down"))
 	snap = ht.Snapshot()
-	assert.Equal(t, 2, snap.Watchers["tailscale"].ReconnectCount)
+	assert.Equal(t, 2, snap.Watchers[WatcherTailscale].ReconnectCount)
 }
 
 func TestSetDegraded(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
-	ht.SetDegraded("firewall", "key_expired")
+	ht.SetDegraded(WatcherFirewall, "key_expired")
 
 	snap := ht.Snapshot()
-	w := snap.Watchers["firewall"]
+	w := snap.Watchers[WatcherFirewall]
 	assert.Equal(t, StatusDegraded, w.Status)
 	assert.Equal(t, "key_expired", w.DegradedReason)
-	assert.True(t, ht.IsDegraded("firewall"))
+	assert.True(t, ht.IsDegraded(WatcherFirewall))
 }
 
 func TestClearDegraded(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
-	ht.SetDegraded("firewall", "key_expired")
-	assert.True(t, ht.IsDegraded("firewall"))
+	ht.SetDegraded(WatcherFirewall, "key_expired")
+	assert.True(t, ht.IsDegraded(WatcherFirewall))
 
-	ht.ClearDegraded("firewall")
-	assert.False(t, ht.IsDegraded("firewall"))
-	assert.Equal(t, StatusHealthy, ht.Snapshot().Watchers["firewall"].Status)
+	ht.ClearDegraded(WatcherFirewall)
+	assert.False(t, ht.IsDegraded(WatcherFirewall))
+	assert.Equal(t, StatusHealthy, ht.Snapshot().Watchers[WatcherFirewall].Status)
 }
 
 func TestClearDegradedNoopWhenNotDegraded(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
-	ht.RecordSuccess("firewall")
-	ht.ClearDegraded("firewall")
-	assert.Equal(t, StatusHealthy, ht.Snapshot().Watchers["firewall"].Status)
+	ht.RecordSuccess(WatcherFirewall)
+	ht.ClearDegraded(WatcherFirewall)
+	assert.Equal(t, StatusHealthy, ht.Snapshot().Watchers[WatcherFirewall].Status)
 }
 
 func TestRecordSuccessClearsDegraded(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
-	ht.SetDegraded("firewall", "key_expired")
-	ht.RecordSuccess("firewall")
+	ht.SetDegraded(WatcherFirewall, "key_expired")
+	ht.RecordSuccess(WatcherFirewall)
 
-	assert.False(t, ht.IsDegraded("firewall"))
-	w := ht.Snapshot().Watchers["firewall"]
+	assert.False(t, ht.IsDegraded(WatcherFirewall))
+	w := ht.Snapshot().Watchers[WatcherFirewall]
 	assert.Equal(t, StatusHealthy, w.Status)
 	assert.Empty(t, w.DegradedReason)
 }
@@ -131,52 +131,52 @@ func TestShouldRetry(t *testing.T) {
 
 	t.Run("false when degraded", func(t *testing.T) {
 		ht := NewHealthTracker(&mockSSEHub{})
-		ht.SetDegraded("firewall", "reason")
-		assert.False(t, ht.ShouldRetry("firewall"))
+		ht.SetDegraded(WatcherFirewall, "reason")
+		assert.False(t, ht.ShouldRetry(WatcherFirewall))
 	})
 
 	t.Run("true on first attempt (interval 0)", func(t *testing.T) {
 		ht := NewHealthTracker(&mockSSEHub{})
-		ht.RecordSuccess("firewall")
-		assert.True(t, ht.ShouldRetry("firewall"))
+		ht.RecordSuccess(WatcherFirewall)
+		assert.True(t, ht.ShouldRetry(WatcherFirewall))
 	})
 
 	t.Run("false when backoff not elapsed", func(t *testing.T) {
 		ht := NewHealthTracker(&mockSSEHub{})
-		ht.RecordRetryAttempt("firewall")
-		assert.False(t, ht.ShouldRetry("firewall"))
+		ht.RecordRetryAttempt(WatcherFirewall)
+		assert.False(t, ht.ShouldRetry(WatcherFirewall))
 	})
 }
 
 func TestRetryCount(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
-	assert.Equal(t, 0, ht.RetryCount("firewall"))
+	assert.Equal(t, 0, ht.RetryCount(WatcherFirewall))
 
-	ht.RecordRetryAttempt("firewall")
-	assert.Equal(t, 1, ht.RetryCount("firewall"))
+	ht.RecordRetryAttempt(WatcherFirewall)
+	assert.Equal(t, 1, ht.RetryCount(WatcherFirewall))
 
-	ht.RecordRetryAttempt("firewall")
-	assert.Equal(t, 2, ht.RetryCount("firewall"))
+	ht.RecordRetryAttempt(WatcherFirewall)
+	assert.Equal(t, 2, ht.RetryCount(WatcherFirewall))
 
-	ht.ResetRetries("firewall")
-	assert.Equal(t, 0, ht.RetryCount("firewall"))
+	ht.ResetRetries(WatcherFirewall)
+	assert.Equal(t, 0, ht.RetryCount(WatcherFirewall))
 }
 
 func TestErrorCountAndRetryCountSeparate(t *testing.T) {
 	ht := NewHealthTracker(&mockSSEHub{})
 
-	ht.RecordError("firewall", fmt.Errorf("fail"))
-	ht.RecordError("firewall", fmt.Errorf("fail again"))
-	assert.Equal(t, 0, ht.RetryCount("firewall"), "RecordError must not affect RetryCount")
-	assert.Equal(t, 2, ht.Snapshot().Watchers["firewall"].ReconnectCount, "RecordError increments display count")
+	ht.RecordError(WatcherFirewall, fmt.Errorf("fail"))
+	ht.RecordError(WatcherFirewall, fmt.Errorf("fail again"))
+	assert.Equal(t, 0, ht.RetryCount(WatcherFirewall), "RecordError must not affect RetryCount")
+	assert.Equal(t, 2, ht.Snapshot().Watchers[WatcherFirewall].ReconnectCount, "RecordError increments display count")
 
-	ht.RecordRetryAttempt("firewall")
-	assert.Equal(t, 1, ht.RetryCount("firewall"), "RecordRetryAttempt increments RetryCount")
-	assert.Equal(t, 2, ht.Snapshot().Watchers["firewall"].ReconnectCount, "RecordRetryAttempt must not affect display count")
+	ht.RecordRetryAttempt(WatcherFirewall)
+	assert.Equal(t, 1, ht.RetryCount(WatcherFirewall), "RecordRetryAttempt increments RetryCount")
+	assert.Equal(t, 2, ht.Snapshot().Watchers[WatcherFirewall].ReconnectCount, "RecordRetryAttempt must not affect display count")
 
-	ht.RecordSuccess("firewall")
-	assert.Equal(t, 0, ht.RetryCount("firewall"), "RecordSuccess resets RetryCount")
-	assert.Equal(t, 0, ht.Snapshot().Watchers["firewall"].ReconnectCount, "RecordSuccess resets display count")
+	ht.RecordSuccess(WatcherFirewall)
+	assert.Equal(t, 0, ht.RetryCount(WatcherFirewall), "RecordSuccess resets RetryCount")
+	assert.Equal(t, 0, ht.Snapshot().Watchers[WatcherFirewall].ReconnectCount, "RecordSuccess resets display count")
 }
 
 func TestBroadcastOnChange(t *testing.T) {
@@ -190,11 +190,11 @@ func TestBroadcastOnChange(t *testing.T) {
 	}
 	ht := NewHealthTracker(hub)
 
-	ht.RecordSuccess("firewall")
+	ht.RecordSuccess(WatcherFirewall)
 	assert.Equal(t, 1, broadcasts)
 	assert.Equal(t, "health", lastEvent)
 
-	ht.RecordError("firewall", fmt.Errorf("fail"))
+	ht.RecordError(WatcherFirewall, fmt.Errorf("fail"))
 	assert.Equal(t, 2, broadcasts)
 }
 
@@ -207,13 +207,13 @@ func TestNoBroadcastWhenUnchanged(t *testing.T) {
 	}
 	ht := NewHealthTracker(hub)
 
-	ht.RecordSuccess("firewall")
+	ht.RecordSuccess(WatcherFirewall)
 	assert.Equal(t, 1, broadcasts)
 
-	ht.RecordSuccess("firewall")
+	ht.RecordSuccess(WatcherFirewall)
 	assert.Equal(t, 1, broadcasts, "repeated RecordSuccess with same status should not broadcast")
 
-	ht.ClearDegraded("firewall")
+	ht.ClearDegraded(WatcherFirewall)
 	assert.Equal(t, 1, broadcasts, "ClearDegraded on healthy watcher should not broadcast")
 }
 
