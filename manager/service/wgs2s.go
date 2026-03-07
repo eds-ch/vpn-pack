@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -140,6 +141,7 @@ type Keypair struct {
 // --- Service ---
 
 type WgS2sService struct {
+	wgMu            sync.RWMutex
 	wg              WgS2sWireGuard
 	fw              WgS2sFirewall
 	manifest        WgS2sManifest
@@ -172,16 +174,25 @@ func NewWgS2sService(cfg WgS2sConfig) *WgS2sService {
 }
 
 func (svc *WgS2sService) SetWireGuard(wg WgS2sWireGuard) {
+	svc.wgMu.Lock()
 	svc.wg = wg
+	svc.wgMu.Unlock()
+}
+
+func (svc *WgS2sService) loadWG() WgS2sWireGuard {
+	svc.wgMu.RLock()
+	defer svc.wgMu.RUnlock()
+	return svc.wg
 }
 
 func (svc *WgS2sService) Available() bool {
-	return svc.wg != nil
+	return svc.loadWG() != nil
 }
 
 func (svc *WgS2sService) ListTunnels(ctx context.Context) []TunnelInfo {
-	tunnels := svc.wg.GetTunnels()
-	statuses := svc.wg.GetStatuses()
+	wg := svc.loadWG()
+	tunnels := wg.GetTunnels()
+	statuses := wg.GetStatuses()
 	svc.EnrichForwardINOk(ctx, statuses)
 
 	statusMap := make(map[string]*wgs2s.WgS2sStatus, len(statuses))
@@ -195,7 +206,7 @@ func (svc *WgS2sService) ListTunnels(ctx context.Context) []TunnelInfo {
 		if st, ok := statusMap[t.ID]; ok {
 			info.Status = st
 		}
-		if pubKey, err := svc.wg.GetPublicKey(t.ID); err == nil {
+		if pubKey, err := wg.GetPublicKey(t.ID); err == nil {
 			info.PublicKey = pubKey
 		}
 		if zm, ok := svc.manifest.GetZone(t.ID); ok {
@@ -224,7 +235,8 @@ func (svc *WgS2sService) CreateTunnel(ctx context.Context, req *WgS2sCreateReque
 		}
 	}
 
-	tunnel, err := svc.wg.CreateTunnel(req.TunnelConfig, req.PrivateKey)
+	wg := svc.loadWG()
+	tunnel, err := wg.CreateTunnel(req.TunnelConfig, req.PrivateKey)
 	if err != nil {
 		return nil, upstreamError(humanizeWgS2sError(err), err)
 	}
@@ -243,7 +255,7 @@ func (svc *WgS2sService) CreateTunnel(ctx context.Context, req *WgS2sCreateReque
 	}
 
 	info := TunnelInfo{TunnelConfig: *tunnel, Warnings: warnings}
-	if pubKey, err := svc.wg.GetPublicKey(tunnel.ID); err == nil {
+	if pubKey, err := wg.GetPublicKey(tunnel.ID); err == nil {
 		info.PublicKey = pubKey
 	}
 	if zm, ok := svc.manifest.GetZone(tunnel.ID); ok {
@@ -278,7 +290,8 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 		}
 	}
 
-	tunnel, err := svc.wg.UpdateTunnel(id, updates)
+	wg := svc.loadWG()
+	tunnel, err := wg.UpdateTunnel(id, updates)
 	if err != nil {
 		return nil, upstreamError(humanizeWgS2sError(err), err)
 	}
@@ -293,7 +306,7 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 	}
 
 	info := TunnelInfo{TunnelConfig: *tunnel, Warnings: warnings}
-	if pubKey, err := svc.wg.GetPublicKey(tunnel.ID); err == nil {
+	if pubKey, err := wg.GetPublicKey(tunnel.ID); err == nil {
 		info.PublicKey = pubKey
 	}
 
@@ -311,7 +324,7 @@ func (svc *WgS2sService) DeleteTunnel(ctx context.Context, id string) error {
 		return notFoundError("tunnel not found")
 	}
 
-	if err := svc.wg.DeleteTunnel(id); err != nil {
+	if err := svc.loadWG().DeleteTunnel(id); err != nil {
 		return upstreamError(humanizeWgS2sError(err), err)
 	}
 
@@ -326,7 +339,7 @@ func (svc *WgS2sService) EnableTunnel(ctx context.Context, id string) (*EnableTu
 	if svc.findTunnelByID(id) == nil {
 		return nil, notFoundError("tunnel not found")
 	}
-	if err := svc.wg.EnableTunnel(id); err != nil {
+	if err := svc.loadWG().EnableTunnel(id); err != nil {
 		return nil, upstreamError(humanizeWgS2sError(err), err)
 	}
 
@@ -351,7 +364,7 @@ func (svc *WgS2sService) DisableTunnel(ctx context.Context, id string) error {
 		return notFoundError("tunnel not found")
 	}
 
-	if err := svc.wg.DisableTunnel(id); err != nil {
+	if err := svc.loadWG().DisableTunnel(id); err != nil {
 		return upstreamError(humanizeWgS2sError(err), err)
 	}
 
@@ -376,7 +389,7 @@ func (svc *WgS2sService) GetConfig(_ context.Context, id string) (string, error)
 		return "", notFoundError("tunnel not found")
 	}
 
-	pubKey, err := svc.wg.GetPublicKey(id)
+	pubKey, err := svc.loadWG().GetPublicKey(id)
 	if err != nil {
 		return "", internalError("failed to read public key")
 	}
@@ -453,7 +466,11 @@ func (svc *WgS2sService) logFirewallError(iface string, err error) {
 }
 
 func (svc *WgS2sService) findTunnelByID(id string) *wgs2s.TunnelConfig {
-	tunnels := svc.wg.GetTunnels()
+	wg := svc.loadWG()
+	if wg == nil {
+		return nil
+	}
+	tunnels := wg.GetTunnels()
 	for i := range tunnels {
 		if tunnels[i].ID == id {
 			return &tunnels[i]

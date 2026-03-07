@@ -74,7 +74,9 @@ type NetcheckResult struct {
 type DiagnosticsService struct {
 	ts DiagnosticsTailscale
 	fw DiagnosticsFirewall
-	wg DiagnosticsWgS2s
+
+	wgMu sync.RWMutex
+	wg   DiagnosticsWgS2s
 
 	netcheckMu      sync.Mutex
 	netcheckCache   *NetcheckResult
@@ -86,7 +88,15 @@ func NewDiagnosticsService(ts DiagnosticsTailscale, fw DiagnosticsFirewall, wg D
 }
 
 func (svc *DiagnosticsService) SetWgS2s(wg DiagnosticsWgS2s) {
+	svc.wgMu.Lock()
 	svc.wg = wg
+	svc.wgMu.Unlock()
+}
+
+func (svc *DiagnosticsService) loadWgS2s() DiagnosticsWgS2s {
+	svc.wgMu.RLock()
+	defer svc.wgMu.RUnlock()
+	return svc.wg
 }
 
 func (svc *DiagnosticsService) GetDiagnostics(ctx context.Context) (*DiagnosticsResponse, error) {
@@ -118,11 +128,11 @@ func (svc *DiagnosticsService) GetDiagnostics(ctx context.Context) (*Diagnostics
 		derpMap, derpErr = svc.ts.CurrentDERPMap(ctx)
 	}()
 
-	if svc.wg != nil {
+	if wgSvc := svc.loadWgS2s(); wgSvc != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wgDiag = svc.gatherWgS2sDiagnostics(ctx)
+			wgDiag = svc.gatherWgS2sDiagnostics(ctx, wgSvc)
 		}()
 	}
 
@@ -202,11 +212,11 @@ func (svc *DiagnosticsService) runNetcheck(ctx context.Context) *NetcheckResult 
 	return &result
 }
 
-func (svc *DiagnosticsService) gatherWgS2sDiagnostics(ctx context.Context) *WgS2sDiagnostics {
+func (svc *DiagnosticsService) gatherWgS2sDiagnostics(ctx context.Context, wgSvc DiagnosticsWgS2s) *WgS2sDiagnostics {
 	_, modErr := os.Stat("/sys/module/wireguard")
 
-	tunnels := svc.wg.GetTunnels()
-	statuses := svc.wg.GetStatuses()
+	tunnels := wgSvc.GetTunnels()
+	statuses := wgSvc.GetStatuses()
 
 	statusMap := make(map[string]int, len(statuses))
 	for i := range statuses {

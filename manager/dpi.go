@@ -16,7 +16,7 @@ func hasDPIFingerprint() bool {
 func readDPIFingerprint() bool {
 	data, err := os.ReadFile(dpiFingerprintPath)
 	if err != nil {
-		return true
+		return false
 	}
 	return strings.TrimSpace(string(data)) != "0"
 }

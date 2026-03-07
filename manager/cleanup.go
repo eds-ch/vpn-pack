@@ -8,6 +8,7 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"time"
 
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/service"
@@ -128,23 +129,26 @@ func removeIntegrationResources() {
 	ic := NewIntegrationClient(apiKey)
 	slog.Info("cleanup: removing Integration API zones and policies", "siteId", siteID)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	for marker, entry := range manifest.WanPorts {
 		deleteResourceBestEffort("WAN port policy", marker, func() error {
-			return ic.DeletePolicy(context.Background(), siteID, entry.PolicyID)
+			return ic.DeletePolicy(ctx, siteID, entry.PolicyID)
 		})
 	}
 
 	for tunnelID, zm := range manifest.WgS2s {
 		for _, policyID := range zm.PolicyIDs {
 			deleteResourceBestEffort("wg-s2s policy", tunnelID+"/"+policyID, func() error {
-				return ic.DeletePolicy(context.Background(), siteID, policyID)
+				return ic.DeletePolicy(ctx, siteID, policyID)
 			})
 		}
 	}
 
 	for _, policyID := range manifest.Tailscale.PolicyIDs {
 		deleteResourceBestEffort("tailscale policy", policyID, func() error {
-			return ic.DeletePolicy(context.Background(), siteID, policyID)
+			return ic.DeletePolicy(ctx, siteID, policyID)
 		})
 	}
 
@@ -155,13 +159,13 @@ func removeIntegrationResources() {
 		}
 		deletedZones[zm.ZoneID] = true
 		deleteResourceBestEffort("wg-s2s zone", zm.ZoneID, func() error {
-			return ic.DeleteZone(context.Background(), siteID, zm.ZoneID)
+			return ic.DeleteZone(ctx, siteID, zm.ZoneID)
 		})
 	}
 
 	if manifest.Tailscale.ZoneID != "" {
 		deleteResourceBestEffort("tailscale zone", manifest.Tailscale.ZoneID, func() error {
-			return ic.DeleteZone(context.Background(), siteID, manifest.Tailscale.ZoneID)
+			return ic.DeleteZone(ctx, siteID, manifest.Tailscale.ZoneID)
 		})
 	}
 

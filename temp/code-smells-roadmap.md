@@ -201,25 +201,27 @@ Lower priority structural improvements. Can be done incrementally.
 
 ---
 
-## Wave 11 — Architecture & Infra (Optional)
+## Wave 11 — Architecture & Infra (Optional, partially done)
 
-**Effort:** varies | **Findings closed:** A4, A5, A7, A8, E4, E5, E12, E13, E14, E15, E18, A10-A15 (remaining)
+**Findings closed:** E4, E5, E12, E15 (bug fixes cherry-picked) | **Remaining:** A4, A5, A7, A8, E13, E14, E18, A10-A15
 
-Lower priority. Do when touching these areas naturally.
+Cherry-picked real bugs into a standalone fix. Remaining items are opportunistic — do when touching these areas naturally.
 
-| # | Action | Finding |
-|---|--------|---------|
-| 1 | Remove no-value type aliases in `service/*.go` that just re-export `domain` types | A4 |
-| 2 | Split `service/settings.go` (583 lines): extract file I/O or prefs-building into helper | A5 |
-| 3 | `firewall.go`: extract shell-out functions behind interface for testability | A7 |
-| 4 | `server.go:303-383`: move startup validation into service layer | A8 |
-| 5 | `service/diagnostics.go:84`, `service/wgs2s.go:174`: use `atomic.Pointer` for `SetWgS2s`/`SetWireGuard` | E4, E5 |
-| 6 | `cleanup.go:132-166`: add timeout to `context.Background()` | E12 |
-| 7 | `udapi/client.go:153`: check `rand.Read` error | E13 |
-| 8 | `nginx.go:25-44`: wrap errors with context | E14 |
-| 9 | `dpi.go:16-21`: return `false` on read error instead of `true` | E15 |
-| 10 | `handler_sse.go:28-30,45-47`: log SSE write errors at debug level | E18 |
-| 11 | Various A10-A15: config validation, API versioning, Makefile optimization | A10-A15 |
+| # | Action | Finding | Status |
+|---|--------|---------|--------|
+| 1 | Remove no-value type aliases in `service/*.go` that just re-export `domain` types | A4 | Skipped — cosmetic, aliases serve layer boundary |
+| 2 | Split `service/settings.go` (583 lines): extract file I/O or prefs-building into helper | A5 | Skipped — cohesion is good, not worth splitting |
+| 3 | `firewall.go`: extract shell-out functions behind interface for testability | A7 | Skipped — do when writing firewall tests |
+| 4 | `server.go:303-383`: move startup validation into service layer | A8 | Skipped — low value, startup direct access is pragmatic |
+| 5 | `service/diagnostics.go`, `service/wgs2s.go`: protect `SetWgS2s`/`SetWireGuard` with `sync.RWMutex` | E4, E5 | Done |
+| 6 | `cleanup.go`: add 30s timeout to `removeIntegrationResources` context | E12 | Done |
+| 7 | `udapi/client.go:153`: check `rand.Read` error | E13 | Skipped — Go `rand.Read` never fails on Linux |
+| 8 | `nginx.go:25-44`: wrap errors with context | E14 | Skipped — do when touching the file |
+| 9 | `dpi.go:16-21`: return `false` on read error instead of `true` | E15 | Done |
+| 10 | `handler_sse.go:28-30,45-47`: log SSE write errors at debug level | E18 | Skipped — SSE is inherently lossy |
+| 11 | Various A10-A15: config validation, API versioning, Makefile optimization | A10-A15 | Skipped — low priority / premature |
+
+**Verify:** `cd manager && go test ./... && go vet ./...` — passed
 
 ---
 
@@ -263,8 +265,8 @@ Backend waves are **sequential** within themselves: each wave builds on the prev
 | 8 | E2,E6,E7,E8,E10,E11,E17 | 7 | 1-2h | Error handling |
 | 9 | S4,S5,S8,S14,D4,D6,D9,D10,D11 | 9 | 2-3h | Structural cleanup |
 | 10 | F5,F6,F10,F11,F12,F13,F14,F15 | 8 | 1-2h | Frontend cleanup |
-| 11 | A4,A5,A7,A8,E4,E5,E12-E15,E18,A10-A15 | 18 | varies | Optional / opportunistic |
-| **Total** | | **66** | **~15h** | |
+| 11 | E4,E5,E12,E15 done; rest skipped | 4/18 | 1h | Bug fixes cherry-picked |
+| **Total** | | **52 closed + 14 skipped = 66** | **~15h** | |
 
 ### What NOT to refactor
 
