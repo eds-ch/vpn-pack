@@ -4,7 +4,6 @@ import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 vi.mock('../api.js', () => ({
     wgS2sGenerateKeypair: vi.fn(),
     wgS2sGetLocalSubnets: vi.fn(),
-    wgS2sGetWanIP: vi.fn(),
     wgS2sCreateTunnel: vi.fn(),
     wgS2sListZones: vi.fn(),
 }));
@@ -16,7 +15,6 @@ vi.mock('../stores/tailscale.svelte.js', () => ({
 import {
     wgS2sGenerateKeypair,
     wgS2sGetLocalSubnets,
-    wgS2sGetWanIP,
     wgS2sCreateTunnel,
 } from '../api.js';
 import TunnelForm from './TunnelForm.svelte';
@@ -29,7 +27,6 @@ describe('TunnelForm', () => {
             privateKey: 'test-priv-key-xyz',
         });
         wgS2sGetLocalSubnets.mockResolvedValue([]);
-        wgS2sGetWanIP.mockResolvedValue({ ip: '1.2.3.4' });
     });
 
     it('renders form elements after mount', async () => {

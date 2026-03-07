@@ -1,7 +1,7 @@
 <script>
     import { onMount } from 'svelte';
     import { SvelteSet } from 'svelte/reactivity';
-    import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sGetWanIP, wgS2sCreateTunnel, wgS2sListZones } from '../api.js';
+    import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sCreateTunnel, wgS2sListZones } from '../api.js';
     import { isValidCIDR, validateTunnelFields } from '../utils.js';
     import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';
@@ -15,7 +15,6 @@
     let localSubnets = $state([]);
     let selectedSubnets = $state(new SvelteSet());
     let customCIDRs = $state('');
-    let wanIP = $state('');
     let loading = $state(false);
     let zones = $state([]);
     let selectedZone = $state('');
@@ -36,15 +35,13 @@
         const promises = [
             wgS2sGenerateKeypair(),
             wgS2sGetLocalSubnets(),
-            wgS2sGetWanIP(),
         ];
         if (integrationConfigured) promises.push(wgS2sListZones());
 
         const results = await Promise.all(promises);
         if (results[0]) keypair = results[0];
         if (Array.isArray(results[1])) localSubnets = results[1];
-        if (results[2]?.ip) wanIP = results[2].ip;
-        if (results[3] && Array.isArray(results[3])) zones = results[3];
+        if (results[2] && Array.isArray(results[2])) zones = results[2];
     });
 
     function toggleSubnet(cidr) {
@@ -165,8 +162,7 @@
             <input type="number" bind:value={listenPort}
                 oninput={() => fieldErrors = clearFieldError(fieldErrors,'listenPort')}
                 class={getInputClass(fieldErrors,'listenPort')} />
-            {#if fieldErrors.listenPort}<p class="text-caption text-error mt-0.5">{fieldErrors.listenPort}</p>
-            {:else if wanIP}<span class="text-caption text-text-secondary mt-0.5 block">{wanIP}:{listenPort}</span>{/if}
+            {#if fieldErrors.listenPort}<p class="text-caption text-error mt-0.5">{fieldErrors.listenPort}</p>{/if}
         </div>
         <FormField label="Tunnel Address (CIDR)" bind:value={tunnelAddress} placeholder="10.255.0.1/30"
             error={fieldErrors.tunnelAddress}
