@@ -44,13 +44,15 @@ type RoutesResponse struct {
 type SetRoutesRequest struct {
 	Routes   []string `json:"routes"`
 	ExitNode bool     `json:"exitNode"`
+	Confirm  bool     `json:"confirm"`
 }
 
 type SetRoutesResult struct {
-	OK       bool   `json:"ok"`
-	Message  string `json:"message"`
-	AdminURL string `json:"adminURL"`
-	Warning  string `json:"warning,omitempty"`
+	OK              bool   `json:"ok"`
+	Message         string `json:"message"`
+	AdminURL        string `json:"adminURL"`
+	Warning         string `json:"warning,omitempty"`
+	ConfirmRequired bool   `json:"confirmRequired,omitempty"`
 }
 
 type SubnetEntry struct {
@@ -120,6 +122,15 @@ func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest,
 			return nil, validationError(fmt.Sprintf("invalid CIDR: %s", cidr))
 		}
 		prefixes = append(prefixes, p.Masked())
+	}
+
+	if req.ExitNode && !req.Confirm {
+		return &SetRoutesResult{
+			ConfirmRequired: true,
+			Message: "Exit node will redirect ALL internet traffic from ALL clients " +
+				"behind this router (all VLANs, all devices) through Tailscale. " +
+				"Direct internet access will be lost.",
+		}, nil
 	}
 
 	var warning string

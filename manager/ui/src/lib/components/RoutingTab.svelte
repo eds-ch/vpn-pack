@@ -45,7 +45,7 @@
 
     async function handleApply() {
         applying = true;
-        await setRoutes(stagedCidrs, stagedExitNode);
+        await setRoutes(stagedCidrs, stagedExitNode, stagedExitNode || undefined);
         userTouched = false;
         applying = false;
     }

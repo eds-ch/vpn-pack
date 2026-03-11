@@ -161,6 +161,7 @@ export interface SetRoutesResult {
     message: string;
     adminURL: string;
     warning?: string;
+    confirmRequired?: boolean;
 }
 
 export interface FirewallStatusResponse {

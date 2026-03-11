@@ -251,6 +251,7 @@ func TestSetRoutes_ExitNodeWithVPNClients(t *testing.T) {
 
 	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
 		ExitNode: true,
+		Confirm:  true,
 	}, []string{"wgclt1", "wgclt2"})
 	require.NoError(t, err)
 	assert.True(t, result.OK)
@@ -263,9 +264,43 @@ func TestSetRoutes_ExitNodeNoVPNClients(t *testing.T) {
 
 	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
 		ExitNode: true,
+		Confirm:  true,
 	}, nil)
 	require.NoError(t, err)
 	assert.Empty(t, result.Warning)
+}
+
+func TestSetRoutes_ExitNodeRequiresConfirm(t *testing.T) {
+	svc := newTestRoutingService()
+
+	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		ExitNode: true,
+	}, nil)
+	require.NoError(t, err)
+	assert.False(t, result.OK)
+	assert.True(t, result.ConfirmRequired)
+	assert.Contains(t, result.Message, "ALL")
+}
+
+func TestSetRoutes_ExitNodeWithConfirm(t *testing.T) {
+	editCalled := false
+	svc := newTestRoutingService(func(s *RoutingService) {
+		s.ts = &mockRoutingTailscale{
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				editCalled = true
+				return &ipn.Prefs{}, nil
+			},
+		}
+	})
+
+	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		ExitNode: true,
+		Confirm:  true,
+	}, nil)
+	require.NoError(t, err)
+	assert.True(t, result.OK)
+	assert.False(t, result.ConfirmRequired)
+	assert.True(t, editCalled)
 }
 
 func TestSetRoutes_EditPrefsError(t *testing.T) {
