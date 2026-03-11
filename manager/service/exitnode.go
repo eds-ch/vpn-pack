@@ -56,7 +56,10 @@ type exitRule struct {
 func (s *ExitNodeService) Apply(ctx context.Context, policy domain.ExitNodePolicy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.applyLocked(ctx, policy)
+}
 
+func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNodePolicy) error {
 	if err := s.cleanupLocked(ctx); err != nil {
 		slog.Warn("exit node cleanup before apply", "err", err)
 	}
@@ -141,10 +144,7 @@ func (s *ExitNodeService) Reconcile(ctx context.Context, policy domain.ExitNodeP
 	}
 
 	slog.Info("exit node rules drifted, re-applying", "current", len(current), "desired", len(desired))
-	s.mu.Unlock()
-	err = s.Apply(ctx, policy)
-	s.mu.Lock()
-	return err
+	return s.applyLocked(ctx, policy)
 }
 
 func (s *ExitNodeService) addRule(ctx context.Context, family, src string, prio int) error {

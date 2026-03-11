@@ -168,10 +168,10 @@ type StateData struct {
 	Version           string               `json:"version"`
 	Self              *SelfNode            `json:"self,omitempty"`
 	Health            []string             `json:"health,omitempty"`
-	ExitNode        bool             `json:"exitNode"`
-	ExitNodeMode    ExitNodeMode     `json:"exitNodeMode,omitempty"`
-	ExitNodeClients []ExitNodeClient `json:"exitNodeClients,omitempty"`
-	Routes          []RouteStatus    `json:"routes"`
+	ExitNode          bool                 `json:"exitNode"`
+	ExitNodeMode      ExitNodeMode         `json:"exitNodeMode,omitempty"`
+	ExitNodeClients   []ExitNodeClient     `json:"exitNodeClients,omitempty"`
+	Routes            []RouteStatus        `json:"routes"`
 	Peers             []PeerInfo           `json:"peers"`
 	DERP              []DERPInfo           `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth      `json:"firewallHealth,omitempty"`

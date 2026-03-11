@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"testing"
 	"time"
@@ -623,6 +624,33 @@ func TestSetRoutes_SelectiveInvalidClient(t *testing.T) {
 		ExitClients:  []ExitNodeClient{{IP: "not-valid"}},
 	}, nil)
 	require.Error(t, err)
+}
+
+func TestSetRoutes_ExitSvcApplyError(t *testing.T) {
+	editCalled := false
+	failRunner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("ip rule add failed")
+	}
+	svc := newTestRoutingService(func(s *RoutingService) {
+		s.ts = &mockRoutingTailscale{
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				editCalled = true
+				return &ipn.Prefs{}, nil
+			},
+		}
+		s.exitSvc = NewExitNodeService(&mockExitManifest{}, failRunner)
+	})
+
+	_, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		ExitNode:     true,
+		ExitNodeMode: "selective",
+		ExitClients:  []ExitNodeClient{{IP: "192.168.1.100"}},
+	}, nil)
+	require.Error(t, err)
+	assert.True(t, editCalled, "EditPrefs should have been called before exitSvc.Apply")
+	var se *Error
+	require.ErrorAs(t, err, &se)
+	assert.Equal(t, ErrInternal, se.Kind)
 }
 
 func TestGetRoutes_IncludesExitPolicy(t *testing.T) {
