@@ -16,9 +16,12 @@
     let clientLabel = $state('');
     let clientError = $state('');
 
+    const MAX_EXIT_CLIENTS = 20;
+
     let isOn = $derived(mode !== 'off');
     let hasWgclt = $derived(activeVPNClients.length > 0);
     let wgcltNames = $derived(activeVPNClients.join(', '));
+    let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
 
     function handleToggle() {
         if (isOn) {
@@ -148,28 +151,32 @@
                     <p class="text-caption text-text-tertiary mb-3">No clients added. Exit node will not route traffic until clients are specified.</p>
                 {/if}
 
-                <div class="flex gap-2">
-                    <input
-                        type="text"
-                        bind:value={clientIP}
-                        onkeydown={handleKeydown}
-                        placeholder="192.168.1.100 or 10.0.0.0/24"
-                        class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue"
-                    />
-                    <input
-                        type="text"
-                        bind:value={clientLabel}
-                        onkeydown={handleKeydown}
-                        placeholder="Label (optional)"
-                        class="w-32 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue"
-                    />
-                    <button
-                        onclick={addClient}
-                        class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
-                    >Add</button>
-                </div>
-                {#if clientError}
-                    <p class="text-caption text-error mt-1.5">{clientError}</p>
+                {#if atClientLimit}
+                    <p class="text-caption text-text-tertiary">Maximum {MAX_EXIT_CLIENTS} clients reached.</p>
+                {:else}
+                    <div class="flex gap-2">
+                        <input
+                            type="text"
+                            bind:value={clientIP}
+                            onkeydown={handleKeydown}
+                            placeholder="192.168.1.100 or 10.0.0.0/24"
+                            class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue"
+                        />
+                        <input
+                            type="text"
+                            bind:value={clientLabel}
+                            onkeydown={handleKeydown}
+                            placeholder="Label (optional)"
+                            class="w-32 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue"
+                        />
+                        <button
+                            onclick={addClient}
+                            class="px-3 py-1.5 text-body rounded-lg border border-border text-text hover:bg-surface-hover transition-colors"
+                        >Add</button>
+                    </div>
+                    {#if clientError}
+                        <p class="text-caption text-error mt-1.5">{clientError}</p>
+                    {/if}
                 {/if}
             </div>
         {/if}

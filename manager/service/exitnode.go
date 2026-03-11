@@ -17,7 +17,7 @@ import (
 const (
 	exitRouteTable   = 53
 	exitRuleBasePrio = 5280
-	exitRuleMaxPrio  = 5299
+	exitRuleMaxPrio  = 5300
 	bypassMark       = 0x80000
 	bypassMask       = 0xff0000
 	maxExitClients   = 20
