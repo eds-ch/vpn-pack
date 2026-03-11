@@ -95,7 +95,8 @@ func newTestServer(opts ...func(*Server)) *Server {
 		settingsManifestAdapter{s.manifest}, false, nil,
 	)
 	s.diagnostics = service.NewDiagnosticsService(s.ts, s.fw, nil)
-	s.routing = service.NewRoutingService(s.ts, s.fw, s.ic, s.manifest, nil)
+	s.exitSvc = service.NewExitNodeService(s.manifest, nil)
+	s.routing = service.NewRoutingService(s.ts, s.fw, s.ic, s.manifest, nil, s.exitSvc)
 
 	var wgFw service.WgS2sFirewall
 	if s.fw != nil {

@@ -43,6 +43,9 @@ type ManifestStore interface {
 	SetDNSPolicy(marker, policyID, domain, ipAddress string) error
 	RemoveDNSPolicy(marker string) error
 	ResetIntegration() error
+
+	GetExitNodePolicy() ExitNodePolicy
+	SetExitNodePolicy(p ExitNodePolicy) error
 }
 
 type IntegrationAPI interface {

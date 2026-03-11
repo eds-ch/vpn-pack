@@ -27,6 +27,7 @@ type Manifest struct {
 	ExternalZoneID string                             `json:"externalZoneId,omitempty"`
 	GatewayZoneID  string                             `json:"gatewayZoneId,omitempty"`
 	DNSPolicies    map[string]domain.DNSPolicyEntry   `json:"dnsPolicies,omitempty"`
+	ExitNodePolicy *domain.ExitNodePolicy             `json:"exitNodePolicy,omitempty"`
 }
 
 func NewManifest(path string) *Manifest {
@@ -310,6 +311,25 @@ func (m *Manifest) HasDNSPolicy(marker string) bool {
 	}
 	_, ok := m.DNSPolicies[marker]
 	return ok
+}
+
+func (m *Manifest) GetExitNodePolicy() domain.ExitNodePolicy {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.ExitNodePolicy == nil {
+		return domain.ExitNodePolicy{Mode: domain.ExitNodeOff}
+	}
+	p := *m.ExitNodePolicy
+	p.Clients = slices.Clone(p.Clients)
+	return p
+}
+
+func (m *Manifest) SetExitNodePolicy(p domain.ExitNodePolicy) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ExitNodePolicy = &p
+	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
 }
 
 func (m *Manifest) GetTailscaleZone() domain.ZoneManifest {

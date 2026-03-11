@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"unifi-tailscale/manager/domain"
+
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
@@ -71,7 +73,9 @@ type mockManifestStore struct {
 	setSystemZoneIDsFn  func(externalID, gatewayID string) error
 	setDNSPolicyFn      func(marker, policyID, domain, ipAddress string) error
 	removeDNSPolicyFn   func(marker string) error
-	resetIntegrationFn  func() error
+	resetIntegrationFn     func() error
+	getExitNodePolicyFn    func() domain.ExitNodePolicy
+	setExitNodePolicyFn    func(p domain.ExitNodePolicy) error
 }
 
 func (m *mockManifestStore) GetSiteID() string {
@@ -215,6 +219,18 @@ func (m *mockManifestStore) RemoveDNSPolicy(marker string) error {
 func (m *mockManifestStore) ResetIntegration() error {
 	if m.resetIntegrationFn != nil {
 		return m.resetIntegrationFn()
+	}
+	return nil
+}
+func (m *mockManifestStore) GetExitNodePolicy() domain.ExitNodePolicy {
+	if m.getExitNodePolicyFn != nil {
+		return m.getExitNodePolicyFn()
+	}
+	return domain.ExitNodePolicy{Mode: domain.ExitNodeOff}
+}
+func (m *mockManifestStore) SetExitNodePolicy(p domain.ExitNodePolicy) error {
+	if m.setExitNodePolicyFn != nil {
+		return m.setExitNodePolicyFn(p)
 	}
 	return nil
 }

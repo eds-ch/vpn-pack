@@ -107,6 +107,24 @@ type DNSPolicy struct {
 	Enabled   bool   `json:"enabled"`
 }
 
+type ExitNodeMode string
+
+const (
+	ExitNodeOff       ExitNodeMode = "off"
+	ExitNodeAll       ExitNodeMode = "all"
+	ExitNodeSelective ExitNodeMode = "selective"
+)
+
+type ExitNodeClient struct {
+	IP    string `json:"ip"`
+	Label string `json:"label,omitempty"`
+}
+
+type ExitNodePolicy struct {
+	Mode    ExitNodeMode     `json:"mode"`
+	Clients []ExitNodeClient `json:"clients,omitempty"`
+}
+
 type SubnetConflict struct {
 	CIDR          string `json:"cidr"`
 	ConflictsWith string `json:"conflictsWith"`
@@ -150,8 +168,10 @@ type StateData struct {
 	Version           string               `json:"version"`
 	Self              *SelfNode            `json:"self,omitempty"`
 	Health            []string             `json:"health,omitempty"`
-	ExitNode          bool                 `json:"exitNode"`
-	Routes            []RouteStatus        `json:"routes"`
+	ExitNode        bool             `json:"exitNode"`
+	ExitNodeMode    ExitNodeMode     `json:"exitNodeMode,omitempty"`
+	ExitNodeClients []ExitNodeClient `json:"exitNodeClients,omitempty"`
+	Routes          []RouteStatus    `json:"routes"`
 	Peers             []PeerInfo           `json:"peers"`
 	DERP              []DERPInfo           `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth      `json:"firewallHealth,omitempty"`
@@ -219,6 +239,7 @@ func (ts *TailscaleState) Snapshot() StateData {
 	s.DERP = slices.Clone(s.DERP)
 	s.WgS2sTunnels = slices.Clone(s.WgS2sTunnels)
 	s.AdvertiseTags = slices.Clone(s.AdvertiseTags)
+	s.ExitNodeClients = slices.Clone(s.ExitNodeClients)
 	return s
 }
 

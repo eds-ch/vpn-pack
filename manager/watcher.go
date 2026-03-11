@@ -406,6 +406,12 @@ func (s *Server) recomputeRoutes(d *stateData) {
 	routes, isExit := service.BuildRouteStatuses(s.state.AdvertiseRoutes(), allowed)
 	d.ExitNode = isExit
 	d.Routes = routes
+
+	if s.manifest != nil {
+		p := s.manifest.GetExitNodePolicy()
+		d.ExitNodeMode = p.Mode
+		d.ExitNodeClients = p.Clients
+	}
 }
 
 func (s *Server) broadcastState() {

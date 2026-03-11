@@ -1,0 +1,353 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"unifi-tailscale/manager/domain"
+)
+
+type mockExitManifest struct {
+	mu     sync.Mutex
+	policy domain.ExitNodePolicy
+}
+
+func (m *mockExitManifest) GetExitNodePolicy() domain.ExitNodePolicy {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.policy
+}
+
+func (m *mockExitManifest) SetExitNodePolicy(p domain.ExitNodePolicy) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.policy = p
+	return nil
+}
+
+type fakeIPRuleState struct {
+	mu    sync.Mutex
+	rules map[string][]string // family -> list of rule lines
+	cmds  []string
+}
+
+func newFakeIPRuleState() *fakeIPRuleState {
+	return &fakeIPRuleState{
+		rules: map[string][]string{"-4": {}, "-6": {}},
+	}
+}
+
+func (f *fakeIPRuleState) runner() CmdRunner {
+	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		full := strings.Join(append([]string{name}, args...), " ")
+		f.cmds = append(f.cmds, full)
+
+		if len(args) < 3 {
+			return nil, fmt.Errorf("too few args")
+		}
+		family := args[0]
+		action := args[2] // "add", "del", "show"
+
+		switch action {
+		case "show":
+			lines := f.rules[family]
+			return []byte(strings.Join(lines, "\n") + "\n"), nil
+
+		case "add":
+			line := buildFakeRuleLine(args[3:])
+			f.rules[family] = append(f.rules[family], line)
+			return nil, nil
+
+		case "del":
+			prio := extractPrio(args[3:])
+			var kept []string
+			for _, l := range f.rules[family] {
+				if !strings.HasPrefix(l, prio+":") {
+					kept = append(kept, l)
+				}
+			}
+			f.rules[family] = kept
+			return nil, nil
+
+		default:
+			return nil, fmt.Errorf("unknown action: %s", action)
+		}
+	}
+}
+
+func buildFakeRuleLine(args []string) string {
+	prio := ""
+	src := "all"
+	lookup := ""
+	hasFwmark := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "prio":
+			if i+1 < len(args) {
+				prio = args[i+1]
+				i++
+			}
+		case "from":
+			if i+1 < len(args) {
+				src = args[i+1]
+				i++
+			}
+		case "lookup":
+			if i+1 < len(args) {
+				lookup = args[i+1]
+				i++
+			}
+		case "not":
+			hasFwmark = true
+		}
+	}
+	line := fmt.Sprintf("%s:\tfrom %s", prio, src)
+	if hasFwmark {
+		line += " not fwmark 0x80000/0xff0000"
+	}
+	line += fmt.Sprintf(" lookup %s", lookup)
+	return line
+}
+
+func extractPrio(args []string) string {
+	for i, a := range args {
+		if a == "prio" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func (f *fakeIPRuleState) ruleCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, rules := range f.rules {
+		n += len(rules)
+	}
+	return n
+}
+
+func (f *fakeIPRuleState) commandCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.cmds)
+}
+
+func TestApplyOff(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeOff})
+	require.NoError(t, err)
+	assert.Equal(t, 0, state.ruleCount())
+	assert.Equal(t, domain.ExitNodeOff, manifest.policy.Mode)
+}
+
+func TestApplyAll(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.NoError(t, err)
+	assert.Equal(t, 2, state.ruleCount()) // IPv4 + IPv6
+	assert.Equal(t, domain.ExitNodeAll, manifest.policy.Mode)
+
+	// Verify rules contain lookup 53
+	state.mu.Lock()
+	for _, fam := range []string{"-4", "-6"} {
+		require.Len(t, state.rules[fam], 1, "expected 1 rule for %s", fam)
+		assert.Contains(t, state.rules[fam][0], "lookup 53")
+		assert.Contains(t, state.rules[fam][0], "5280:")
+		assert.Contains(t, state.rules[fam][0], "from all")
+	}
+	state.mu.Unlock()
+}
+
+func TestApplySelective(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{
+		Mode: domain.ExitNodeSelective,
+		Clients: []domain.ExitNodeClient{
+			{IP: "192.168.1.100", Label: "Office PC"},
+			{IP: "192.168.2.0/24", Label: "Guest VLAN"},
+			{IP: "fd00::1", Label: "IPv6 host"},
+		},
+	}
+
+	err := svc.Apply(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 3, state.ruleCount()) // 2 IPv4 + 1 IPv6
+
+	state.mu.Lock()
+	assert.Len(t, state.rules["-4"], 2)
+	assert.Contains(t, state.rules["-4"][0], "from 192.168.1.100")
+	assert.Contains(t, state.rules["-4"][0], "5281:")
+	assert.Contains(t, state.rules["-4"][1], "from 192.168.2.0/24")
+	assert.Contains(t, state.rules["-4"][1], "5282:")
+	assert.Len(t, state.rules["-6"], 1)
+	assert.Contains(t, state.rules["-6"][0], "from fd00::1")
+	assert.Contains(t, state.rules["-6"][0], "5283:")
+	state.mu.Unlock()
+
+	assert.Equal(t, domain.ExitNodeSelective, manifest.policy.Mode)
+}
+
+func TestApplySelectiveEmptyClients(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{
+		Mode:    domain.ExitNodeSelective,
+		Clients: nil,
+	}
+	err := svc.Apply(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 0, state.ruleCount())
+}
+
+func TestApplyReplacesExisting(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	// Apply "all" first
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.NoError(t, err)
+	assert.Equal(t, 2, state.ruleCount())
+
+	// Switch to selective — old rules should be cleaned first
+	policy := domain.ExitNodePolicy{
+		Mode:    domain.ExitNodeSelective,
+		Clients: []domain.ExitNodeClient{{IP: "10.0.0.1"}},
+	}
+	err = svc.Apply(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 1, state.ruleCount()) // only the selective rule
+}
+
+func TestCleanup(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	assert.Equal(t, 2, state.ruleCount())
+
+	err := svc.Cleanup(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, state.ruleCount())
+}
+
+func TestReconcileNoDrift(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
+	_ = svc.Apply(context.Background(), policy)
+	cmdsBefore := state.commandCount()
+
+	err := svc.Reconcile(context.Background(), policy)
+	require.NoError(t, err)
+	// Reconcile should only have done "show" commands (no adds/deletes)
+	cmdsAfter := state.commandCount()
+	// 2 show commands (for -4 and -6), no add/del
+	assert.Equal(t, cmdsBefore+2, cmdsAfter)
+}
+
+func TestReconcileDrift(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
+	_ = svc.Apply(context.Background(), policy)
+
+	// Simulate drift: remove IPv4 rule
+	state.mu.Lock()
+	state.rules["-4"] = nil
+	state.mu.Unlock()
+
+	err := svc.Reconcile(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 2, state.ruleCount()) // restored
+}
+
+func TestValidateExitNodePolicy(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  domain.ExitNodePolicy
+		wantErr bool
+	}{
+		{"off", domain.ExitNodePolicy{Mode: domain.ExitNodeOff}, false},
+		{"all", domain.ExitNodePolicy{Mode: domain.ExitNodeAll}, false},
+		{"selective valid", domain.ExitNodePolicy{
+			Mode:    domain.ExitNodeSelective,
+			Clients: []domain.ExitNodeClient{{IP: "192.168.1.0/24"}},
+		}, false},
+		{"selective invalid IP", domain.ExitNodePolicy{
+			Mode:    domain.ExitNodeSelective,
+			Clients: []domain.ExitNodeClient{{IP: "not-an-ip"}},
+		}, true},
+		{"unknown mode", domain.ExitNodePolicy{Mode: "unknown"}, true},
+		{"too many clients", domain.ExitNodePolicy{
+			Mode:    domain.ExitNodeSelective,
+			Clients: make([]domain.ExitNodeClient, maxExitClients+1),
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Fill IPs for too-many-clients test
+			for i := range tt.policy.Clients {
+				if tt.policy.Clients[i].IP == "" {
+					tt.policy.Clients[i].IP = fmt.Sprintf("10.0.0.%d", i+1)
+				}
+			}
+			err := ValidateExitNodePolicy(tt.policy)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestParseRules(t *testing.T) {
+	output := `0:	from all lookup local
+5270:	not from all fwmark 0x80000/0xff0000 lookup 52
+5280:	from all not fwmark 0x80000/0xff0000 lookup 53
+5281:	from 192.168.1.100 not fwmark 0x80000/0xff0000 lookup 53
+32766:	from all lookup main
+32767:	from all lookup default
+`
+	rules := parseRules(output, "-4")
+	assert.Len(t, rules, 2)
+	assert.Equal(t, 5280, rules[0].Priority)
+	assert.Equal(t, "", rules[0].Src)
+	assert.Equal(t, 5281, rules[1].Priority)
+	assert.Equal(t, "192.168.1.100", rules[1].Src)
+}
+
+func TestFamilyForAddr(t *testing.T) {
+	assert.Equal(t, "-4", familyForAddr("192.168.1.1"))
+	assert.Equal(t, "-4", familyForAddr("10.0.0.0/8"))
+	assert.Equal(t, "-6", familyForAddr("fd00::1"))
+	assert.Equal(t, "-6", familyForAddr("fd00::/64"))
+	assert.Equal(t, "", familyForAddr("invalid"))
+}

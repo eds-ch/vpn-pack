@@ -32,19 +32,25 @@ type RoutingIntegration interface {
 
 type RoutingManifest interface {
 	GetTailscaleChainPrefix() string
+	GetExitNodePolicy() domain.ExitNodePolicy
 }
 
 type RouteStatus = domain.RouteStatus
+type ExitNodeClient = domain.ExitNodeClient
 
 type RoutesResponse struct {
-	Routes   []RouteStatus `json:"routes"`
-	ExitNode bool          `json:"exitNode"`
+	Routes       []RouteStatus    `json:"routes"`
+	ExitNode     bool             `json:"exitNode"`
+	ExitNodeMode string           `json:"exitNodeMode,omitempty"`
+	ExitClients  []ExitNodeClient `json:"exitClients,omitempty"`
 }
 
 type SetRoutesRequest struct {
-	Routes   []string `json:"routes"`
-	ExitNode bool     `json:"exitNode"`
-	Confirm  bool     `json:"confirm"`
+	Routes       []string         `json:"routes"`
+	ExitNode     bool             `json:"exitNode"`
+	ExitNodeMode string           `json:"exitNodeMode,omitempty"`
+	ExitClients  []ExitNodeClient `json:"exitClients,omitempty"`
+	Confirm      bool             `json:"confirm"`
 }
 
 type SetRoutesResult struct {
@@ -84,6 +90,7 @@ type RoutingService struct {
 	ic       RoutingIntegration
 	manifest RoutingManifest
 	subnets  SubnetProvider
+	exitSvc  *ExitNodeService
 }
 
 func NewRoutingService(
@@ -92,8 +99,9 @@ func NewRoutingService(
 	ic RoutingIntegration,
 	manifest RoutingManifest,
 	subnets SubnetProvider,
+	exitSvc *ExitNodeService,
 ) *RoutingService {
-	return &RoutingService{ts: ts, fw: fw, ic: ic, manifest: manifest, subnets: subnets}
+	return &RoutingService{ts: ts, fw: fw, ic: ic, manifest: manifest, subnets: subnets, exitSvc: exitSvc}
 }
 
 func (svc *RoutingService) GetRoutes(ctx context.Context) (*RoutesResponse, error) {
@@ -111,7 +119,15 @@ func (svc *RoutingService) GetRoutes(ctx context.Context) (*RoutesResponse, erro
 	}
 
 	routes, isExit := BuildRouteStatuses(prefs.AdvertiseRoutes, allowed)
-	return &RoutesResponse{Routes: routes, ExitNode: isExit}, nil
+	resp := &RoutesResponse{Routes: routes, ExitNode: isExit}
+
+	if svc.manifest != nil {
+		p := svc.manifest.GetExitNodePolicy()
+		resp.ExitNodeMode = string(p.Mode)
+		resp.ExitClients = p.Clients
+	}
+
+	return resp, nil
 }
 
 func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest, activeVPNClients []string) (*SetRoutesResult, error) {
@@ -124,7 +140,9 @@ func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest,
 		prefixes = append(prefixes, p.Masked())
 	}
 
-	if req.ExitNode && !req.Confirm {
+	mode := svc.resolveExitMode(req)
+
+	if mode == domain.ExitNodeAll && !req.Confirm {
 		return &SetRoutesResult{
 			ConfirmRequired: true,
 			Message: "Exit node will redirect ALL internet traffic from ALL clients " +
@@ -133,8 +151,15 @@ func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest,
 		}, nil
 	}
 
+	policy := domain.ExitNodePolicy{Mode: mode, Clients: req.ExitClients}
+	if mode == domain.ExitNodeSelective {
+		if err := ValidateExitNodePolicy(policy); err != nil {
+			return nil, err
+		}
+	}
+
 	var warning string
-	if req.ExitNode {
+	if mode != domain.ExitNodeOff {
 		if len(activeVPNClients) > 0 {
 			ifaces := strings.Join(activeVPNClients, ", ")
 			warning = fmt.Sprintf(
@@ -154,12 +179,32 @@ func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest,
 		return nil, upstreamError(humanizeLocalAPIError(err), err)
 	}
 
+	if svc.exitSvc != nil {
+		if err := svc.exitSvc.Apply(ctx, policy); err != nil {
+			return nil, internalError(fmt.Sprintf("apply exit node rules: %v", err), err)
+		}
+	}
+
 	return &SetRoutesResult{
 		OK:       true,
 		Message:  "Routes applied locally. Approve in Tailscale admin console.",
 		AdminURL: "https://login.tailscale.com/admin/machines",
 		Warning:  warning,
 	}, nil
+}
+
+func (svc *RoutingService) resolveExitMode(req *SetRoutesRequest) domain.ExitNodeMode {
+	if !req.ExitNode {
+		return domain.ExitNodeOff
+	}
+	switch domain.ExitNodeMode(req.ExitNodeMode) {
+	case domain.ExitNodeSelective:
+		return domain.ExitNodeSelective
+	case domain.ExitNodeAll:
+		return domain.ExitNodeAll
+	default:
+		return domain.ExitNodeAll // backward compat: exitNode=true without mode → "all"
+	}
 }
 
 func (svc *RoutingService) ActivateWithKey(ctx context.Context, authKey string) error {

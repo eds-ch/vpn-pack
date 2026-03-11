@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,6 +86,7 @@ func (m *mockRoutingIntegration) HasAPIKey() bool {
 
 type mockRoutingManifest struct {
 	getTailscaleChainPrefixFn func() string
+	exitPolicy                domain.ExitNodePolicy
 }
 
 func (m *mockRoutingManifest) GetTailscaleChainPrefix() string {
@@ -92,6 +94,10 @@ func (m *mockRoutingManifest) GetTailscaleChainPrefix() string {
 		return m.getTailscaleChainPrefixFn()
 	}
 	return "TS"
+}
+
+func (m *mockRoutingManifest) GetExitNodePolicy() domain.ExitNodePolicy {
+	return m.exitPolicy
 }
 
 // --- Factory ---
@@ -548,4 +554,101 @@ func TestBuildRouteStatuses_Empty(t *testing.T) {
 	result, isExit := BuildRouteStatuses(nil, nil)
 	assert.Empty(t, result)
 	assert.False(t, isExit)
+}
+
+// --- Exit node mode tests ---
+
+func TestSetRoutes_SelectiveNoConfirmRequired(t *testing.T) {
+	svc := newTestRoutingService()
+
+	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		ExitNode:     true,
+		ExitNodeMode: "selective",
+		ExitClients:  []ExitNodeClient{{IP: "192.168.1.100"}},
+	}, nil)
+	require.NoError(t, err)
+	assert.True(t, result.OK)
+	assert.False(t, result.ConfirmRequired)
+}
+
+func TestSetRoutes_AllModeRequiresConfirm(t *testing.T) {
+	svc := newTestRoutingService()
+
+	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		ExitNode:     true,
+		ExitNodeMode: "all",
+	}, nil)
+	require.NoError(t, err)
+	assert.True(t, result.ConfirmRequired)
+}
+
+func TestSetRoutes_BackwardCompat_EmptyModeIsAll(t *testing.T) {
+	svc := newTestRoutingService()
+
+	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		ExitNode: true,
+		// no ExitNodeMode — backward compat
+	}, nil)
+	require.NoError(t, err)
+	assert.True(t, result.ConfirmRequired)
+}
+
+func TestSetRoutes_OffCleansExitRoutes(t *testing.T) {
+	var advertisedRoutes []netip.Prefix
+	svc := newTestRoutingService(func(s *RoutingService) {
+		s.ts = &mockRoutingTailscale{
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				advertisedRoutes = mp.Prefs.AdvertiseRoutes
+				return &ipn.Prefs{}, nil
+			},
+		}
+	})
+
+	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		Routes:   []string{"10.0.0.0/24"},
+		ExitNode: false,
+	}, nil)
+	require.NoError(t, err)
+	assert.True(t, result.OK)
+	assert.Len(t, advertisedRoutes, 1)
+	assert.Equal(t, "10.0.0.0/24", advertisedRoutes[0].String())
+}
+
+func TestSetRoutes_SelectiveInvalidClient(t *testing.T) {
+	svc := newTestRoutingService()
+
+	_, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		ExitNode:     true,
+		ExitNodeMode: "selective",
+		ExitClients:  []ExitNodeClient{{IP: "not-valid"}},
+	}, nil)
+	require.Error(t, err)
+}
+
+func TestGetRoutes_IncludesExitPolicy(t *testing.T) {
+	svc := newTestRoutingService(func(s *RoutingService) {
+		s.ts = &mockRoutingTailscale{
+			getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+				return &ipn.Prefs{
+					AdvertiseRoutes: []netip.Prefix{
+						netip.MustParsePrefix("0.0.0.0/0"),
+						netip.MustParsePrefix("::/0"),
+					},
+				}, nil
+			},
+		}
+		s.manifest = &mockRoutingManifest{
+			exitPolicy: domain.ExitNodePolicy{
+				Mode:    domain.ExitNodeSelective,
+				Clients: []domain.ExitNodeClient{{IP: "10.0.0.1", Label: "test"}},
+			},
+		}
+	})
+
+	resp, err := svc.GetRoutes(context.Background())
+	require.NoError(t, err)
+	assert.True(t, resp.ExitNode)
+	assert.Equal(t, "selective", resp.ExitNodeMode)
+	require.Len(t, resp.ExitClients, 1)
+	assert.Equal(t, "10.0.0.1", resp.ExitClients[0].IP)
 }

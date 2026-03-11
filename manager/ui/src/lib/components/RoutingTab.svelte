@@ -1,17 +1,21 @@
 <script>
     import SubnetPicker from './SubnetPicker.svelte';
     import ExitNodeToggle from './ExitNodeToggle.svelte';
+    import Button from './Button.svelte';
     import { setRoutes } from '../api.js';
 
     let { status, deviceInfo } = $props();
 
     let exitNode = $derived(status.exitNode);
+    let serverExitMode = $derived(status.exitNodeMode || (status.exitNode ? 'all' : 'off'));
+    let serverExitClients = $derived(status.exitNodeClients || []);
     let routes = $derived(status.routes || []);
     let activeVPNClients = $derived(deviceInfo?.activeVPNClients || []);
     let isRunning = $derived(status.backendState === 'Running');
 
     let stagedCidrs = $state(null);
-    let stagedExitNode = $state(null);
+    let stagedExitMode = $state(null);
+    let stagedExitClients = $state(null);
     let applying = $state(false);
     let userTouched = $state(false);
 
@@ -20,7 +24,8 @@
     $effect.pre(() => {
         if (isRunning && !userTouched) {
             stagedCidrs = routes.map(r => r.cidr);
-            stagedExitNode = exitNode;
+            stagedExitMode = serverExitMode;
+            stagedExitClients = serverExitClients;
         }
     });
 
@@ -28,7 +33,8 @@
         if (!isRunning) {
             userTouched = false;
             stagedCidrs = null;
-            stagedExitNode = null;
+            stagedExitMode = null;
+            stagedExitClients = null;
         }
     });
 
@@ -40,14 +46,25 @@
         for (const c of origSet) {
             if (!stagedSet.has(c)) return true;
         }
-        return stagedExitNode !== exitNode;
+        if (stagedExitMode !== serverExitMode) return true;
+        if (JSON.stringify(stagedExitClients) !== JSON.stringify(serverExitClients)) return true;
+        return false;
     });
 
     async function handleApply() {
         applying = true;
-        const result = await setRoutes(stagedCidrs, stagedExitNode, stagedExitNode || undefined);
+        const isExit = stagedExitMode !== 'off';
+        const confirm = stagedExitMode === 'all' ? true : undefined;
+        const result = await setRoutes(
+            stagedCidrs,
+            isExit,
+            confirm,
+            stagedExitMode,
+            stagedExitMode === 'selective' ? stagedExitClients : undefined,
+        );
         if (result?.ok) userTouched = false;
-        applying = false;
+        if (result && !result.ok && !result.confirmRequired) applying = false;
+        else applying = false;
     }
 </script>
 
@@ -74,21 +91,21 @@
             onchange={(cidrs) => { stagedCidrs = cidrs; userTouched = true; }}
         />
         <ExitNodeToggle
-            value={stagedExitNode}
+            mode={stagedExitMode}
+            clients={stagedExitClients}
             {activeVPNClients}
             dpiFingerprinting={status.dpiFingerprinting}
-            onchange={(val) => { stagedExitNode = val; userTouched = true; }}
+            onchange={(newMode, newClients) => {
+                stagedExitMode = newMode;
+                stagedExitClients = newClients;
+                userTouched = true;
+            }}
         />
     </div>
 
     <div class="flex justify-end mt-6">
-        <button
-            onclick={handleApply}
-            disabled={!hasChanges || applying}
-            class="px-6 py-2 rounded-lg text-body font-bold bg-blue text-white transition-colors
-                {hasChanges && !applying ? 'hover:bg-blue-hover' : 'opacity-50 cursor-not-allowed'}"
-        >
+        <Button disabled={!hasChanges || applying} onclick={handleApply}>
             {applying ? 'Applying...' : 'Apply'}
-        </button>
+        </Button>
     </div>
 {/if}

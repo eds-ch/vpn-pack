@@ -34,6 +34,11 @@ export interface RouteStatus {
     approved: boolean;
 }
 
+export interface ExitNodeClient {
+    ip: string;
+    label?: string;
+}
+
 export interface SubnetEntry {
     cidr: string;
     name: string;
@@ -126,6 +131,8 @@ export interface Status extends SettingsFields {
     self: SelfNode | null;
     health: string[];
     exitNode: boolean;
+    exitNodeMode?: string;
+    exitNodeClients?: ExitNodeClient[];
     routes: RouteStatus[];
     peers: PeerInfo[];
     derp: DERPInfo[];

@@ -59,6 +59,7 @@ type Server struct {
 	diagnostics    *service.DiagnosticsService
 	integration    *service.IntegrationService
 	routing        *service.RoutingService
+	exitSvc        *service.ExitNodeService
 	tailscaleSvc   *service.TailscaleService
 	wgS2sSvc       *service.WgS2sService
 	lastBroadcast  []byte
@@ -109,9 +110,10 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		},
 		fileKeyStore{},
 	)
+	s.exitSvc = service.NewExitNodeService(opts.Manifest, nil)
 	s.routing = service.NewRoutingService(
 		opts.Tailscale, opts.Firewall, opts.Integration, opts.Manifest,
-		localSubnetProvider,
+		localSubnetProvider, s.exitSvc,
 	)
 	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall)
 
@@ -211,6 +213,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	s.initWgS2s(ctx)
+	s.restoreExitNodeRules(ctx)
 
 	if s.integrationReady() {
 		s.openTailscaleWanPort(ctx)

@@ -34,6 +34,29 @@ export function isValidCIDR(value) {
     return octets.every(o => o >= 0 && o <= OCTET_MAX) && prefix >= 0 && prefix <= CIDR_PREFIX_MAX;
 }
 
+export function isValidIPOrCIDR(value) {
+    if (!value) return false;
+    if (isValidCIDR(value)) return true;
+    const ipv4 = value.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4) return [ipv4[1], ipv4[2], ipv4[3], ipv4[4]].map(Number).every(o => o >= 0 && o <= OCTET_MAX);
+    try {
+        const parts = value.split('/');
+        const addr = parts[0];
+        if (!addr.includes(':')) return false;
+        if (parts.length === 2) {
+            const prefix = Number(parts[1]);
+            if (!Number.isInteger(prefix) || prefix < 0 || prefix > 128) return false;
+        }
+        if (parts.length > 2) return false;
+        const expanded = addr.split('::');
+        if (expanded.length > 2) return false;
+        const groups = addr.replace('::', ':').split(':').filter(g => g !== '');
+        return groups.every(g => /^[\da-fA-F]{1,4}$/.test(g));
+    } catch {
+        return false;
+    }
+}
+
 export function isValidBase64Key(value) {
     if (!value || value.length !== BASE64_KEY_LENGTH) return false;
     try {

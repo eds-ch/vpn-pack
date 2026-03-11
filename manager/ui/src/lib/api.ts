@@ -19,6 +19,7 @@ import type {
     WgS2sZoneEntry,
     IntegrationStatus,
     SubnetEntry,
+    ExitNodeClient,
 } from './types.js';
 
 const API_BASE = '/vpn-pack/api';
@@ -128,8 +129,20 @@ export function getDeviceInfo(): Promise<DeviceInfo | null> {
     return apiFetch<DeviceInfo>('GET', `${API_BASE}/device`);
 }
 
-export function setRoutes(routes: string[], exitNode: boolean, confirm?: boolean): Promise<SetRoutesResult | null> {
-    return apiFetch<SetRoutesResult>('POST', `${API_BASE}/routes`, { routes, exitNode, confirm: confirm ?? false });
+export function setRoutes(
+    routes: string[],
+    exitNode: boolean,
+    confirm?: boolean,
+    exitNodeMode?: string,
+    exitClients?: ExitNodeClient[],
+): Promise<SetRoutesResult | null> {
+    return apiFetch<SetRoutesResult>('POST', `${API_BASE}/routes`, {
+        routes,
+        exitNode,
+        confirm: confirm ?? false,
+        exitNodeMode,
+        exitClients,
+    });
 }
 
 export function getSubnets(): Promise<{ subnets: SubnetEntry[] } | null> {

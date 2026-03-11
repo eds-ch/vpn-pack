@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -146,6 +147,7 @@ func (s *Server) checkAndRestoreRules(ctx context.Context) {
 	s.retryIntegrationSetup(ctx)
 	s.restoreTailscaleRules(ctx)
 	s.restoreWgS2sRules(ctx)
+	s.restoreExitNodeRules(ctx)
 }
 
 func (s *Server) retryIntegrationSetup(ctx context.Context) {
@@ -267,6 +269,19 @@ func (s *Server) restoreWgS2sRules(ctx context.Context) {
 			slog.Warn("wg-s2s firewall restore failed", "iface", t.InterfaceName, "err", err)
 			s.logBuf.Add(newLogEntry("warn", fmt.Sprintf("firewall restore failed iface=%s err=%v", t.InterfaceName, err), "wgs2s"))
 		}
+	}
+}
+
+func (s *Server) restoreExitNodeRules(ctx context.Context) {
+	if s.exitSvc == nil {
+		return
+	}
+	policy := s.manifest.GetExitNodePolicy()
+	if policy.Mode == domain.ExitNodeOff {
+		return
+	}
+	if err := s.exitSvc.Reconcile(ctx, policy); err != nil {
+		slog.Warn("exit node rule restore failed", "err", err)
 	}
 }
 
