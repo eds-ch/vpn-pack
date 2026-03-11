@@ -24,7 +24,7 @@
 +	}
 +	for idx, rule := range rules {
 +		if strings.Contains(rule, "-j UBIOS_FORWARD_JUMP") {
-+			return idx + 2
++			return idx + 1
 +		}
 +	}
 +	return 1
@@ -197,7 +197,7 @@
  		errs = append(errs, err)
  	}
 +	ipt.Delete("filter", "FORWARD", "-j", "ts-mark")
- 
+
  	if err := delChain(ipt, "filter", "ts-input"); err != nil {
  		errs = append(errs, err)
 @@ -224,6 +225,9 @@
