@@ -1,0 +1,212 @@
+# Tailscale-Version: 1.94.2
+# Description: Fix ts-forward chain order on UBNT: insert after UBIOS_FORWARD_JUMP, add ts-mark chain
+--- a/util/linuxfw/iptables_runner.go	2026-03-11 14:06:59.916458418 +0000
++++ b/util/linuxfw/iptables_runner.go	2026-03-11 14:08:29.777113758 +0000
+@@ -16,6 +16,7 @@
+ 
+ 	"tailscale.com/net/tsaddr"
+ 	"tailscale.com/types/logger"
++	"tailscale.com/version/distro"
+ )
+ 
+ // isNotExistError needs to be overridden in tests that rely on distinguishing
+@@ -94,6 +95,67 @@
+ 	return "ts-" + strings.ToLower(chain)
+ }
+ 
++// ubntFindForwardInsertPos returns the iptables position number at which
++// a rule should be inserted in the FORWARD chain on UBNT devices — immediately
++// after UBIOS_FORWARD_JUMP. If UBIOS_FORWARD_JUMP is not found, returns 1.
++func ubntFindForwardInsertPos(ipt iptablesInterface) int {
++	rules, err := ipt.List("filter", "FORWARD")
++	if err != nil {
++		return 1
++	}
++	for idx, rule := range rules {
++		if strings.Contains(rule, "-j UBIOS_FORWARD_JUMP") {
++			return idx + 2
++		}
++	}
++	return 1
++}
++
++// ubntEnsureForwardHook ensures -j ts-forward is in FORWARD after
++// UBIOS_FORWARD_JUMP. Handles fresh install, upgrade (misplaced), and no-op.
++func ubntEnsureForwardHook(ipt iptablesInterface) error {
++	args := []string{"-j", "ts-forward"}
++
++	exists, err := ipt.Exists("filter", "FORWARD", args...)
++	if err != nil {
++		return fmt.Errorf("checking ts-forward in filter/FORWARD: %w", err)
++	}
++
++	if exists {
++		if !ubntIsForwardMisplaced(ipt) {
++			return nil
++		}
++		if err := ipt.Delete("filter", "FORWARD", args...); err != nil {
++			return fmt.Errorf("removing misplaced ts-forward: %w", err)
++		}
++	}
++
++	pos := ubntFindForwardInsertPos(ipt)
++	if err := ipt.Insert("filter", "FORWARD", pos, args...); err != nil {
++		return fmt.Errorf("adding ts-forward in filter/FORWARD: %w", err)
++	}
++	return nil
++}
++
++// ubntIsForwardMisplaced reports whether ts-forward appears before
++// UBIOS_FORWARD_JUMP in the FORWARD chain.
++func ubntIsForwardMisplaced(ipt iptablesInterface) bool {
++	rules, err := ipt.List("filter", "FORWARD")
++	if err != nil {
++		return false
++	}
++	ubiosIdx, tsIdx := -1, -1
++	for idx, rule := range rules {
++		if strings.Contains(rule, "-j UBIOS_FORWARD_JUMP") {
++			ubiosIdx = idx
++		}
++		if strings.Contains(rule, "-j ts-forward") {
++			tsIdx = idx
++		}
++	}
++	return ubiosIdx >= 0 && tsIdx >= 0 && tsIdx < ubiosIdx
++}
++
+ // DelLoopbackRule removes the iptables rule permitting loopback
+ // traffic to a Tailscale IP.
+ func (i *iptablesRunner) DelLoopbackRule(addr netip.Addr) error {
+@@ -145,12 +207,32 @@
+ 		return nil
+ 	}
+ 
++	isUBNT := distro.Get() == distro.UBNT
++
+ 	for _, ipt := range i.getTables() {
+ 		if err := divert(ipt, "filter", "INPUT"); err != nil {
+ 			return err
+ 		}
+-		if err := divert(ipt, "filter", "FORWARD"); err != nil {
+-			return err
++
++		if isUBNT {
++			// On UBNT: insert ts-mark at position 1 (mark-only, no ACCEPT/DROP),
++			// then place ts-forward AFTER UBIOS_FORWARD_JUMP so zone policies
++			// evaluate before Tailscale's fallback ACCEPT.
++			tsMarkArgs := []string{"-j", "ts-mark"}
++			if exists, err := ipt.Exists("filter", "FORWARD", tsMarkArgs...); err != nil {
++				return fmt.Errorf("checking for ts-mark in filter/FORWARD: %w", err)
++			} else if !exists {
++				if err := ipt.Insert("filter", "FORWARD", 1, tsMarkArgs...); err != nil {
++					return fmt.Errorf("adding ts-mark in filter/FORWARD: %w", err)
++				}
++			}
++			if err := ubntEnsureForwardHook(ipt); err != nil {
++				return err
++			}
++		} else {
++			if err := divert(ipt, "filter", "FORWARD"); err != nil {
++				return err
++			}
+ 		}
+ 	}
+ 
+@@ -179,6 +261,8 @@
+ 		return nil
+ 	}
+ 
++	isUBNT := distro.Get() == distro.UBNT
++
+ 	for _, ipt := range i.getTables() {
+ 		if err := create(ipt, "filter", "ts-input"); err != nil {
+ 			return err
+@@ -186,6 +270,11 @@
+ 		if err := create(ipt, "filter", "ts-forward"); err != nil {
+ 			return err
+ 		}
++		if isUBNT {
++			if err := create(ipt, "filter", "ts-mark"); err != nil {
++				return err
++			}
++		}
+ 	}
+ 
+ 	for _, ipt := range i.getNATTables() {
+@@ -263,6 +352,13 @@
+ 		return fmt.Errorf("adding %v in v4/filter/ts-forward: %w", args, err)
+ 	}
+ 
++	if distro.Get() == distro.UBNT {
++		args = []string{"-i", tunname, "-j", "MARK", "--set-mark", subnetRouteMark + "/" + fwmarkMask}
++		if err := i.ipt4.Append("filter", "ts-mark", args...); err != nil {
++			return fmt.Errorf("adding %v in v4/filter/ts-mark: %w", args, err)
++		}
++	}
++
+ 	return nil
+ }
+ 
+@@ -367,6 +463,13 @@
+ 		return fmt.Errorf("adding %v in v6/filter/ts-forward: %w", args, err)
+ 	}
+ 
++	if distro.Get() == distro.UBNT {
++		args = []string{"-i", tunname, "-j", "MARK", "--set-mark", subnetRouteMark + "/" + fwmarkMask}
++		if err := i.ipt6.Append("filter", "ts-mark", args...); err != nil {
++			return fmt.Errorf("adding %v in v6/filter/ts-mark: %w", args, err)
++		}
++	}
++
+ 	return nil
+ }
+ 
+@@ -379,6 +482,9 @@
+ 		if err := delChain(ipt, "filter", "ts-forward"); err != nil {
+ 			return err
+ 		}
++		if err := delChain(ipt, "filter", "ts-mark"); err != nil {
++			return err
++		}
+ 	}
+ 
+ 	for _, ipt := range i.getNATTables() {
+@@ -412,6 +518,9 @@
+ 		if err := del(ipt, "filter", "ts-forward"); err != nil {
+ 			return err
+ 		}
++		if err := del(ipt, "filter", "ts-mark"); err != nil {
++			return err
++		}
+ 	}
+ 	for _, ipt := range i.getNATTables() {
+ 		if err := del(ipt, "nat", "ts-postrouting"); err != nil {
+@@ -432,6 +541,7 @@
+ 		if err := delTSHook(ipt, "filter", "FORWARD", logf); err != nil {
+ 			return err
+ 		}
++		ipt.Delete("filter", "FORWARD", "-j", "ts-mark")
+ 	}
+ 	for _, ipt := range i.getNATTables() {
+ 		if err := delTSHook(ipt, "nat", "POSTROUTING", logf); err != nil {
+--- a/util/linuxfw/iptables.go	2026-03-11 14:06:59.918458410 +0000
++++ b/util/linuxfw/iptables.go	2026-03-11 14:08:38.913078927 +0000
+@@ -217,6 +217,7 @@
+ 	if err := delTSHook(ipt, "nat", "POSTROUTING", logf); err != nil {
+ 		errs = append(errs, err)
+ 	}
++	ipt.Delete("filter", "FORWARD", "-j", "ts-mark")
+ 
+ 	if err := delChain(ipt, "filter", "ts-input"); err != nil {
+ 		errs = append(errs, err)
+@@ -224,6 +225,9 @@
+ 	if err := delChain(ipt, "filter", "ts-forward"); err != nil {
+ 		errs = append(errs, err)
+ 	}
++	if err := delChain(ipt, "filter", "ts-mark"); err != nil {
++		errs = append(errs, err)
++	}
+ 
+ 	if err := delChain(ipt, "nat", "ts-postrouting"); err != nil {
+ 		errs = append(errs, err)
