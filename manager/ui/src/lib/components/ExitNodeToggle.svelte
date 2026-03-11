@@ -58,10 +58,7 @@
                 For per-device routing, use Tailscale ACLs on individual clients.
             </p>
             <div class="flex gap-2">
-                <button
-                    onclick={confirmEnable}
-                    class="px-3 py-1.5 text-body rounded-lg bg-warning text-white hover:bg-warning/80 transition-colors"
-                >Enable Exit Node</button>
+                <Button variant="warning" size="sm" onclick={confirmEnable}>Enable Exit Node</Button>
                 <Button variant="secondary" size="sm" onclick={cancelConfirm}>Cancel</Button>
             </div>
         </div>
