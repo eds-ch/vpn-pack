@@ -12,6 +12,9 @@ import {
     wgS2sDeleteTunnel,
     connectWithAuthKey,
     getDeviceInfo,
+    getRemoteExitNode,
+    enableRemoteExitNode,
+    disableRemoteExitNode,
 } from './api.js';
 
 function mockFetch(overrides = {}) {
@@ -119,5 +122,51 @@ describe('api', () => {
                 body: JSON.stringify({ authKey: 'tskey-auth-abc123' }),
             }),
         );
+    });
+
+    it('getRemoteExitNode calls GET /exit-node', async () => {
+        const mockResp = { peers: [{ id: 'p1', hostName: 'exit-1', online: true }], current: null };
+        global.fetch = mockFetch({
+            text: () => Promise.resolve(JSON.stringify(mockResp)),
+        });
+
+        const result = await getRemoteExitNode();
+        expect(global.fetch).toHaveBeenCalledWith(
+            '/vpn-pack/api/exit-node',
+            expect.objectContaining({ method: 'GET' }),
+        );
+        expect(result).toEqual(mockResp);
+    });
+
+    it('enableRemoteExitNode sends POST /exit-node with request body', async () => {
+        const req = { peerId: 'stable-1', mode: 'all', confirm: true };
+        const mockResp = { ok: true, message: 'Traffic routed through exit-1.' };
+        global.fetch = mockFetch({
+            text: () => Promise.resolve(JSON.stringify(mockResp)),
+        });
+
+        const result = await enableRemoteExitNode(req);
+        expect(global.fetch).toHaveBeenCalledWith(
+            '/vpn-pack/api/exit-node',
+            expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify(req),
+            }),
+        );
+        expect(result).toEqual(mockResp);
+    });
+
+    it('disableRemoteExitNode sends DELETE /exit-node', async () => {
+        const mockResp = { ok: true };
+        global.fetch = mockFetch({
+            text: () => Promise.resolve(JSON.stringify(mockResp)),
+        });
+
+        const result = await disableRemoteExitNode();
+        expect(global.fetch).toHaveBeenCalledWith(
+            '/vpn-pack/api/exit-node',
+            expect.objectContaining({ method: 'DELETE' }),
+        );
+        expect(result).toEqual(mockResp);
     });
 });
