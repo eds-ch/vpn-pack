@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jsimonetti/rtnetlink"
+	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -40,6 +41,7 @@ type TunnelManager struct {
 	configDir string
 	wgClient  *wgctrl.Client
 	rtConn    *rtnetlink.Conn
+	routeRefs *routeRefCounter
 	log       *slog.Logger
 }
 
@@ -72,6 +74,7 @@ func NewTunnelManager(configDir string, log *slog.Logger) (*TunnelManager, error
 		configDir: configDir,
 		wgClient:  wgClient,
 		rtConn:    rtConn,
+		routeRefs: newRouteRefCounter(),
 		log:       log,
 	}, nil
 }
@@ -339,11 +342,9 @@ func (m *TunnelManager) hotUpdate(cfg TunnelConfig, oldAllowedIPs []string) erro
 	}
 
 	if !slices.Equal(oldAllowedIPs, cfg.AllowedIPs) {
-		if err := deleteRoutes(m.rtConn, ifIndex, oldAllowedIPs); err != nil {
-			m.log.Warn("hot update: deleteRoutes failed", "iface", cfg.InterfaceName, "err", err)
-		}
-		if err := addRoutes(m.rtConn, ifIndex, cfg.AllowedIPs, m.log); err != nil {
-			return fmt.Errorf("hot update: addRoutes: %w", err)
+		m.releaseRoutes(cfg.ID, ifIndex, oldAllowedIPs)
+		if err := m.claimRoutes(cfg.ID, ifIndex, cfg.AllowedIPs); err != nil {
+			return fmt.Errorf("hot update: claimRoutes: %w", err)
 		}
 	}
 
@@ -476,7 +477,7 @@ func (m *TunnelManager) bringUp(cfg TunnelConfig, privKey wgtypes.Key) error {
 	}
 
 	if len(cfg.AllowedIPs) > 0 {
-		if err := addRoutes(m.rtConn, ifIndex, cfg.AllowedIPs, m.log); err != nil {
+		if err := m.claimRoutes(cfg.ID, ifIndex, cfg.AllowedIPs); err != nil {
 			cleanup()
 			return err
 		}
@@ -495,14 +496,72 @@ func (m *TunnelManager) reconnectRtnetlink() error {
 	return nil
 }
 
+func (m *TunnelManager) claimRoutes(tunnelID string, ifIndex uint32, cidrs []string) error {
+	var registered []string
+	for _, cidr := range cidrs {
+		firstOwner := m.routeRefs.add(cidr, tunnelID, ifIndex)
+		registered = append(registered, cidr)
+
+		if !firstOwner {
+			m.log.Debug("route shared with another tunnel, skipping kernel add", "cidr", cidr, "tunnel", tunnelID)
+			continue
+		}
+
+		msg, err := buildRouteMessage(cidr, ifIndex)
+		if err != nil {
+			m.unregisterRoutes(tunnelID, registered)
+			return err
+		}
+		if err := m.rtConn.Route.Add(msg); err != nil {
+			if errors.Is(err, unix.EEXIST) {
+				m.log.Debug("route already exists in kernel, skipping", "cidr", cidr)
+				continue
+			}
+			m.unregisterRoutes(tunnelID, registered)
+			return fmt.Errorf("add route %s: %w", cidr, err)
+		}
+	}
+	return nil
+}
+
+func (m *TunnelManager) releaseRoutes(tunnelID string, ifIndex uint32, cidrs []string) {
+	for _, cidr := range cidrs {
+		remaining := m.routeRefs.remove(cidr, tunnelID)
+		if len(remaining) == 0 {
+			msg, err := buildRouteMessage(cidr, ifIndex)
+			if err != nil {
+				m.log.Warn("releaseRoutes: invalid CIDR", "cidr", cidr, "err", err)
+				continue
+			}
+			if err := m.rtConn.Route.Delete(msg); err != nil && !errors.Is(err, unix.ESRCH) {
+				m.log.Warn("releaseRoutes: delete failed", "cidr", cidr, "err", err)
+			}
+		} else {
+			msg, err := buildRouteMessage(cidr, remaining[0].ifIndex)
+			if err != nil {
+				m.log.Warn("releaseRoutes: invalid CIDR for replace", "cidr", cidr, "err", err)
+				continue
+			}
+			if err := m.rtConn.Route.Replace(msg); err != nil {
+				m.log.Warn("releaseRoutes: replace to surviving tunnel failed", "cidr", cidr,
+					"survivingTunnel", remaining[0].tunnelID, "err", err)
+			}
+		}
+	}
+}
+
+func (m *TunnelManager) unregisterRoutes(tunnelID string, cidrs []string) {
+	for _, cidr := range cidrs {
+		m.routeRefs.remove(cidr, tunnelID)
+	}
+}
+
 func (m *TunnelManager) tearDown(cfg TunnelConfig) {
 	idx, ok := getInterfaceIndex(cfg.InterfaceName)
 	if !ok {
 		return
 	}
-	if err := deleteRoutes(m.rtConn, idx, cfg.AllowedIPs); err != nil {
-		m.log.Warn("tearDown: deleteRoutes failed", "iface", cfg.InterfaceName, "err", err)
-	}
+	m.releaseRoutes(cfg.ID, idx, cfg.AllowedIPs)
 	if err := deleteInterface(m.rtConn, idx); err != nil {
 		m.log.Warn("tearDown: deleteInterface failed", "iface", cfg.InterfaceName, "err", err)
 	}

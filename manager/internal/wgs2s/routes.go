@@ -44,23 +44,6 @@ func buildRouteMessage(cidr string, ifIndex uint32) (*rtnetlink.RouteMessage, er
 	}, nil
 }
 
-func addRoutes(conn *rtnetlink.Conn, ifIndex uint32, cidrs []string, log *slog.Logger) error {
-	for _, cidr := range cidrs {
-		msg, err := buildRouteMessage(cidr, ifIndex)
-		if err != nil {
-			return err
-		}
-		if err := conn.Route.Add(msg); err != nil {
-			if errors.Is(err, unix.EEXIST) {
-				log.Debug("route already exists, skipping", "cidr", cidr)
-				continue
-			}
-			return fmt.Errorf("add route %s: %w", cidr, err)
-		}
-	}
-	return nil
-}
-
 func deleteRoutes(conn *rtnetlink.Conn, ifIndex uint32, cidrs []string) error {
 	for _, cidr := range cidrs {
 		msg, err := buildRouteMessage(cidr, ifIndex)
