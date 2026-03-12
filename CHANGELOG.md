@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0-beta.3] - 2026-03-12
+
+### Changed
+- **Exit node mutual exclusion**: advertise and remote exit node can no longer coexist — enabling one atomically disables the other with user confirmation
+- Enabling remote exit node strips `/0` routes from `AdvertiseRoutes` in the same `EditPrefs` call and clears manifest
+- Enabling advertise exit node calls `Disable()` on remote exit first
+- Frontend confirmation dialog in both directions before destructive action
+
+### Fixed
+- Potential crash when SSE update clears `usingExitNode` while advertise confirmation dialog is open
+
+### Removed
+- Dead `Warning` field from `EnableRemoteExitResult` (routing loop warning replaced by mutual exclusion)
+- Unused `GetAdvertiseExitNodeEnabled()` from `RemoteExitManifest` interface
+
 ## [1.4.0-beta.2] - 2026-03-12
 
 ### Changed
@@ -294,7 +309,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.3...HEAD
+[1.4.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.2...v1.4.0-beta.3
+[1.4.0-beta.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.1...v1.4.0-beta.2
 [1.4.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...v1.4.0-beta.1
 [1.3.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/eds-ch/vpn-pack/compare/v1.2.3...v1.3.0
