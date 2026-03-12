@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0-beta.1] - 2026-03-12
+
+### Added
+- **Exit node**: confirmation gate before enabling, selective per-client ip rules (table 53)
+- **Routing health monitor**: validates rp_filter, BypassMark, IPv6 settings (P8)
+- **Subnet validator**: table 52 route validation, accept-routes vs S2S conflict detection
+- **S2S routing**: per-tunnel configurable route metric, ref-counted route ownership (fixes shared-prefix race)
+- **PBR conflict detection**: warns when Traffic Routes conflict with S2S tunnels
+- **HealthTracker**: exponential backoff, `/api/health` endpoint, SSE health events
+- **Beta release support**: `VERSION_PIN` env var in `get.sh`, pre-release version comparison
+
+### Changed
+- **Architecture overhaul**: monolithic Server decomposed into isolated services (Settings, Diagnostics, Integration, Routing, Tailscale, WgS2s, FirewallOrchestrator) with dependency injection and interfaces
+- Result types, context propagation, typed SSE events throughout
+- Centralized manifest mutations with atomic save
+- Synchronous firewall coordination with transaction semantics and inline rollback
+- Restructured `manager/` into sub-packages for progressive disclosure
+- Frontend: extracted FormField, Button components; typed API layer; normalized imports
+- Deduplicated firewall rollback/logging, extracted service error infrastructure
+- Fixed domain→internal/wgs2s dependency inversion
+
+### Fixed
+- Patch 005: ts-forward chain reordered after UBIOS_FORWARD_JUMP on UBNT devices (P1)
+- Off-by-one in `ubntFindForwardInsertPos` (idx+2 → idx+1)
+- Off-by-one in exit node priority range
+- Data races in SetWgS2s/SetWireGuard, DPI logic inversion, cleanup timeout
+- WAN IP detection for UDM-SE and UCG-Ultra
+- Stale chain prefix read, unsafe TailscaleState Lock/Data/Unlock
+- Reconcile mutex race in exit node
+- Update URL in UI corrected (install.sh → get.sh)
+- Lint issues: errcheck, gosec, staticcheck, unused
+
 ## [1.3.1] - 2026-03-02
 
 ### Fixed
@@ -250,7 +282,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.1...HEAD
+[1.4.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...v1.4.0-beta.1
 [1.3.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/eds-ch/vpn-pack/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/eds-ch/vpn-pack/compare/v1.2.2...v1.2.3
