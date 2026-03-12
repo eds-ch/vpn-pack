@@ -14,6 +14,7 @@ type TunnelConfig struct {
 	LocalSubnets        []string  `json:"localSubnets,omitempty"`
 	PersistentKeepalive int       `json:"persistentKeepalive"`
 	MTU                 int       `json:"mtu"`
+	RouteMetric         int       `json:"routeMetric,omitempty"`
 	Enabled             bool      `json:"enabled"`
 	CreatedAt           time.Time `json:"createdAt"`
 }

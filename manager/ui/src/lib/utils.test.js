@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
     formatBytes, relativeTime, formatUptime, isValidCIDR,
     isValidBase64Key, isValidPort, isValidEndpoint,
-    isValidMTU, isValidKeepalive, validateTunnelFields,
+    isValidMTU, isValidKeepalive, isValidRouteMetric, validateTunnelFields,
 } from './utils.js';
 
 describe('formatBytes', () => {
@@ -312,6 +312,44 @@ describe('isValidKeepalive', () => {
     });
 });
 
+describe('isValidRouteMetric', () => {
+    it('accepts 1 (minimum)', () => {
+        expect(isValidRouteMetric(1)).toBe(true);
+    });
+
+    it('accepts 100 (default)', () => {
+        expect(isValidRouteMetric(100)).toBe(true);
+    });
+
+    it('accepts 9999 (maximum)', () => {
+        expect(isValidRouteMetric(9999)).toBe(true);
+    });
+
+    it('accepts string number', () => {
+        expect(isValidRouteMetric('500')).toBe(true);
+    });
+
+    it('rejects 0', () => {
+        expect(isValidRouteMetric(0)).toBe(false);
+    });
+
+    it('rejects negative', () => {
+        expect(isValidRouteMetric(-1)).toBe(false);
+    });
+
+    it('rejects 10000', () => {
+        expect(isValidRouteMetric(10000)).toBe(false);
+    });
+
+    it('rejects NaN', () => {
+        expect(isValidRouteMetric('abc')).toBe(false);
+    });
+
+    it('rejects float', () => {
+        expect(isValidRouteMetric(100.5)).toBe(false);
+    });
+});
+
 describe('validateTunnelFields', () => {
     const validData = {
         name: 'office-nyc',
@@ -384,5 +422,20 @@ describe('validateTunnelFields', () => {
     it('skips localSubnets validation when null', () => {
         const errors = validateTunnelFields({ ...validData, localSubnets: null });
         expect(errors.localSubnets).toBeUndefined();
+    });
+
+    it('catches invalid routeMetric', () => {
+        const errors = validateTunnelFields({ ...validData, routeMetric: 10000 });
+        expect(errors.routeMetric).toMatch(/1-9999/);
+    });
+
+    it('passes with valid routeMetric', () => {
+        const errors = validateTunnelFields({ ...validData, routeMetric: 200 });
+        expect(errors.routeMetric).toBeUndefined();
+    });
+
+    it('skips routeMetric validation when null', () => {
+        const errors = validateTunnelFields({ ...validData, routeMetric: null });
+        expect(errors.routeMetric).toBeUndefined();
     });
 });

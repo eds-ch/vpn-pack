@@ -68,6 +68,7 @@ func TestSaveConfigRoundtrip(t *testing.T) {
 				LocalSubnets:        []string{"172.16.0.0/24"},
 				PersistentKeepalive: 25,
 				MTU:                 1420,
+				RouteMetric:         150,
 				Enabled:             true,
 				CreatedAt:           created,
 			},
@@ -93,6 +94,7 @@ func TestSaveConfigRoundtrip(t *testing.T) {
 	assert.Equal(t, []string{"172.16.0.0/24"}, got.LocalSubnets)
 	assert.Equal(t, 25, got.PersistentKeepalive)
 	assert.Equal(t, 1420, got.MTU)
+	assert.Equal(t, 150, got.RouteMetric)
 	assert.Equal(t, true, got.Enabled)
 	assert.Equal(t, created, got.CreatedAt)
 

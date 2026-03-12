@@ -10,9 +10,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const routeMetric = 100
+func effectiveMetric(metric int) int {
+	if metric <= 0 {
+		return defaultRouteMetric
+	}
+	return metric
+}
 
-func buildRouteMessage(cidr string, ifIndex uint32) (*rtnetlink.RouteMessage, error) {
+func buildRouteMessage(cidr string, ifIndex uint32, metric int) (*rtnetlink.RouteMessage, error) {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return nil, fmt.Errorf("parse route CIDR %s: %w", cidr, err)
@@ -39,14 +44,15 @@ func buildRouteMessage(cidr string, ifIndex uint32) (*rtnetlink.RouteMessage, er
 		Attributes: rtnetlink.RouteAttributes{
 			Dst:      dst,
 			OutIface: ifIndex,
-			Priority: routeMetric,
+			Priority: uint32(metric),
 		},
 	}, nil
 }
 
-func deleteRoutes(conn *rtnetlink.Conn, ifIndex uint32, cidrs []string) error {
+func deleteRoutes(conn *rtnetlink.Conn, ifIndex uint32, cidrs []string, metric int) error {
+	m := effectiveMetric(metric)
 	for _, cidr := range cidrs {
-		msg, err := buildRouteMessage(cidr, ifIndex)
+		msg, err := buildRouteMessage(cidr, ifIndex, m)
 		if err != nil {
 			slog.Warn("delete route: invalid CIDR", "cidr", cidr, "err", err)
 			continue

@@ -3,7 +3,7 @@
     import { SvelteSet } from 'svelte/reactivity';
     import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sCreateTunnel, wgS2sListZones } from '../api.js';
     import { isValidCIDR, validateTunnelFields } from '../utils.js';
-    import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
+    import { WG_DEFAULT_PORT, WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE, WG_DEFAULT_ROUTE_METRIC } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';
     import { inputClass as getInputClass, clearFieldError } from '../helpers/field-errors.js';
     import FormField from './FormField.svelte';
@@ -27,6 +27,7 @@
     let peerEndpoint = $state('');
     let persistentKeepalive = $state(WG_DEFAULT_KEEPALIVE);
     let mtu = $state(WG_DEFAULT_MTU);
+    let routeMetric = $state(WG_DEFAULT_ROUTE_METRIC);
     const clip = useClipboard();
 
     let fieldErrors = $state({});
@@ -82,7 +83,7 @@
     function validate() {
         const errors = validateTunnelFields({
             name, listenPort, tunnelAddress, peerPublicKey,
-            peerEndpoint, mtu, persistentKeepalive,
+            peerEndpoint, mtu, persistentKeepalive, routeMetric,
         });
         const customList = customCIDRs.split(',').map(s => s.trim()).filter(Boolean);
         for (const c of customList) {
@@ -112,6 +113,7 @@
             localSubnets: Array.from(selectedSubnets),
             persistentKeepalive: Number(persistentKeepalive),
             mtu: Number(mtu),
+            routeMetric: Number(routeMetric),
             privateKey: keypair?.privateKey || undefined,
         };
         if (integrationConfigured && zones.length > 0) {
@@ -184,9 +186,14 @@
             oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')} />
     </div>
 
-    <FormField label="MTU" type="number" bind:value={mtu}
-        error={fieldErrors.mtu} extraClass="!w-32"
-        oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')} />
+    <div class="grid grid-cols-2 gap-3 max-w-xs">
+        <FormField label="MTU" type="number" bind:value={mtu}
+            error={fieldErrors.mtu}
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')} />
+        <FormField label="Route Metric" type="number" bind:value={routeMetric}
+            error={fieldErrors.routeMetric}
+            oninput={() => fieldErrors = clearFieldError(fieldErrors,'routeMetric')} />
+    </div>
 
     {#if integrationConfigured && zones.length > 0}
         <div>

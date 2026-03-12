@@ -1,7 +1,7 @@
 <script>
     import { wgS2sUpdateTunnel, wgS2sDeleteTunnel, wgS2sEnableTunnel, wgS2sDisableTunnel } from '../api.js';
     import { formatBytes, relativeTime, validateTunnelFields, tunnelStatusInfo } from '../utils.js';
-    import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE } from '../constants.js';
+    import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE, WG_DEFAULT_ROUTE_METRIC } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';
     import { clearFieldError } from '../helpers/field-errors.js';
     import FormField from './FormField.svelte';
@@ -32,6 +32,7 @@
             localSubnets: (tunnel.localSubnets ?? []).join(', '),
             persistentKeepalive: tunnel.persistentKeepalive ?? WG_DEFAULT_KEEPALIVE,
             mtu: tunnel.mtu ?? WG_DEFAULT_MTU,
+            routeMetric: tunnel.routeMetric ?? WG_DEFAULT_ROUTE_METRIC,
         };
         editing = true;
     }
@@ -51,6 +52,7 @@
             localSubnets: editData.localSubnets.split(',').map(s => s.trim()).filter(Boolean),
             persistentKeepalive: Number(editData.persistentKeepalive),
             mtu: Number(editData.mtu),
+            routeMetric: Number(editData.routeMetric),
         };
         const result = await wgS2sUpdateTunnel(tunnel.id, updates);
         if (result) {
@@ -124,6 +126,10 @@
                     <div>
                         <span class="text-text-secondary">MTU</span>
                         <span class="ml-2 text-text">{tunnel.mtu ?? WG_DEFAULT_MTU}</span>
+                    </div>
+                    <div>
+                        <span class="text-text-secondary">Route Metric</span>
+                        <span class="ml-2 text-text">{tunnel.routeMetric ?? WG_DEFAULT_ROUTE_METRIC}</span>
                     </div>
                     {#if tunnel.publicKey}
                         <div class="md:col-span-2">
@@ -211,6 +217,9 @@
                         <FormField label="MTU" type="number" bind:value={editData.mtu}
                             error={fieldErrors.mtu}
                             oninput={() => fieldErrors = clearFieldError(fieldErrors,'mtu')} />
+                        <FormField label="Route Metric" type="number" bind:value={editData.routeMetric}
+                            error={fieldErrors.routeMetric}
+                            oninput={() => fieldErrors = clearFieldError(fieldErrors,'routeMetric')} />
                     </div>
                     <FormField label="Peer Public Key" bind:value={editData.peerPublicKey}
                         error={fieldErrors.peerPublicKey} extraClass="font-mono text-caption"

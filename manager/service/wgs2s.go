@@ -559,7 +559,10 @@ func validateCreateRequest(req *WgS2sCreateRequest) error {
 	if err := validateCIDRList(cfg.AllowedIPs, "allowedIP"); err != nil {
 		return err
 	}
-	return validateCIDRList(cfg.LocalSubnets, "localSubnet")
+	if err := validateCIDRList(cfg.LocalSubnets, "localSubnet"); err != nil {
+		return err
+	}
+	return validateRouteMetric(cfg.RouteMetric)
 }
 
 func validateUpdateRequest(updates *wgs2s.TunnelConfig) error {
@@ -579,7 +582,10 @@ func validateUpdateRequest(updates *wgs2s.TunnelConfig) error {
 	if err := validateCIDRList(updates.AllowedIPs, "allowedIP"); err != nil {
 		return err
 	}
-	return validateCIDRList(updates.LocalSubnets, "localSubnet")
+	if err := validateCIDRList(updates.LocalSubnets, "localSubnet"); err != nil {
+		return err
+	}
+	return validateRouteMetric(updates.RouteMetric)
 }
 
 func validateCIDRList(cidrs []string, fieldName string) error {
@@ -587,6 +593,15 @@ func validateCIDRList(cidrs []string, fieldName string) error {
 		if err := validateCIDR(cidr); err != nil {
 			return fmt.Errorf("invalid %s %q: %s", fieldName, cidr, err)
 		}
+	}
+	return nil
+}
+
+const maxRouteMetric = 9999
+
+func validateRouteMetric(metric int) error {
+	if metric < 0 || metric > maxRouteMetric {
+		return fmt.Errorf("routeMetric must be between 0 and %d (0 = default 100)", maxRouteMetric)
 	}
 	return nil
 }

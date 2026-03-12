@@ -91,6 +91,7 @@ export interface TunnelConfig {
     localSubnets?: string[];
     persistentKeepalive: number;
     mtu: number;
+    routeMetric?: number;
     enabled: boolean;
     createdAt: string;
 }

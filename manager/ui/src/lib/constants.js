@@ -1,6 +1,7 @@
 export const WG_DEFAULT_PORT = 51820;
 export const WG_DEFAULT_MTU = 1420;
 export const WG_DEFAULT_KEEPALIVE = 25;
+export const WG_DEFAULT_ROUTE_METRIC = 100;
 
 export const TS_DEFAULT_UDP_PORT = 41641;
 export const TS_DEFAULT_RELAY_PORT = 40000;
@@ -10,6 +11,8 @@ export const PORT_MAX = 65535;
 export const RELAY_PORT_MIN = 1024;
 export const MTU_MIN = 1280;
 export const KEEPALIVE_MIN = 0;
+export const ROUTE_METRIC_MIN = 1;
+export const ROUTE_METRIC_MAX = 9999;
 export const CIDR_PREFIX_MAX = 32;
 export const OCTET_MAX = 255;
 export const BASE64_KEY_LENGTH = 44;

@@ -2,6 +2,7 @@ import {
     BYTES_PER_KB, SECONDS_PER_MINUTE, SECONDS_PER_HOUR, SECONDS_PER_DAY,
     OCTET_MAX, CIDR_PREFIX_MAX, BASE64_KEY_LENGTH, DECODED_KEY_BYTES,
     PORT_MIN, PORT_MAX, MTU_MIN, KEEPALIVE_MIN,
+    ROUTE_METRIC_MIN, ROUTE_METRIC_MAX,
 } from './constants.js';
 
 export function formatBytes(bytes) {
@@ -123,6 +124,11 @@ export function isValidKeepalive(value) {
     return Number.isInteger(n) && n >= KEEPALIVE_MIN && n <= PORT_MAX;
 }
 
+export function isValidRouteMetric(value) {
+    const n = Number(value);
+    return Number.isInteger(n) && n >= ROUTE_METRIC_MIN && n <= ROUTE_METRIC_MAX;
+}
+
 export function validateTunnelFields(data) {
     const errors = {};
     if (!data.name?.trim()) errors.name = 'Required';
@@ -136,6 +142,7 @@ export function validateTunnelFields(data) {
     }
     if (!isValidMTU(data.mtu)) errors.mtu = `Must be ${MTU_MIN}-${PORT_MAX}`;
     if (!isValidKeepalive(data.persistentKeepalive)) errors.persistentKeepalive = `Must be ${KEEPALIVE_MIN}-${PORT_MAX}`;
+    if (data.routeMetric != null && !isValidRouteMetric(data.routeMetric)) errors.routeMetric = `Must be ${ROUTE_METRIC_MIN}-${ROUTE_METRIC_MAX}`;
 
     const ips = typeof data.allowedIPs === 'string'
         ? data.allowedIPs.split(',').map(s => s.trim()).filter(Boolean)

@@ -53,6 +53,11 @@ func TestValidateCreateRequest(t *testing.T) {
 		{"bad base64 peerKey", func(r *WgS2sCreateRequest) { r.PeerPublicKey = "!!!not-base64-at-all-but-is-44-chars-long!==" }, true, "peerPublicKey"},
 		{"invalid allowedIP", func(r *WgS2sCreateRequest) { r.AllowedIPs = []string{"bad"} }, true, "allowedIP"},
 		{"valid multiple CIDRs", func(r *WgS2sCreateRequest) { r.AllowedIPs = []string{"10.0.0.0/24", "192.168.1.0/24"} }, false, ""},
+		{"zero routeMetric (default)", func(r *WgS2sCreateRequest) { r.RouteMetric = 0 }, false, ""},
+		{"valid routeMetric", func(r *WgS2sCreateRequest) { r.RouteMetric = 200 }, false, ""},
+		{"routeMetric at max", func(r *WgS2sCreateRequest) { r.RouteMetric = 9999 }, false, ""},
+		{"negative routeMetric", func(r *WgS2sCreateRequest) { r.RouteMetric = -1 }, true, "routeMetric"},
+		{"routeMetric exceeds max", func(r *WgS2sCreateRequest) { r.RouteMetric = 10000 }, true, "routeMetric"},
 	}
 
 	for _, tt := range tests {
@@ -116,6 +121,10 @@ func TestValidateUpdateRequest(t *testing.T) {
 		{"zero port (no change)", func(c *wgs2s.TunnelConfig) { c.ListenPort = 0 }, false, ""},
 		{"positive port", func(c *wgs2s.TunnelConfig) { c.ListenPort = 51821 }, false, ""},
 		{"port at max", func(c *wgs2s.TunnelConfig) { c.ListenPort = 65535 }, false, ""},
+		{"zero routeMetric (no change)", func(c *wgs2s.TunnelConfig) { c.RouteMetric = 0 }, false, ""},
+		{"valid routeMetric", func(c *wgs2s.TunnelConfig) { c.RouteMetric = 500 }, false, ""},
+		{"negative routeMetric", func(c *wgs2s.TunnelConfig) { c.RouteMetric = -1 }, true, "routeMetric"},
+		{"routeMetric exceeds max", func(c *wgs2s.TunnelConfig) { c.RouteMetric = 10000 }, true, "routeMetric"},
 	}
 
 	for _, tt := range tests {
