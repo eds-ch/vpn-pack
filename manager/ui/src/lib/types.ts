@@ -182,6 +182,7 @@ export interface FirewallStatusResponse {
 
 export interface SettingsResponse extends SettingsFields {
     controlURL: string;
+    warnings?: SubnetConflict[];
 }
 
 export interface SettingsRequest {

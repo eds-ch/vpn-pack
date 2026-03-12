@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -51,13 +52,24 @@ type SettingsNotifier interface {
 	OnDNSChanged(enabled bool)
 }
 
+// S2sTunnelInfo describes an active S2S tunnel's subnets for conflict detection.
+type S2sTunnelInfo struct {
+	Name       string
+	AllowedIPs []string
+}
+
+// S2sTunnelProvider returns active S2S tunnels with their allowed IPs.
+// Used by SettingsService to detect conflicts when enabling accept-routes.
+type S2sTunnelProvider func(ctx context.Context) []S2sTunnelInfo
+
 // Types — exported for use in HTTP handlers and SSE state.
 
 type SettingsFields = domain.SettingsFields
 
 type SettingsResponse struct {
 	SettingsFields
-	ControlURL string `json:"controlURL"`
+	ControlURL string           `json:"controlURL"`
+	Warnings   []SubnetConflict `json:"warnings,omitempty"`
 }
 
 type SettingsRequest struct {
@@ -80,16 +92,18 @@ type SetResult struct {
 	DNSChanged       bool
 	AcceptDNSEnabled bool
 	NeedsRestart     bool
+	AcceptRoutesWarnings []SubnetConflict
 }
 
 // SettingsService encapsulates settings business logic.
 type SettingsService struct {
-	ts       TailscalePrefs
-	fw       SettingsFirewall
-	ic       SettingsIntegration
-	manifest SettingsManifest
-	notify   SettingsNotifier
-	hasUDAPI bool
+	ts         TailscalePrefs
+	fw         SettingsFirewall
+	ic         SettingsIntegration
+	manifest   SettingsManifest
+	notify     SettingsNotifier
+	hasUDAPI   bool
+	s2sTunnels S2sTunnelProvider
 }
 
 func (svc *SettingsService) isDNSForwardingEnabled() bool {
@@ -103,14 +117,16 @@ func NewSettingsService(
 	manifest SettingsManifest,
 	hasUDAPI bool,
 	notify SettingsNotifier,
+	s2sTunnels S2sTunnelProvider,
 ) *SettingsService {
 	return &SettingsService{
-		ts:       ts,
-		fw:       fw,
-		ic:       ic,
-		manifest: manifest,
-		hasUDAPI: hasUDAPI,
-		notify:   notify,
+		ts:         ts,
+		fw:         fw,
+		ic:         ic,
+		manifest:   manifest,
+		hasUDAPI:   hasUDAPI,
+		notify:     notify,
+		s2sTunnels: s2sTunnels,
 	}
 }
 
@@ -137,6 +153,11 @@ func (svc *SettingsService) SetSettings(ctx context.Context, req *SettingsReques
 			return nil, err
 		}
 		req.AcceptDNS = nil
+	}
+
+	var acceptRoutesWarnings []SubnetConflict
+	if req.AcceptRoutes != nil && *req.AcceptRoutes {
+		acceptRoutesWarnings = svc.validateAcceptRoutes(ctx)
 	}
 
 	old, err := svc.fetchPreEditPrefs(ctx, req)
@@ -170,6 +191,7 @@ func (svc *SettingsService) SetSettings(ctx context.Context, req *SettingsReques
 
 	resp := ToSettingsResponse(updated)
 	resp.AcceptDNS = acceptDNSEnabled
+	resp.Warnings = acceptRoutesWarnings
 
 	if svc.notify != nil {
 		if needsRestart {
@@ -181,10 +203,11 @@ func (svc *SettingsService) SetSettings(ctx context.Context, req *SettingsReques
 	}
 
 	return &SetResult{
-		Response:         resp,
-		DNSChanged:       dnsForwardingTouched,
-		AcceptDNSEnabled: acceptDNSEnabled,
-		NeedsRestart:     needsRestart,
+		Response:             resp,
+		DNSChanged:           dnsForwardingTouched,
+		AcceptDNSEnabled:     acceptDNSEnabled,
+		NeedsRestart:         needsRestart,
+		AcceptRoutesWarnings: acceptRoutesWarnings,
 	}, nil
 }
 
@@ -355,6 +378,99 @@ func (svc *SettingsService) updateTailscaleWgPortRules(ctx context.Context, newP
 		return
 	}
 	svc.swapWanPort(ctx, currentPort, *newPort, config.WanMarkerTailscaleWG)
+}
+
+// --- Accept-routes validation ---
+
+func (svc *SettingsService) validateAcceptRoutes(ctx context.Context) []SubnetConflict {
+	if svc.s2sTunnels == nil {
+		return nil
+	}
+	tunnels := svc.s2sTunnels(ctx)
+	if len(tunnels) == 0 {
+		return nil
+	}
+
+	type tunnelSubnet struct {
+		tunnelName string
+		cidr       string
+		net        *net.IPNet
+	}
+	var s2sNets []tunnelSubnet
+	for _, t := range tunnels {
+		for _, cidr := range t.AllowedIPs {
+			_, ipNet, err := net.ParseCIDR(cidr)
+			if err != nil {
+				continue
+			}
+			s2sNets = append(s2sNets, tunnelSubnet{tunnelName: t.Name, cidr: cidr, net: ipNet})
+		}
+	}
+	if len(s2sNets) == 0 {
+		return nil
+	}
+
+	peerRoutes := svc.collectPeerSubnetRoutes(ctx)
+	if len(peerRoutes) == 0 {
+		return nil
+	}
+
+	var warnings []SubnetConflict
+	for _, pr := range peerRoutes {
+		for _, ts := range s2sNets {
+			if subnetsOverlap(pr.net, ts.net) {
+				warnings = append(warnings, SubnetConflict{
+					CIDR:          pr.cidr,
+					ConflictsWith: fmt.Sprintf("%s (S2S tunnel %q)", ts.cidr, ts.tunnelName),
+					Severity:      "warn",
+					Message: fmt.Sprintf(
+						"Tailscale route %s from peer %q (table 52, priority 5270) will override "+
+							"S2S tunnel %q route %s (main table, priority 32000). "+
+							"Traffic will go through Tailscale instead of the WireGuard tunnel.",
+						pr.cidr, pr.peerName, ts.tunnelName, ts.cidr,
+					),
+				})
+			}
+		}
+	}
+	return warnings
+}
+
+type peerRoute struct {
+	cidr     string
+	net      *net.IPNet
+	peerName string
+}
+
+func (svc *SettingsService) collectPeerSubnetRoutes(ctx context.Context) []peerRoute {
+	st, err := svc.ts.Status(ctx)
+	if err != nil || st == nil {
+		return nil
+	}
+
+	var routes []peerRoute
+	for _, peer := range st.Peer {
+		if peer == nil || peer.PrimaryRoutes == nil {
+			continue
+		}
+		name := peer.HostName
+		if name == "" {
+			name = peer.DNSName
+		}
+		for i := range peer.PrimaryRoutes.Len() {
+			prefix := peer.PrimaryRoutes.At(i)
+			_, ipNet, err := net.ParseCIDR(prefix.String())
+			if err != nil {
+				continue
+			}
+			routes = append(routes, peerRoute{
+				cidr:     prefix.String(),
+				net:      ipNet,
+				peerName: name,
+			})
+		}
+	}
+	return routes
 }
 
 // --- Exported pure functions ---

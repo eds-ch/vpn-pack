@@ -28,6 +28,7 @@
     let generalHasErrors = $state(false);
     let advancedHasErrors = $state(false);
     let hasValidationErrors = $derived(generalHasErrors || advancedHasErrors);
+    let acceptRoutesWarnings = $state([]);
 
     let hasChanges = $derived(
         Object.keys(dirtyOverrides).some(k =>
@@ -70,6 +71,7 @@
         }
         const result = await setSettings(delta);
         if (result) {
+            acceptRoutesWarnings = result.warnings ?? [];
             dirtyOverrides = {};
         }
         saving = false;
@@ -158,7 +160,7 @@
                 </div>
             {:else}
                 {#if subTab === 'general'}
-                    <SettingsGeneral staged={displaySettings} original={serverSettings} {stageChange} effectiveHostname={status.self?.hostName || ''} onValidation={(v) => generalHasErrors = v} />
+                    <SettingsGeneral staged={displaySettings} original={serverSettings} {stageChange} effectiveHostname={status.self?.hostName || ''} onValidation={(v) => generalHasErrors = v} {acceptRoutesWarnings} />
                 {:else}
                     <SettingsAdvanced staged={displaySettings} original={serverSettings} {stageChange} onValidation={(v) => advancedHasErrors = v} {status} />
                 {/if}

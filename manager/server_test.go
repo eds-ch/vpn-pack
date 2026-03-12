@@ -92,7 +92,7 @@ func newTestServer(opts ...func(*Server)) *Server {
 	s.tailscaleSvc = service.NewTailscaleService(s.ts, s.fw)
 	s.settings = service.NewSettingsService(
 		s.ts, s.fw, s.ic,
-		settingsManifestAdapter{s.manifest}, false, nil,
+		settingsManifestAdapter{s.manifest}, false, nil, nil,
 	)
 	s.diagnostics = service.NewDiagnosticsService(s.ts, s.fw, nil)
 	s.exitSvc = service.NewExitNodeService(s.manifest, nil)

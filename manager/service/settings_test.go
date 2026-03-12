@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/types/key"
+	"tailscale.com/types/views"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -783,4 +785,218 @@ func TestErrorTypes(t *testing.T) {
 		assert.True(t, errors.As(e, &se))
 		assert.Equal(t, ErrValidation, se.Kind)
 	})
+}
+
+// --- Accept-routes S2S conflict validation ---
+
+func peerWithRoutes(hostname string, routes ...string) *ipnstate.PeerStatus {
+	prefixes := make([]netip.Prefix, len(routes))
+	for i, r := range routes {
+		prefixes[i] = netip.MustParsePrefix(r)
+	}
+	pr := views.SliceOf(prefixes)
+	return &ipnstate.PeerStatus{
+		HostName:      hostname,
+		PrimaryRoutes: &pr,
+	}
+}
+
+func TestValidateAcceptRoutes_ConflictDetected(t *testing.T) {
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo {
+			return []S2sTunnelInfo{
+				{Name: "office-vpn", AllowedIPs: []string{"10.20.0.0/24", "172.16.0.0/16"}},
+			}
+		}
+		s.ts = &mockTailscalePrefs{
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return &ipnstate.Status{
+					Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+						{}: peerWithRoutes("peer-a", "10.20.0.0/24"),
+					},
+				}, nil
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{RouteAll: true}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+
+	require.Len(t, result.AcceptRoutesWarnings, 1)
+	w := result.AcceptRoutesWarnings[0]
+	assert.Equal(t, "10.20.0.0/24", w.CIDR)
+	assert.Contains(t, w.ConflictsWith, "office-vpn")
+	assert.Contains(t, w.Message, "table 52")
+	assert.Contains(t, w.Message, "peer-a")
+	assert.Equal(t, "warn", w.Severity)
+
+	assert.Equal(t, result.Response.Warnings, result.AcceptRoutesWarnings)
+}
+
+func TestValidateAcceptRoutes_SupersetConflict(t *testing.T) {
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo {
+			return []S2sTunnelInfo{
+				{Name: "branch", AllowedIPs: []string{"10.20.5.0/24"}},
+			}
+		}
+		s.ts = &mockTailscalePrefs{
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return &ipnstate.Status{
+					Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+						{}: peerWithRoutes("peer-b", "10.20.0.0/16"),
+					},
+				}, nil
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{RouteAll: true}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, result.AcceptRoutesWarnings, 1)
+	assert.Equal(t, "10.20.0.0/16", result.AcceptRoutesWarnings[0].CIDR)
+	assert.Contains(t, result.AcceptRoutesWarnings[0].ConflictsWith, "branch")
+}
+
+func TestValidateAcceptRoutes_MultipleConflicts(t *testing.T) {
+	k1 := key.NewNode().Public()
+	k2 := key.NewNode().Public()
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo {
+			return []S2sTunnelInfo{
+				{Name: "tunnel-a", AllowedIPs: []string{"10.20.0.0/24"}},
+				{Name: "tunnel-b", AllowedIPs: []string{"192.168.50.0/24"}},
+			}
+		}
+		s.ts = &mockTailscalePrefs{
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return &ipnstate.Status{
+					Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+						k1: peerWithRoutes("peer-1", "10.20.0.0/24"),
+						k2: peerWithRoutes("peer-2", "192.168.50.0/24"),
+					},
+				}, nil
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{RouteAll: true}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.Len(t, result.AcceptRoutesWarnings, 2)
+}
+
+func TestValidateAcceptRoutes_NoConflict(t *testing.T) {
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo {
+			return []S2sTunnelInfo{
+				{Name: "tunnel-x", AllowedIPs: []string{"10.20.0.0/24"}},
+			}
+		}
+		s.ts = &mockTailscalePrefs{
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return &ipnstate.Status{
+					Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+						{}: peerWithRoutes("peer-c", "172.16.0.0/16"),
+					},
+				}, nil
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{RouteAll: true}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.Empty(t, result.AcceptRoutesWarnings)
+	assert.Empty(t, result.Response.Warnings)
+}
+
+func TestValidateAcceptRoutes_NoS2sTunnels(t *testing.T) {
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo { return nil }
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.Empty(t, result.AcceptRoutesWarnings)
+}
+
+func TestValidateAcceptRoutes_NilProvider(t *testing.T) {
+	svc := newTestSettingsService()
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.Empty(t, result.AcceptRoutesWarnings)
+}
+
+func TestValidateAcceptRoutes_DisablingSkipsValidation(t *testing.T) {
+	called := false
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo {
+			called = true
+			return []S2sTunnelInfo{{Name: "t", AllowedIPs: []string{"10.0.0.0/8"}}}
+		}
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(false)}
+	_, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, called, "S2S tunnel provider should not be called when disabling accept-routes")
+}
+
+func TestValidateAcceptRoutes_NoPeersAdvertisingRoutes(t *testing.T) {
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo {
+			return []S2sTunnelInfo{
+				{Name: "tunnel", AllowedIPs: []string{"10.20.0.0/24"}},
+			}
+		}
+		s.ts = &mockTailscalePrefs{
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return &ipnstate.Status{
+					Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+						{}: {HostName: "peer-no-routes"},
+					},
+				}, nil
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{RouteAll: true}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.Empty(t, result.AcceptRoutesWarnings)
+}
+
+func TestValidateAcceptRoutes_StatusErrorGraceful(t *testing.T) {
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.s2sTunnels = func(_ context.Context) []S2sTunnelInfo {
+			return []S2sTunnelInfo{
+				{Name: "tunnel", AllowedIPs: []string{"10.20.0.0/24"}},
+			}
+		}
+		s.ts = &mockTailscalePrefs{
+			statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+				return nil, errors.New("connection refused")
+			},
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				return &ipn.Prefs{RouteAll: true}, nil
+			},
+		}
+	})
+	req := &SettingsRequest{AcceptRoutes: ptr(true)}
+	result, err := svc.SetSettings(context.Background(), req)
+	require.NoError(t, err)
+	assert.Empty(t, result.AcceptRoutesWarnings, "status error should not block accept-routes")
 }

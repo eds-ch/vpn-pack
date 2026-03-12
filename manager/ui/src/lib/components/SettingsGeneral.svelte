@@ -4,7 +4,7 @@
     import { isValidEndpoint } from '../utils.js';
     import { TS_DEFAULT_UDP_PORT, TS_DEFAULT_RELAY_PORT, PORT_MIN, PORT_MAX, RELAY_PORT_MIN, HOSTNAME_MAX_LENGTH } from '../constants.js';
 
-    let { staged, original, stageChange, effectiveHostname = '', onValidation = () => {} } = $props();
+    let { staged, original, stageChange, effectiveHostname = '', onValidation = () => {}, acceptRoutesWarnings = [] } = $props();
 
     let relayEnabled = $derived(staged.relayServerPort != null && staged.relayServerPort >= 0);
 
@@ -103,7 +103,13 @@
         <div class="flex-1 mr-4">
             <span class="text-body text-text">Accept Routes</span>
             <p class="text-caption text-text-tertiary mt-0.5">Accept subnet routes advertised by other nodes in your tailnet.</p>
-            {#if staged.acceptRoutes}
+            {#if staged.acceptRoutes && acceptRoutesWarnings.length > 0}
+                <div class="mt-1.5 space-y-1">
+                    {#each acceptRoutesWarnings as w}
+                        <p class="text-caption text-warning">{w.message}</p>
+                    {/each}
+                </div>
+            {:else if staged.acceptRoutes}
                 <p class="text-caption text-warning mt-1">Enabling accept-routes may conflict with UniFi routing tables. MagicDNS is always disabled on UniFi devices.</p>
             {/if}
         </div>

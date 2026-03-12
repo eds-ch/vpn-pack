@@ -87,6 +87,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 			state:     s.state,
 			broadcast: s.broadcastState,
 		},
+		s.activeS2sTunnels,
 	)
 	s.diagnostics = service.NewDiagnosticsService(opts.Tailscale, opts.Firewall, nil)
 
@@ -295,6 +296,24 @@ func (s *Server) restartTailscaled() {
 			slog.Info("tailscaled restarted for settings change")
 		}
 	}()
+}
+
+func (s *Server) activeS2sTunnels(ctx context.Context) []service.S2sTunnelInfo {
+	if s.wgS2sSvc == nil || !s.wgS2sSvc.Available() {
+		return nil
+	}
+	tunnels := s.wgS2sSvc.ListTunnels(ctx)
+	var result []service.S2sTunnelInfo
+	for _, t := range tunnels {
+		if !t.Enabled || len(t.AllowedIPs) == 0 {
+			continue
+		}
+		result = append(result, service.S2sTunnelInfo{
+			Name:       t.Name,
+			AllowedIPs: t.AllowedIPs,
+		})
+	}
+	return result
 }
 
 func (s *Server) integrationReady() bool {
