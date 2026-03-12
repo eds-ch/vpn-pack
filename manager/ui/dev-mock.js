@@ -23,6 +23,7 @@ const mockStatus = {
     },
     health: [],
     exitNode: false,
+    usingExitNode: null,
     dpiFingerprinting: true,
     derp: [
         { regionID: 1, regionCode: 'nyc', regionName: 'New York', latencyMs: 4.2, preferred: true },
@@ -55,6 +56,8 @@ const mockStatus = {
             peerRelay: '',
             rxBytes: 52400000,
             txBytes: 21300000,
+            exitNodeOption: false,
+            exitNode: false,
         },
         {
             id: 'peer-2',
@@ -70,6 +73,8 @@ const mockStatus = {
             peerRelay: '100.65.93.69:40000:vni:12345',
             rxBytes: 8200000,
             txBytes: 3100000,
+            exitNodeOption: false,
+            exitNode: false,
         },
         {
             id: 'peer-3',
@@ -84,6 +89,8 @@ const mockStatus = {
             relay: '',
             rxBytes: 120000000,
             txBytes: 95000000,
+            exitNodeOption: false,
+            exitNode: false,
         },
         {
             id: 'peer-4',
@@ -98,6 +105,8 @@ const mockStatus = {
             relay: 'ord',
             rxBytes: 340000000,
             txBytes: 280000000,
+            exitNodeOption: true,
+            exitNode: false,
         },
         {
             id: 'peer-5',
@@ -112,6 +121,8 @@ const mockStatus = {
             relay: '',
             rxBytes: 89000000,
             txBytes: 67000000,
+            exitNodeOption: true,
+            exitNode: false,
         },
         {
             id: 'peer-6',
@@ -126,6 +137,8 @@ const mockStatus = {
             relay: '',
             rxBytes: 210000000,
             txBytes: 145000000,
+            exitNodeOption: false,
+            exitNode: false,
         },
         {
             id: 'peer-7',
@@ -140,6 +153,8 @@ const mockStatus = {
             relay: 'fra',
             rxBytes: 5600000,
             txBytes: 2300000,
+            exitNodeOption: false,
+            exitNode: false,
         },
         {
             id: 'peer-8',
@@ -154,6 +169,8 @@ const mockStatus = {
             relay: '',
             rxBytes: 32000000,
             txBytes: 18000000,
+            exitNodeOption: false,
+            exitNode: false,
         },
         {
             id: 'peer-9',
@@ -168,6 +185,8 @@ const mockStatus = {
             relay: '',
             rxBytes: 780000000,
             txBytes: 520000000,
+            exitNodeOption: true,
+            exitNode: false,
         },
         {
             id: 'peer-10',
@@ -182,6 +201,8 @@ const mockStatus = {
             relay: 'nyc',
             rxBytes: 15000000,
             txBytes: 9800000,
+            exitNodeOption: false,
+            exitNode: false,
         },
         {
             id: 'peer-11',
@@ -196,6 +217,8 @@ const mockStatus = {
             relay: '',
             rxBytes: 450000000,
             txBytes: 380000000,
+            exitNodeOption: true,
+            exitNode: false,
         },
         {
             id: 'peer-12',
@@ -210,6 +233,8 @@ const mockStatus = {
             relay: '',
             rxBytes: 124000000,
             txBytes: 98000000,
+            exitNodeOption: false,
+            exitNode: false,
         },
     ],
     integrationStatus: {
@@ -364,6 +389,8 @@ const mockSubnets = {
         { cidr: '172.16.50.0/24', name: 'Guest (br50)' },
     ],
 };
+
+let mockRemoteExitNode = null;
 
 const mockSettings = {
     hostname: 'udm-se-test-us-office',
@@ -581,6 +608,46 @@ export default function mockApiPlugin() {
                     });
                 }
 
+                // Remote exit node
+                if (path === '/exit-node' && req.method === 'GET') {
+                    const exitPeers = mockStatus.peers
+                        .filter(p => p.exitNodeOption)
+                        .map(p => ({ id: p.id, hostName: p.hostName, dnsName: p.dnsName, online: p.online, os: p.os, active: p.exitNode }));
+                    let current = null;
+                    if (mockRemoteExitNode) {
+                        const p = mockStatus.peers.find(pp => pp.id === mockRemoteExitNode.peerId);
+                        current = { peerId: mockRemoteExitNode.peerId, hostName: p?.hostName || mockRemoteExitNode.peerId, online: p?.online ?? false, mode: mockRemoteExitNode.mode };
+                    }
+                    return json(res, { peers: exitPeers, current });
+                }
+                if (path === '/exit-node' && req.method === 'POST') {
+                    let body = '';
+                    req.on('data', c => body += c);
+                    req.on('end', () => {
+                        const data = JSON.parse(body);
+                        if (!data.peerId) return json(res, { error: 'peerId is required' }, 400);
+                        const peer = mockStatus.peers.find(p => p.id === data.peerId);
+                        if (!peer) return json(res, { error: 'peer not found' }, 404);
+                        const mode = data.mode || 'all';
+                        if (mode === 'all' && !data.confirm) {
+                            return json(res, { confirmRequired: true, message: `All internet traffic from ALL clients behind this router will be routed through ${peer.hostName}. Direct internet access will be lost.` });
+                        }
+                        mockRemoteExitNode = { peerId: data.peerId, mode, clients: data.clients || [] };
+                        mockStatus.usingExitNode = { peerId: data.peerId, hostName: peer.hostName, online: peer.online, mode };
+                        for (const p of mockStatus.peers) p.exitNode = p.id === data.peerId;
+                        let warning = '';
+                        if (mockStatus.exitNode) warning = 'This router is also advertising as an exit node. Using a remote exit node while advertising may create a routing loop.';
+                        json(res, { ok: true, message: `Traffic routed through ${peer.hostName}.`, warning });
+                    });
+                    return;
+                }
+                if (path === '/exit-node' && req.method === 'DELETE') {
+                    mockRemoteExitNode = null;
+                    mockStatus.usingExitNode = null;
+                    for (const p of mockStatus.peers) p.exitNode = false;
+                    return json(res, { ok: true });
+                }
+
                 // Mutations
                 if (path === '/tailscale/up') {
                     mockStatus.backendState = 'Running';
@@ -612,7 +679,7 @@ export default function mockApiPlugin() {
                         const data = JSON.parse(body);
                         mockStatus.exitNode = !!data.exitNode;
                         mockStatus.dpiFingerprinting = !mockStatus.exitNode;
-                        json(res, { ok: true });
+                        json(res, { ok: true, message: 'Routes applied locally. Approve in Tailscale admin console.', adminURL: 'https://login.tailscale.com/admin/machines' });
                     });
                     return;
                 }

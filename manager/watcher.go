@@ -288,10 +288,11 @@ func (s *Server) processNetMap(d *stateData, nm *netmap.NetworkMap) {
 }
 
 type statusEnrichment struct {
-	peers      []PeerInfo
-	totalTx    int64
-	totalRx    int64
-	selfOnline bool
+	peers         []PeerInfo
+	totalTx       int64
+	totalRx       int64
+	selfOnline    bool
+	usingExitNode *RemoteExitNodeStatus
 }
 
 func (s *Server) fetchStatusEnrichment(ctx context.Context) *statusEnrichment {
@@ -316,10 +317,11 @@ func (s *Server) fetchStatusEnrichment(ctx context.Context) *statusEnrichment {
 	}
 
 	return &statusEnrichment{
-		peers:      peers,
-		totalTx:    totalTx,
-		totalRx:    totalRx,
-		selfOnline: selfOnline,
+		peers:         peers,
+		totalTx:       totalTx,
+		totalRx:       totalRx,
+		selfOnline:    selfOnline,
+		usingExitNode: s.buildUsingExitNode(st),
 	}
 }
 
@@ -328,11 +330,16 @@ func (s *Server) applyEnrichment(d *stateData, e *statusEnrichment) {
 		return
 	}
 	d.Peers = e.peers
+	d.UsingExitNode = e.usingExitNode
 	if d.Self != nil {
 		d.Self.TxBytes = e.totalTx
 		d.Self.RxBytes = e.totalRx
 		d.Self.Online = e.selfOnline
 	}
+}
+
+func (s *Server) buildUsingExitNode(st *ipnstate.Status) *RemoteExitNodeStatus {
+	return service.BuildRemoteExitNodeStatus(st, s.manifest.GetRemoteExitNode())
 }
 
 func extractPeers(st *ipnstate.Status) []PeerInfo {
@@ -349,18 +356,21 @@ func extractPeers(st *ipnstate.Status) []PeerInfo {
 			ip = p.TailscaleIPs[0].String()
 		}
 		peers = append(peers, PeerInfo{
-			HostName:    p.HostName,
-			DNSName:     p.DNSName,
-			TailscaleIP: ip,
-			OS:          p.OS,
-			Online:      p.Online,
-			LastSeen:    p.LastSeen,
-			CurAddr:     p.CurAddr,
-			Relay:       p.Relay,
-			PeerRelay:   p.PeerRelay,
-			RxBytes:     p.RxBytes,
-			TxBytes:     p.TxBytes,
-			Active:      p.Active,
+			HostName:       p.HostName,
+			DNSName:        p.DNSName,
+			TailscaleIP:    ip,
+			OS:             p.OS,
+			Online:         p.Online,
+			LastSeen:       p.LastSeen,
+			CurAddr:        p.CurAddr,
+			Relay:          p.Relay,
+			PeerRelay:      p.PeerRelay,
+			RxBytes:        p.RxBytes,
+			TxBytes:        p.TxBytes,
+			Active:         p.Active,
+			ID:             string(p.ID),
+			ExitNodeOption: p.ExitNodeOption,
+			ExitNode:       p.ExitNode,
 		})
 	}
 	return peers
@@ -407,12 +417,6 @@ func (s *Server) recomputeRoutes(d *stateData) {
 	routes, isExit := service.BuildRouteStatuses(s.state.AdvertiseRoutes(), allowed)
 	d.ExitNode = isExit
 	d.Routes = routes
-
-	if s.manifest != nil {
-		p := s.manifest.GetExitNodePolicy()
-		d.ExitNodeMode = p.Mode
-		d.ExitNodeClients = p.Clients
-	}
 }
 
 func (s *Server) broadcastState() {

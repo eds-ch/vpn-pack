@@ -19,6 +19,9 @@ export interface PeerInfo {
     rxBytes: number;
     txBytes: number;
     active: boolean;
+    id: string;
+    exitNodeOption: boolean;
+    exitNode: boolean;
 }
 
 export interface DERPInfo {
@@ -37,6 +40,41 @@ export interface RouteStatus {
 export interface ExitNodeClient {
     ip: string;
     label?: string;
+}
+
+export interface RemoteExitNodeStatus {
+    peerId: string;
+    hostName: string;
+    online: boolean;
+    mode: string;
+}
+
+export interface ExitNodePeer {
+    id: string;
+    hostName: string;
+    dnsName: string;
+    online: boolean;
+    os: string;
+    active: boolean;
+}
+
+export interface RemoteExitResponse {
+    peers: ExitNodePeer[];
+    current: RemoteExitNodeStatus | null;
+}
+
+export interface EnableRemoteExitRequest {
+    peerId: string;
+    mode: string;
+    clients?: ExitNodeClient[];
+    confirm: boolean;
+}
+
+export interface EnableRemoteExitResult {
+    ok: boolean;
+    message: string;
+    warning?: string;
+    confirmRequired?: boolean;
 }
 
 export interface SubnetEntry {
@@ -132,8 +170,7 @@ export interface Status extends SettingsFields {
     self: SelfNode | null;
     health: string[];
     exitNode: boolean;
-    exitNodeMode?: string;
-    exitNodeClients?: ExitNodeClient[];
+    usingExitNode: RemoteExitNodeStatus | null;
     routes: RouteStatus[];
     peers: PeerInfo[];
     derp: DERPInfo[];
@@ -169,7 +206,6 @@ export interface SetRoutesResult {
     message: string;
     adminURL: string;
     warning?: string;
-    confirmRequired?: boolean;
 }
 
 export interface FirewallStatusResponse {

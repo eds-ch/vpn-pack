@@ -19,7 +19,9 @@ import type {
     WgS2sZoneEntry,
     IntegrationStatus,
     SubnetEntry,
-    ExitNodeClient,
+    RemoteExitResponse,
+    EnableRemoteExitRequest,
+    EnableRemoteExitResult,
 } from './types.js';
 
 const API_BASE = '/vpn-pack/api';
@@ -132,16 +134,10 @@ export function getDeviceInfo(): Promise<DeviceInfo | null> {
 export function setRoutes(
     routes: string[],
     exitNode: boolean,
-    confirm?: boolean,
-    exitNodeMode?: string,
-    exitClients?: ExitNodeClient[],
 ): Promise<SetRoutesResult | null> {
     return apiFetch<SetRoutesResult>('POST', `${API_BASE}/routes`, {
         routes,
         exitNode,
-        confirm: confirm ?? false,
-        exitNodeMode,
-        exitClients,
     });
 }
 
@@ -206,6 +202,17 @@ export function wgS2sGetLocalSubnets(): Promise<{ subnets: SubnetEntry[] } | nul
 }
 export function wgS2sListZones(): Promise<WgS2sZoneEntry[] | null> {
     return apiFetch<WgS2sZoneEntry[]>('GET', `${API_BASE}/wg-s2s/zones`);
+}
+
+// Remote Exit Node
+export function getRemoteExitNode(): Promise<RemoteExitResponse | null> {
+    return apiFetch<RemoteExitResponse>('GET', `${API_BASE}/exit-node`);
+}
+export function enableRemoteExitNode(req: EnableRemoteExitRequest): Promise<EnableRemoteExitResult | null> {
+    return apiFetch<EnableRemoteExitResult>('POST', `${API_BASE}/exit-node`, req);
+}
+export function disableRemoteExitNode(): Promise<OperationResponse | null> {
+    return apiFetch<OperationResponse>('DELETE', `${API_BASE}/exit-node`);
 }
 
 // Integration API

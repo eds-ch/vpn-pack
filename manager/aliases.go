@@ -57,6 +57,7 @@ type PeerInfo = domain.PeerInfo
 type DERPInfo = domain.DERPInfo
 type FirewallHealth = domain.FirewallHealth
 type RoutingHealth = domain.RoutingHealth
+type RemoteExitNodeStatus = domain.RemoteExitNodeStatus
 
 type OperationResponse = domain.OperationResponse
 

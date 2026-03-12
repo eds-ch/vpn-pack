@@ -247,12 +247,11 @@ func findPeerByID(st *ipnstate.Status, peerID string) *ipnstate.PeerStatus {
 }
 
 func (svc *RemoteExitService) currentExitNodeStatus(st *ipnstate.Status) *domain.RemoteExitNodeStatus {
-	if st.ExitNodeStatus == nil {
-		return nil
-	}
+	return BuildRemoteExitNodeStatus(st, svc.manifest.GetRemoteExitNode())
+}
 
-	rem := svc.manifest.GetRemoteExitNode()
-	if rem == nil {
+func BuildRemoteExitNodeStatus(st *ipnstate.Status, rem *domain.RemoteExitNode) *domain.RemoteExitNodeStatus {
+	if st == nil || st.ExitNodeStatus == nil || rem == nil {
 		return nil
 	}
 
@@ -262,12 +261,10 @@ func (svc *RemoteExitService) currentExitNodeStatus(st *ipnstate.Status) *domain
 	}
 
 	hostName := exitID
-	var online bool
+	online := st.ExitNodeStatus.Online
 	if peer := findPeerByID(st, exitID); peer != nil {
 		hostName = peer.HostName
 		online = peer.Online
-	} else {
-		online = st.ExitNodeStatus.Online
 	}
 
 	mode := string(rem.Mode)
