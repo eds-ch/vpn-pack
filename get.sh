@@ -6,10 +6,18 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/eds-ch/vpn-pack/main/get.sh | bash
 #
+# Pin a specific version (e.g. beta):
+#   VERSION_PIN=1.4.0-beta.1 bash <(curl -fsSL https://raw.githubusercontent.com/eds-ch/vpn-pack/main/get.sh)
+#
 set -euo pipefail
 
 REPO="eds-ch/vpn-pack"
-API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+if [ -n "${VERSION_PIN:-}" ]; then
+    PIN_TAG="${VERSION_PIN#v}"
+    API_URL="https://api.github.com/repos/${REPO}/releases/tags/v${PIN_TAG}"
+else
+    API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+fi
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -58,13 +66,21 @@ if [ -f /persistent/vpn-pack/VERSION ]; then
     info "Installed version: ${BOLD}v${INSTALLED_VERSION}${NC}"
 fi
 
-info "Fetching latest release info..."
+if [ -n "${VERSION_PIN:-}" ]; then
+    info "Fetching pinned release v${PIN_TAG}..."
+else
+    info "Fetching latest release info..."
+fi
 RELEASE_JSON=$(curl -fsSL "$API_URL") || die "Failed to reach GitHub API"
 
 VERSION=$(echo "$RELEASE_JSON" | grep -o '"tag_name" *: *"[^"]*"' | head -1 | grep -o '"v[^"]*"' | tr -d '"')
-[ -n "$VERSION" ] || die "Could not determine latest version"
+[ -n "$VERSION" ] || die "Could not determine version"
 SEMVER=${VERSION#v}
-info "Latest version: ${BOLD}${VERSION}${NC}"
+if [ -n "${VERSION_PIN:-}" ]; then
+    info "Pinned version: ${BOLD}${VERSION}${NC}"
+else
+    info "Latest version: ${BOLD}${VERSION}${NC}"
+fi
 
 if [ "$INSTALLED_VERSION" = "$SEMVER" ]; then
     NEEDS_REINSTALL=false

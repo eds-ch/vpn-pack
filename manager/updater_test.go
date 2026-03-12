@@ -27,6 +27,12 @@ func TestCompareVersions(t *testing.T) {
 		{"real world newer", "1.95.0", "1.94.0", 1},
 		{"real world equal", "1.95.0", "1.95.0", 0},
 		{"real world downgrade", "1.94.0", "1.95.0", -1},
+		{"stable newer than beta same base", "1.4.0", "1.4.0-beta.1", 1},
+		{"beta older than stable same base", "1.4.0-beta.1", "1.4.0", -1},
+		{"beta newer than old stable", "1.4.0-beta.1", "1.3.1", 1},
+		{"old stable older than beta", "1.3.1", "1.4.0-beta.1", -1},
+		{"equal betas", "1.4.0-beta.1", "1.4.0-beta.1", 0},
+		{"both stable equal", "1.4.0", "1.4.0", 0},
 	}
 
 	for _, tt := range tests {

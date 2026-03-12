@@ -70,12 +70,22 @@ func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 	return info
 }
 
+func splitPreRelease(v string) (base, pre string) {
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
+}
+
 func compareVersions(a, b string) int {
 	if a == "" || b == "" || a == "dev" || b == "dev" {
 		return 0
 	}
-	partsA := strings.Split(a, ".")
-	partsB := strings.Split(b, ".")
+	baseA, preA := splitPreRelease(a)
+	baseB, preB := splitPreRelease(b)
+
+	partsA := strings.Split(baseA, ".")
+	partsB := strings.Split(baseB, ".")
 	maxLen := len(partsA)
 	if len(partsB) > maxLen {
 		maxLen = len(partsB)
@@ -94,6 +104,13 @@ func compareVersions(a, b string) int {
 		if na > nb {
 			return 1
 		}
+	}
+	// Base versions equal: stable > pre-release
+	if preA == "" && preB != "" {
+		return 1
+	}
+	if preA != "" && preB == "" {
+		return -1
 	}
 	return 0
 }

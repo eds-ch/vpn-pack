@@ -11,6 +11,7 @@
 #   make fetch-tailscale    — clone/checkout Tailscale source
 
 VPNPACK_VERSION   := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
+PRERELEASE_FLAG   := $(if $(findstring -,$(VPNPACK_VERSION)),--prerelease,)
 TAILSCALE_VERSION := 1.94.2
 
 TAILSCALE_SRC     := reference/tailscale
@@ -196,7 +197,8 @@ release: checksums
 		$(DIST_DIR)/checksums.txt \
 		get.sh \
 		--title "vpn-pack v$(VPNPACK_VERSION)" \
-		--notes-file $(DIST_DIR)/release-notes.md
+		--notes-file $(DIST_DIR)/release-notes.md \
+		$(PRERELEASE_FLAG)
 	@echo "==> Release v$(VPNPACK_VERSION) created."
 
 # ── Deploy ─────────────────────────────────────────────────────────
