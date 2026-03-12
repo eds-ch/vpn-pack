@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0-beta.2] - 2026-03-12
+
+### Changed
+- **Exit node split**: separated into two independent paths — advertise (simple toggle) and remote exit node (peer selection with confirmation gate, client picker, ip rules)
+- New `RemoteExitService` with peer selection, `ExitNodeAllowLANAccess`, per-client ip rules, manifest persistence
+- Domain types split: `AdvertiseExitNode` + `RemoteExitNode` with migration from legacy `ExitNodePolicy`
+- Watcher: `extractPeers` adds ID/ExitNodeOption/ExitNode fields, `restoreExitNodeRules` reads remote exit from manifest with stale rule cleanup
+- Frontend: `ExitNodeToggle` simplified to pure advertise toggle, new `RemoteExitNode` component with peer selector/confirmation gate/client picker
+
+### Added
+- UI tests for remote exit node API client, `ExitNodeToggle`, `RemoteExitNode` component
+
 ## [1.4.0-beta.1] - 2026-03-12
 
 ### Added
