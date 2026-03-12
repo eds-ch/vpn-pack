@@ -62,6 +62,7 @@ type Server struct {
 	exitSvc        *service.ExitNodeService
 	tailscaleSvc   *service.TailscaleService
 	wgS2sSvc       *service.WgS2sService
+	routingHealth  *service.RoutingHealthChecker
 	lastBroadcast  []byte
 }
 
@@ -90,6 +91,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		s.activeS2sTunnels,
 	)
 	s.diagnostics = service.NewDiagnosticsService(opts.Tailscale, opts.Firewall, nil)
+	s.routingHealth = service.NewRoutingHealthChecker()
 
 	if opts.Firewall != nil {
 		s.fwOrch = service.NewFirewallOrchestrator(

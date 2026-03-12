@@ -56,6 +56,7 @@ type SelfNode = domain.SelfNode
 type PeerInfo = domain.PeerInfo
 type DERPInfo = domain.DERPInfo
 type FirewallHealth = domain.FirewallHealth
+type RoutingHealth = domain.RoutingHealth
 
 type OperationResponse = domain.OperationResponse
 

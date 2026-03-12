@@ -139,6 +139,7 @@ func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrich
 	s.state.Update(func(d *stateData) {
 		s.applyEnrichment(d, enrichment)
 		d.FirewallHealth = s.firewallHealthSnapshot(ctx)
+		d.RoutingHealth = s.routingHealth.Check()
 		d.IntegrationStatus = integrationStatus
 		d.AcceptDNS = s.isDNSForwardingEnabled()
 		d.UDPPort = service.ReadTailscaledPort()

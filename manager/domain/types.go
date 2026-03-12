@@ -175,6 +175,7 @@ type StateData struct {
 	Peers             []PeerInfo           `json:"peers"`
 	DERP              []DERPInfo           `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth      `json:"firewallHealth,omitempty"`
+	RoutingHealth     *RoutingHealth       `json:"routingHealth,omitempty"`
 	DPIFingerprinting *bool                `json:"dpiFingerprinting,omitempty"`
 	IntegrationStatus *IntegrationStatus   `json:"integrationStatus,omitempty"`
 	WgS2sTunnels      []WgS2sStatus       `json:"wgS2sTunnels,omitempty"`
@@ -221,6 +222,17 @@ type FirewallHealth struct {
 	ZoneName       string `json:"zoneName,omitempty"`
 }
 
+type RoutingWarning struct {
+	Check    string `json:"check"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Value    string `json:"value,omitempty"`
+}
+
+type RoutingHealth struct {
+	Warnings []RoutingWarning `json:"warnings,omitempty"`
+}
+
 type TailscaleState struct {
 	mu              sync.Mutex
 	data            StateData
@@ -240,6 +252,11 @@ func (ts *TailscaleState) Snapshot() StateData {
 	s.WgS2sTunnels = slices.Clone(s.WgS2sTunnels)
 	s.AdvertiseTags = slices.Clone(s.AdvertiseTags)
 	s.ExitNodeClients = slices.Clone(s.ExitNodeClients)
+	if s.RoutingHealth != nil {
+		rh := *s.RoutingHealth
+		rh.Warnings = slices.Clone(rh.Warnings)
+		s.RoutingHealth = &rh
+	}
 	return s
 }
 
