@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,8 +45,9 @@ func (m *mockRemoteExitManifest) SetRemoteExitNode(r *domain.RemoteExitNode) err
 	return nil
 }
 
-func (m *mockRemoteExitManifest) GetAdvertiseExitNodeEnabled() bool {
-	return m.advertiseEnabled
+func (m *mockRemoteExitManifest) SetAdvertiseExitNode(enabled bool) error {
+	m.advertiseEnabled = enabled
+	return nil
 }
 
 // --- Helpers ---
@@ -484,16 +486,90 @@ func TestSyncExitNodeID_NoManifest(t *testing.T) {
 	assert.False(t, editCalled, "should no-op when manifest has no remote exit node")
 }
 
-// --- Warning tests ---
+// --- Mutual exclusion tests ---
 
-func TestAdvertiseAndRemote_Warning(t *testing.T) {
+func TestEnable_ConfirmRequired_WhenAdvertising(t *testing.T) {
 	ts := &mockRoutingTailscale{
 		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
 			return testStatusWithPeers(
 				testPeerStatus("stable-1", "exit-server", true, true, false),
 			), nil
 		},
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{
+				AdvertiseRoutes: []netip.Prefix{
+					netip.MustParsePrefix("192.168.1.0/24"),
+					netip.MustParsePrefix("0.0.0.0/0"),
+					netip.MustParsePrefix("::/0"),
+				},
+			}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	result, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: false,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.ConfirmRequired)
+	assert.Contains(t, result.Message, "Advertise as Exit Node will be disabled")
+	assert.Contains(t, result.Message, "exit-server")
+}
+
+func TestEnable_ConfirmRequired_WhenAdvertising_SelectiveMode(t *testing.T) {
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{
+				AdvertiseRoutes: []netip.Prefix{
+					netip.MustParsePrefix("0.0.0.0/0"),
+					netip.MustParsePrefix("::/0"),
+				},
+			}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	result, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeSelective,
+		Clients: []domain.ExitNodeClient{{IP: "192.168.1.100"}},
+		Confirm: false,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.ConfirmRequired)
+	assert.Contains(t, result.Message, "Advertise as Exit Node will be disabled")
+	assert.Contains(t, result.Message, "Selected clients")
+}
+
+func TestEnable_DisablesAdvertiseAtomically(t *testing.T) {
+	var capturedPrefs *ipn.MaskedPrefs
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{
+				AdvertiseRoutes: []netip.Prefix{
+					netip.MustParsePrefix("192.168.1.0/24"),
+					netip.MustParsePrefix("10.0.0.0/8"),
+					netip.MustParsePrefix("0.0.0.0/0"),
+					netip.MustParsePrefix("::/0"),
+				},
+			}, nil
+		},
 		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			capturedPrefs = mp
 			return &ipn.Prefs{}, nil
 		},
 	}
@@ -507,21 +583,68 @@ func TestAdvertiseAndRemote_Warning(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, result.OK)
-	assert.Contains(t, result.Warning, "routing loop")
+
+	require.NotNil(t, capturedPrefs)
+	assert.Equal(t, tailcfg.StableNodeID("stable-1"), capturedPrefs.Prefs.ExitNodeID)
+	assert.True(t, capturedPrefs.ExitNodeIDSet)
+	assert.True(t, capturedPrefs.AdvertiseRoutesSet)
+
+	for _, r := range capturedPrefs.Prefs.AdvertiseRoutes {
+		assert.NotEqual(t, 0, r.Bits(), "exit routes (/0) should be stripped")
+	}
+	assert.Len(t, capturedPrefs.Prefs.AdvertiseRoutes, 2)
+	assert.False(t, manifest.advertiseEnabled)
 }
 
-func TestAdvertiseAndRemote_NoWarning(t *testing.T) {
+func TestEnable_NoAdvertise_AllMode_StillRequiresConfirm(t *testing.T) {
 	ts := &mockRoutingTailscale{
 		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
 			return testStatusWithPeers(
 				testPeerStatus("stable-1", "exit-server", true, true, false),
 			), nil
 		},
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{
+				AdvertiseRoutes: []netip.Prefix{
+					netip.MustParsePrefix("192.168.1.0/24"),
+				},
+			}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	result, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: false,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.ConfirmRequired)
+	assert.NotContains(t, result.Message, "Advertise")
+}
+
+func TestEnable_NoAdvertise_DoesNotSetAdvertiseRoutes(t *testing.T) {
+	var capturedPrefs *ipn.MaskedPrefs
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{
+				AdvertiseRoutes: []netip.Prefix{
+					netip.MustParsePrefix("192.168.1.0/24"),
+				},
+			}, nil
+		},
 		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			capturedPrefs = mp
 			return &ipn.Prefs{}, nil
 		},
 	}
-	manifest := &mockRemoteExitManifest{advertiseEnabled: false}
+	manifest := &mockRemoteExitManifest{}
 	svc := newTestRemoteExitService(ts, manifest)
 
 	result, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
@@ -530,5 +653,8 @@ func TestAdvertiseAndRemote_NoWarning(t *testing.T) {
 		Confirm: true,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, result.Warning)
+	assert.True(t, result.OK)
+
+	require.NotNil(t, capturedPrefs)
+	assert.False(t, capturedPrefs.AdvertiseRoutesSet, "should not touch AdvertiseRoutes when not advertising")
 }

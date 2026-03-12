@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
@@ -15,7 +16,7 @@ import (
 type RemoteExitManifest interface {
 	GetRemoteExitNode() *domain.RemoteExitNode
 	SetRemoteExitNode(r *domain.RemoteExitNode) error
-	GetAdvertiseExitNodeEnabled() bool
+	SetAdvertiseExitNode(enabled bool) error
 }
 
 type RemoteExitService struct {
@@ -52,7 +53,6 @@ type EnableRemoteExitRequest struct {
 type EnableRemoteExitResult struct {
 	OK              bool   `json:"ok"`
 	Message         string `json:"message"`
-	Warning         string `json:"warning,omitempty"`
 	ConfirmRequired bool   `json:"confirmRequired,omitempty"`
 }
 
@@ -95,7 +95,25 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 		mode = domain.ExitNodeAll
 	}
 
-	if mode == domain.ExitNodeAll && !req.Confirm {
+	prefs, err := svc.ts.GetPrefs(ctx)
+	if err != nil {
+		return nil, upstreamError(humanizeLocalAPIError(err), err)
+	}
+	wasAdvertising := prefs.AdvertisesExitNode()
+
+	if wasAdvertising && !req.Confirm {
+		msg := "Advertise as Exit Node will be disabled. "
+		if mode == domain.ExitNodeAll {
+			msg += fmt.Sprintf(
+				"All internet traffic from ALL clients behind this router will be routed through %s. "+
+					"Direct internet access will be lost.", peer.HostName)
+		} else {
+			msg += fmt.Sprintf("Selected clients will be routed through %s.", peer.HostName)
+		}
+		return &EnableRemoteExitResult{ConfirmRequired: true, Message: msg}, nil
+	}
+
+	if !wasAdvertising && mode == domain.ExitNodeAll && !req.Confirm {
 		return &EnableRemoteExitResult{
 			ConfirmRequired: true,
 			Message: fmt.Sprintf(
@@ -111,16 +129,28 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 		}
 	}
 
-	_, err = svc.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
+	mp := &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			ExitNodeID:             tailcfg.StableNodeID(req.PeerID),
 			ExitNodeAllowLANAccess: true,
 		},
 		ExitNodeIDSet:             true,
 		ExitNodeAllowLANAccessSet: true,
-	})
+	}
+	if wasAdvertising {
+		mp.Prefs.AdvertiseRoutes = filterNonExitRoutes(prefs.AdvertiseRoutes)
+		mp.AdvertiseRoutesSet = true
+	}
+
+	_, err = svc.ts.EditPrefs(ctx, mp)
 	if err != nil {
 		return nil, upstreamError(humanizeLocalAPIError(err), err)
+	}
+
+	if wasAdvertising {
+		if err := svc.manifest.SetAdvertiseExitNode(false); err != nil {
+			slog.Warn("failed to clear advertise exit node in manifest", "err", err)
+		}
 	}
 
 	if svc.exitSvc != nil {
@@ -137,16 +167,9 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 		slog.Warn("failed to persist remote exit node", "err", err)
 	}
 
-	var warning string
-	if svc.manifest.GetAdvertiseExitNodeEnabled() {
-		warning = "This router is also advertising as an exit node. " +
-			"Using a remote exit node while advertising may create a routing loop."
-	}
-
 	return &EnableRemoteExitResult{
 		OK:      true,
 		Message: fmt.Sprintf("Traffic routed through %s.", peer.HostName),
-		Warning: warning,
 	}, nil
 }
 
@@ -248,6 +271,16 @@ func findPeerByID(st *ipnstate.Status, peerID string) *ipnstate.PeerStatus {
 
 func (svc *RemoteExitService) currentExitNodeStatus(st *ipnstate.Status) *domain.RemoteExitNodeStatus {
 	return BuildRemoteExitNodeStatus(st, svc.manifest.GetRemoteExitNode())
+}
+
+func filterNonExitRoutes(routes []netip.Prefix) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(routes))
+	for _, r := range routes {
+		if r.Bits() != 0 {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func BuildRemoteExitNodeStatus(st *ipnstate.Status, rem *domain.RemoteExitNode) *domain.RemoteExitNodeStatus {

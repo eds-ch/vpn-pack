@@ -190,28 +190,6 @@ describe('RemoteExitNode', () => {
         expect(screen.getByText(/Exit node is offline/)).toBeInTheDocument();
     });
 
-    it('shows routing loop warning when advertise is enabled', () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [], current: null });
-
-        render(RemoteExitNode, {
-            current: { peerId: 'stable-1', hostName: 'exit-server', online: true, mode: 'all' },
-            advertiseEnabled: true,
-        });
-
-        expect(screen.getByText(/routing loop/)).toBeInTheDocument();
-    });
-
-    it('does not show routing loop warning when advertise is disabled', () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [], current: null });
-
-        render(RemoteExitNode, {
-            current: { peerId: 'stable-1', hostName: 'exit-server', online: true, mode: 'all' },
-            advertiseEnabled: false,
-        });
-
-        expect(screen.queryByText(/routing loop/)).not.toBeInTheDocument();
-    });
-
     it('shows "Selected clients" label for selective mode', () => {
         getRemoteExitNode.mockResolvedValue({ peers: [], current: null });
 

@@ -5,7 +5,6 @@
 
     let {
         current = null,
-        advertiseEnabled = false,
     } = $props();
 
     const MAX_EXIT_CLIENTS = 20;
@@ -123,14 +122,6 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
         <h3 class="text-body text-text font-bold">Use Remote Exit Node</h3>
         <p class="text-caption text-text-tertiary mt-0.5">Route this router's internet traffic through another Tailscale device.</p>
     </div>
-
-    {#if advertiseEnabled && isActive}
-        <div class="mb-4 p-3 rounded-lg bg-warning/10 border border-warning/30">
-            <p class="text-caption text-warning">
-                This router is also advertising as an exit node. Using a remote exit node while advertising may create a routing loop.
-            </p>
-        </div>
-    {/if}
 
     {#if isActive}
         <div class="p-4 rounded-xl border border-border bg-surface/50">

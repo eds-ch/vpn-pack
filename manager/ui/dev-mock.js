@@ -629,15 +629,23 @@ export default function mockApiPlugin() {
                         const peer = mockStatus.peers.find(p => p.id === data.peerId);
                         if (!peer) return json(res, { error: 'peer not found' }, 404);
                         const mode = data.mode || 'all';
-                        if (mode === 'all' && !data.confirm) {
+                        if (mockStatus.exitNode && !data.confirm) {
+                            let msg = 'Advertise as Exit Node will be disabled. ';
+                            if (mode === 'all') msg += `All internet traffic from ALL clients behind this router will be routed through ${peer.hostName}. Direct internet access will be lost.`;
+                            else msg += `Selected clients will be routed through ${peer.hostName}.`;
+                            return json(res, { confirmRequired: true, message: msg });
+                        }
+                        if (!mockStatus.exitNode && mode === 'all' && !data.confirm) {
                             return json(res, { confirmRequired: true, message: `All internet traffic from ALL clients behind this router will be routed through ${peer.hostName}. Direct internet access will be lost.` });
+                        }
+                        if (mockStatus.exitNode) {
+                            mockStatus.exitNode = false;
+                            mockStatus.dpiFingerprinting = true;
                         }
                         mockRemoteExitNode = { peerId: data.peerId, mode, clients: data.clients || [] };
                         mockStatus.usingExitNode = { peerId: data.peerId, hostName: peer.hostName, online: peer.online, mode };
                         for (const p of mockStatus.peers) p.exitNode = p.id === data.peerId;
-                        let warning = '';
-                        if (mockStatus.exitNode) warning = 'This router is also advertising as an exit node. Using a remote exit node while advertising may create a routing loop.';
-                        json(res, { ok: true, message: `Traffic routed through ${peer.hostName}.`, warning });
+                        json(res, { ok: true, message: `Traffic routed through ${peer.hostName}.` });
                     });
                     return;
                 }
@@ -677,6 +685,11 @@ export default function mockApiPlugin() {
                     req.on('data', c => body += c);
                     req.on('end', () => {
                         const data = JSON.parse(body);
+                        if (data.exitNode && mockStatus.usingExitNode) {
+                            mockRemoteExitNode = null;
+                            mockStatus.usingExitNode = null;
+                            for (const p of mockStatus.peers) p.exitNode = false;
+                        }
                         mockStatus.exitNode = !!data.exitNode;
                         mockStatus.dpiFingerprinting = !mockStatus.exitNode;
                         json(res, { ok: true, message: 'Routes applied locally. Approve in Tailscale admin console.', adminURL: 'https://login.tailscale.com/admin/machines' });

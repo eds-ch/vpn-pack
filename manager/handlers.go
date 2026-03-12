@@ -267,6 +267,14 @@ func (s *Server) handleSetRoutes(w http.ResponseWriter, r *http.Request) {
 	if err := readJSON(w, r, &req); err != nil {
 		return
 	}
+	if req.ExitNode && s.remoteExitSvc != nil {
+		if rem := s.manifest.GetRemoteExitNode(); rem != nil {
+			if err := s.remoteExitSvc.Disable(r.Context()); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+		}
+	}
 	var clients []string
 	if req.ExitNode {
 		s.refreshVPNClients()

@@ -73,7 +73,6 @@ export interface EnableRemoteExitRequest {
 export interface EnableRemoteExitResult {
     ok: boolean;
     message: string;
-    warning?: string;
     confirmRequired?: boolean;
 }
 

@@ -16,8 +16,13 @@
     let stagedAdvertiseExit = $state(null);
     let applying = $state(false);
     let userTouched = $state(false);
+    let advertiseConfirmPending = $state(false);
 
     let initialized = $derived(stagedCidrs !== null);
+
+    $effect(() => {
+        if (!status.usingExitNode) advertiseConfirmPending = false;
+    });
 
     $effect.pre(() => {
         if (isRunning && !userTouched) {
@@ -81,10 +86,34 @@
             {activeVPNClients}
             dpiFingerprinting={status.dpiFingerprinting}
             onchange={(enabled) => {
-                stagedAdvertiseExit = enabled;
-                userTouched = true;
+                if (enabled && status.usingExitNode) {
+                    advertiseConfirmPending = true;
+                } else {
+                    stagedAdvertiseExit = enabled;
+                    userTouched = true;
+                    advertiseConfirmPending = false;
+                }
             }}
         />
+        {#if advertiseConfirmPending}
+            <div class="p-3 rounded-lg bg-warning/10 border border-warning/30 -mt-2 mb-2">
+                <p class="text-body text-warning font-bold mb-1">Disable remote exit node?</p>
+                <p class="text-caption text-text-secondary mb-3">
+                    Remote exit node ({status.usingExitNode.hostName}) will be disabled.
+                    Traffic will no longer be routed through it.
+                </p>
+                <div class="flex gap-2">
+                    <Button variant="warning" size="sm" onclick={() => {
+                        stagedAdvertiseExit = true;
+                        userTouched = true;
+                        advertiseConfirmPending = false;
+                    }}>Continue</Button>
+                    <Button variant="secondary" size="sm" onclick={() => {
+                        advertiseConfirmPending = false;
+                    }}>Cancel</Button>
+                </div>
+            </div>
+        {/if}
     </div>
 
     <div class="flex justify-end mt-6">
@@ -96,7 +125,6 @@
     <div class="mt-8 pt-6 border-t border-border">
         <RemoteExitNode
             current={status.usingExitNode}
-            advertiseEnabled={stagedAdvertiseExit}
         />
     </div>
 {/if}
