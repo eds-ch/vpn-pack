@@ -287,3 +287,191 @@ func TestManifest_RemoveNonExistingTunnel(t *testing.T) {
 
 	require.NoError(t, m.RemoveWgS2sTunnel("nonexistent-tunnel"))
 }
+
+func TestMigrateExitNode(t *testing.T) {
+	t.Run("old exitNodePolicy mode=all + ts advertising → advertise=true, policy cleared", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2,"exitNodePolicy":{"mode":"all","clients":[]}}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(true)
+		assert.True(t, m.GetAdvertiseExitNodeEnabled())
+		assert.Equal(t, domain.ExitNodeOff, m.GetExitNodePolicy().Mode)
+	})
+
+	t.Run("old exitNodePolicy mode=selective → advertise=true, policy cleared", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2,"exitNodePolicy":{"mode":"selective","clients":[{"ip":"192.168.1.10"}]}}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(false)
+		assert.True(t, m.GetAdvertiseExitNodeEnabled())
+		assert.Equal(t, domain.ExitNodeOff, m.GetExitNodePolicy().Mode)
+	})
+
+	t.Run("old exitNodePolicy mode=off + ts not advertising → advertise=false", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2,"exitNodePolicy":{"mode":"off"}}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(false)
+		assert.False(t, m.GetAdvertiseExitNodeEnabled())
+		assert.Equal(t, domain.ExitNodeOff, m.GetExitNodePolicy().Mode)
+	})
+
+	t.Run("old exitNodePolicy mode=off + ts IS advertising → advertise=true", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2,"exitNodePolicy":{"mode":"off"}}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(true)
+		assert.True(t, m.GetAdvertiseExitNodeEnabled())
+	})
+
+	t.Run("no exitNodePolicy + ts advertising → advertise=true", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(true)
+		assert.True(t, m.GetAdvertiseExitNodeEnabled())
+	})
+
+	t.Run("no exitNodePolicy + ts not advertising → no-op", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(false)
+		assert.False(t, m.GetAdvertiseExitNodeEnabled())
+	})
+
+	t.Run("already migrated → no-op", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2,"advertiseExitNode":true}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(false)
+		assert.True(t, m.GetAdvertiseExitNodeEnabled())
+	})
+
+	t.Run("already has remoteExitNode → no-op", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		data := `{"version":2,"remoteExitNode":{"peerId":"abc","mode":"all"}}`
+		require.NoError(t, os.WriteFile(path, []byte(data), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+
+		m.MigrateExitNode(true)
+		assert.False(t, m.GetAdvertiseExitNodeEnabled())
+		assert.NotNil(t, m.GetRemoteExitNode())
+		assert.Equal(t, "abc", m.GetRemoteExitNode().PeerID)
+	})
+}
+
+func TestManifest_RemoteExitNodeRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manifest.json")
+
+	m := state.NewManifest(path)
+
+	assert.Nil(t, m.GetRemoteExitNode())
+
+	rem := &domain.RemoteExitNode{
+		PeerID:  "node-123",
+		Mode:    domain.ExitNodeAll,
+		Clients: nil,
+	}
+	require.NoError(t, m.SetRemoteExitNode(rem))
+
+	got := m.GetRemoteExitNode()
+	require.NotNil(t, got)
+	assert.Equal(t, "node-123", got.PeerID)
+	assert.Equal(t, domain.ExitNodeAll, got.Mode)
+
+	m2, err := state.LoadManifest(path)
+	require.NoError(t, err)
+	got2 := m2.GetRemoteExitNode()
+	require.NotNil(t, got2)
+	assert.Equal(t, "node-123", got2.PeerID)
+
+	require.NoError(t, m.SetRemoteExitNode(nil))
+	assert.Nil(t, m.GetRemoteExitNode())
+}
+
+func TestManifest_AdvertiseExitNodeRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manifest.json")
+
+	m := state.NewManifest(path)
+
+	assert.False(t, m.GetAdvertiseExitNodeEnabled())
+
+	require.NoError(t, m.SetAdvertiseExitNode(true))
+	assert.True(t, m.GetAdvertiseExitNodeEnabled())
+
+	m2, err := state.LoadManifest(path)
+	require.NoError(t, err)
+	assert.True(t, m2.GetAdvertiseExitNodeEnabled())
+
+	require.NoError(t, m.SetAdvertiseExitNode(false))
+	assert.False(t, m.GetAdvertiseExitNodeEnabled())
+}
+
+func TestManifest_RemoteExitNodeSnapshotIsolation(t *testing.T) {
+	dir := t.TempDir()
+	m := state.NewManifest(filepath.Join(dir, "manifest.json"))
+
+	rem := &domain.RemoteExitNode{
+		PeerID:  "peer-1",
+		Mode:    domain.ExitNodeSelective,
+		Clients: []domain.ExitNodeClient{{IP: "192.168.1.10", Label: "pc"}},
+	}
+	require.NoError(t, m.SetRemoteExitNode(rem))
+
+	// Mutating the original after Set must not affect manifest (write isolation)
+	rem.PeerID = "mutated-src"
+	rem.Clients[0].IP = "mutated-src"
+
+	got := m.GetRemoteExitNode()
+	assert.Equal(t, "peer-1", got.PeerID)
+	assert.Equal(t, "192.168.1.10", got.Clients[0].IP)
+
+	// Mutating the snapshot from Get must not affect manifest (read isolation)
+	got.PeerID = "mutated-snap"
+	got.Clients[0].IP = "mutated-snap"
+
+	got2 := m.GetRemoteExitNode()
+	assert.Equal(t, "peer-1", got2.PeerID)
+	assert.Equal(t, "192.168.1.10", got2.Clients[0].IP)
+}

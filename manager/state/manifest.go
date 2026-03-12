@@ -27,7 +27,9 @@ type Manifest struct {
 	ExternalZoneID string                             `json:"externalZoneId,omitempty"`
 	GatewayZoneID  string                             `json:"gatewayZoneId,omitempty"`
 	DNSPolicies    map[string]domain.DNSPolicyEntry   `json:"dnsPolicies,omitempty"`
-	ExitNodePolicy *domain.ExitNodePolicy             `json:"exitNodePolicy,omitempty"`
+	ExitNodePolicy           *domain.ExitNodePolicy   `json:"exitNodePolicy,omitempty"`
+	AdvertiseExitNodeEnabled bool                     `json:"advertiseExitNode,omitempty"`
+	RemoteExitNode           *domain.RemoteExitNode   `json:"remoteExitNode,omitempty"`
 }
 
 func NewManifest(path string) *Manifest {
@@ -330,6 +332,78 @@ func (m *Manifest) SetExitNodePolicy(p domain.ExitNodePolicy) error {
 	m.ExitNodePolicy = &p
 	m.UpdatedAt = time.Now().UTC()
 	return m.saveLocked()
+}
+
+func (m *Manifest) GetAdvertiseExitNodeEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.AdvertiseExitNodeEnabled
+}
+
+func (m *Manifest) SetAdvertiseExitNode(enabled bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.AdvertiseExitNodeEnabled = enabled
+	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
+}
+
+func (m *Manifest) GetRemoteExitNode() *domain.RemoteExitNode {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.RemoteExitNode == nil {
+		return nil
+	}
+	cp := *m.RemoteExitNode
+	cp.Clients = slices.Clone(cp.Clients)
+	return &cp
+}
+
+func (m *Manifest) SetRemoteExitNode(r *domain.RemoteExitNode) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r != nil {
+		cp := *r
+		cp.Clients = slices.Clone(r.Clients)
+		m.RemoteExitNode = &cp
+	} else {
+		m.RemoteExitNode = nil
+	}
+	m.UpdatedAt = time.Now().UTC()
+	return m.saveLocked()
+}
+
+// MigrateExitNode migrates legacy ExitNodePolicy to the new split model.
+// tsAdvertising indicates whether tailscale is currently advertising exit routes (0.0.0.0/0).
+func (m *Manifest) MigrateExitNode(tsAdvertising bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.AdvertiseExitNodeEnabled || m.RemoteExitNode != nil {
+		return
+	}
+
+	if m.ExitNodePolicy == nil && !tsAdvertising {
+		return
+	}
+
+	if m.ExitNodePolicy == nil && tsAdvertising {
+		m.AdvertiseExitNodeEnabled = true
+		m.UpdatedAt = time.Now().UTC()
+		if err := m.saveLocked(); err != nil {
+			slog.Warn("exit node migration: failed to persist", "error", err)
+		}
+		return
+	}
+
+	if m.ExitNodePolicy.Mode != domain.ExitNodeOff || tsAdvertising {
+		m.AdvertiseExitNodeEnabled = true
+	}
+	m.ExitNodePolicy = nil
+	m.UpdatedAt = time.Now().UTC()
+	if err := m.saveLocked(); err != nil {
+		slog.Warn("exit node migration: failed to persist", "error", err)
+	}
 }
 
 func (m *Manifest) GetTailscaleZone() domain.ZoneManifest {

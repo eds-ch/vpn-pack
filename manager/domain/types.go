@@ -125,6 +125,19 @@ type ExitNodePolicy struct {
 	Clients []ExitNodeClient `json:"clients,omitempty"`
 }
 
+type RemoteExitNode struct {
+	PeerID  string           `json:"peerId"`
+	Mode    ExitNodeMode     `json:"mode"`
+	Clients []ExitNodeClient `json:"clients,omitempty"`
+}
+
+type RemoteExitNodeStatus struct {
+	PeerID   string `json:"peerId"`
+	HostName string `json:"hostName"`
+	Online   bool   `json:"online"`
+	Mode     string `json:"mode"`
+}
+
 type SubnetConflict struct {
 	CIDR          string `json:"cidr"`
 	ConflictsWith string `json:"conflictsWith"`
@@ -176,6 +189,7 @@ type StateData struct {
 	DERP              []DERPInfo           `json:"derp,omitempty"`
 	FirewallHealth    *FirewallHealth      `json:"firewallHealth,omitempty"`
 	RoutingHealth     *RoutingHealth       `json:"routingHealth,omitempty"`
+	UsingExitNode     *RemoteExitNodeStatus `json:"usingExitNode,omitempty"`
 	DPIFingerprinting *bool                `json:"dpiFingerprinting,omitempty"`
 	IntegrationStatus *IntegrationStatus   `json:"integrationStatus,omitempty"`
 	WgS2sTunnels      []WgS2sStatus       `json:"wgS2sTunnels,omitempty"`
@@ -192,18 +206,21 @@ type SelfNode struct {
 }
 
 type PeerInfo struct {
-	HostName    string    `json:"hostName"`
-	DNSName     string    `json:"dnsName"`
-	TailscaleIP string    `json:"tailscaleIP"`
-	OS          string    `json:"os"`
-	Online      bool      `json:"online"`
-	LastSeen    time.Time `json:"lastSeen"`
-	CurAddr     string    `json:"curAddr"`
-	Relay       string    `json:"relay"`
-	PeerRelay   string    `json:"peerRelay"`
-	RxBytes     int64     `json:"rxBytes"`
-	TxBytes     int64     `json:"txBytes"`
-	Active      bool      `json:"active"`
+	HostName       string    `json:"hostName"`
+	DNSName        string    `json:"dnsName"`
+	TailscaleIP    string    `json:"tailscaleIP"`
+	OS             string    `json:"os"`
+	Online         bool      `json:"online"`
+	LastSeen       time.Time `json:"lastSeen"`
+	CurAddr        string    `json:"curAddr"`
+	Relay          string    `json:"relay"`
+	PeerRelay      string    `json:"peerRelay"`
+	RxBytes        int64     `json:"rxBytes"`
+	TxBytes        int64     `json:"txBytes"`
+	Active         bool      `json:"active"`
+	ID             string    `json:"id"`
+	ExitNodeOption bool      `json:"exitNodeOption"`
+	ExitNode       bool      `json:"exitNode"`
 }
 
 type DERPInfo struct {
@@ -252,6 +269,10 @@ func (ts *TailscaleState) Snapshot() StateData {
 	s.WgS2sTunnels = slices.Clone(s.WgS2sTunnels)
 	s.AdvertiseTags = slices.Clone(s.AdvertiseTags)
 	s.ExitNodeClients = slices.Clone(s.ExitNodeClients)
+	if s.UsingExitNode != nil {
+		ue := *s.UsingExitNode
+		s.UsingExitNode = &ue
+	}
 	if s.RoutingHealth != nil {
 		rh := *s.RoutingHealth
 		rh.Warnings = slices.Clone(rh.Warnings)

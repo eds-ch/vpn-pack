@@ -46,6 +46,11 @@ type ManifestStore interface {
 
 	GetExitNodePolicy() ExitNodePolicy
 	SetExitNodePolicy(p ExitNodePolicy) error
+
+	GetAdvertiseExitNodeEnabled() bool
+	SetAdvertiseExitNode(enabled bool) error
+	GetRemoteExitNode() *RemoteExitNode
+	SetRemoteExitNode(r *RemoteExitNode) error
 }
 
 type IntegrationAPI interface {

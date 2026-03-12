@@ -73,9 +73,13 @@ type mockManifestStore struct {
 	setSystemZoneIDsFn  func(externalID, gatewayID string) error
 	setDNSPolicyFn      func(marker, policyID, domain, ipAddress string) error
 	removeDNSPolicyFn   func(marker string) error
-	resetIntegrationFn     func() error
-	getExitNodePolicyFn    func() domain.ExitNodePolicy
-	setExitNodePolicyFn    func(p domain.ExitNodePolicy) error
+	resetIntegrationFn              func() error
+	getExitNodePolicyFn             func() domain.ExitNodePolicy
+	setExitNodePolicyFn             func(p domain.ExitNodePolicy) error
+	getAdvertiseExitNodeEnabledFn   func() bool
+	setAdvertiseExitNodeFn          func(enabled bool) error
+	getRemoteExitNodeFn             func() *domain.RemoteExitNode
+	setRemoteExitNodeFn             func(r *domain.RemoteExitNode) error
 }
 
 func (m *mockManifestStore) GetSiteID() string {
@@ -231,6 +235,30 @@ func (m *mockManifestStore) GetExitNodePolicy() domain.ExitNodePolicy {
 func (m *mockManifestStore) SetExitNodePolicy(p domain.ExitNodePolicy) error {
 	if m.setExitNodePolicyFn != nil {
 		return m.setExitNodePolicyFn(p)
+	}
+	return nil
+}
+func (m *mockManifestStore) GetAdvertiseExitNodeEnabled() bool {
+	if m.getAdvertiseExitNodeEnabledFn != nil {
+		return m.getAdvertiseExitNodeEnabledFn()
+	}
+	return false
+}
+func (m *mockManifestStore) SetAdvertiseExitNode(enabled bool) error {
+	if m.setAdvertiseExitNodeFn != nil {
+		return m.setAdvertiseExitNodeFn(enabled)
+	}
+	return nil
+}
+func (m *mockManifestStore) GetRemoteExitNode() *domain.RemoteExitNode {
+	if m.getRemoteExitNodeFn != nil {
+		return m.getRemoteExitNodeFn()
+	}
+	return nil
+}
+func (m *mockManifestStore) SetRemoteExitNode(r *domain.RemoteExitNode) error {
+	if m.setRemoteExitNodeFn != nil {
+		return m.setRemoteExitNodeFn(r)
 	}
 	return nil
 }
