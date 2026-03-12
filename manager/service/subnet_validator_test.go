@@ -274,6 +274,88 @@ func TestValidationResult_Helpers(t *testing.T) {
 	})
 }
 
+func TestValidateAllowedIPs_PBRConflict(t *testing.T) {
+	sys := &SystemSubnets{
+		PBRRules: []PBRInfo{
+			{RulePriority: 32501, FwMark: 0x6a0000, FwMask: 0x7f0000, Table: 201},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	assert.Empty(t, vr.Blocked)
+	require.Len(t, vr.Warnings, 1)
+	assert.Equal(t, "10.20.0.0/24", vr.Warnings[0].CIDR)
+	assert.Contains(t, vr.Warnings[0].ConflictsWith, "Traffic Routes")
+	assert.Contains(t, vr.Warnings[0].Message, "priority 32000")
+	assert.Contains(t, vr.Warnings[0].Message, "Traffic Routes")
+	assert.Equal(t, "warn", vr.Warnings[0].Severity)
+}
+
+func TestValidateAllowedIPs_PBRMultipleCIDRs(t *testing.T) {
+	sys := &SystemSubnets{
+		PBRRules: []PBRInfo{
+			{RulePriority: 32501, FwMark: 0x6a0000, FwMask: 0x7f0000, Table: 201},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24", "172.16.0.0/16"}, sys)
+	assert.Empty(t, vr.Blocked)
+	assert.Len(t, vr.Warnings, 2)
+	assert.Equal(t, "10.20.0.0/24", vr.Warnings[0].CIDR)
+	assert.Equal(t, "172.16.0.0/16", vr.Warnings[1].CIDR)
+}
+
+func TestValidateAllowedIPs_NoPBRNoWarning(t *testing.T) {
+	sys := &SystemSubnets{}
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	assert.True(t, vr.IsClean())
+}
+
+func TestValidateAllowedIPs_BlockedSkipsPBR(t *testing.T) {
+	sys := &SystemSubnets{
+		Interfaces: []InterfaceSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "br0"},
+		},
+		PBRRules: []PBRInfo{
+			{RulePriority: 32501, FwMark: 0x6a0000, FwMask: 0x7f0000, Table: 201},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	assert.Len(t, vr.Blocked, 1)
+	assert.Empty(t, vr.Warnings, "blocked CIDR should not produce PBR warning")
+}
+
+func TestValidateAllowedIPs_Table52PriorityOverPBR(t *testing.T) {
+	sys := &SystemSubnets{
+		Table52Routes: []RouteSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "tailscale0"},
+		},
+		PBRRules: []PBRInfo{
+			{RulePriority: 32501, FwMark: 0x6a0000, FwMask: 0x7f0000, Table: 201},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	require.Len(t, vr.Warnings, 1, "table 52 warning should take precedence, PBR warning skipped")
+	assert.Contains(t, vr.Warnings[0].ConflictsWith, "table 52")
+}
+
+func TestValidateAllowedIPs_PBRPriorityOverMainRoute(t *testing.T) {
+	sys := &SystemSubnets{
+		Routes: []RouteSubnet{
+			{CIDR: "10.0.0.0/8", Interface: "eth0", Protocol: "static"},
+		},
+		PBRRules: []PBRInfo{
+			{RulePriority: 32501, FwMark: 0x6a0000, FwMask: 0x7f0000, Table: 201},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.5.0.0/16"}, sys)
+	require.Len(t, vr.Warnings, 1)
+	assert.Contains(t, vr.Warnings[0].ConflictsWith, "Traffic Routes")
+}
+
 func TestCollectSystemSubnets_Smoke(t *testing.T) {
 	sys, err := CollectSystemSubnets()
 	require.NoError(t, err)

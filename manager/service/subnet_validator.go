@@ -24,10 +24,23 @@ type RouteSubnet struct {
 // tailscaleRouteTable is Tailscale's policy routing table (ip rule 5270, priority above main).
 const tailscaleRouteTable = 52
 
+const (
+	pbrPriorityMin = 32500
+	pbrPriorityMax = 32766
+)
+
+type PBRInfo struct {
+	RulePriority uint32
+	FwMark       uint32
+	FwMask       uint32
+	Table        uint32
+}
+
 type SystemSubnets struct {
-	Interfaces     []InterfaceSubnet
-	Routes         []RouteSubnet
-	Table52Routes  []RouteSubnet
+	Interfaces    []InterfaceSubnet
+	Routes        []RouteSubnet
+	Table52Routes []RouteSubnet
+	PBRRules      []PBRInfo
 }
 
 type ValidationResult struct {
@@ -118,6 +131,31 @@ func CollectSystemSubnets(excludeIfaces ...string) (*SystemSubnets, error) {
 		}
 	}
 
+	rules, err := conn.Rule.List()
+	if err != nil {
+		slog.Debug("ip rule list failed, PBR detection skipped", "err", err)
+	} else {
+		for _, rule := range rules {
+			prio := rulePriority(rule)
+			if prio < pbrPriorityMin || prio >= pbrPriorityMax {
+				continue
+			}
+			if rule.Attributes == nil || rule.Attributes.FwMark == nil {
+				continue
+			}
+			tbl := ruleTable(rule)
+			if tbl == 0 {
+				continue
+			}
+			sys.PBRRules = append(sys.PBRRules, PBRInfo{
+				RulePriority: prio,
+				FwMark:       *rule.Attributes.FwMark,
+				FwMask:       derefUint32(rule.Attributes.FwMask),
+				Table:        tbl,
+			})
+		}
+	}
+
 	return sys, nil
 }
 
@@ -181,6 +219,21 @@ func ValidateAllowedIPs(cidrs []string, sys *SystemSubnets) *ValidationResult {
 			continue
 		}
 
+		if len(sys.PBRRules) > 0 {
+			result.Warnings = append(result.Warnings, SubnetConflict{
+				CIDR:          cidr,
+				ConflictsWith: "Traffic Routes (PBR)",
+				Severity:      "warn",
+				Message: fmt.Sprintf(
+					"Traffic Routes are configured on this device (ip rules at priority 32500+). "+
+						"S2S route %s in main table (priority 32000) takes precedence over Traffic Routes (priority 32500+). "+
+						"If any Traffic Route targets destinations overlapping with %s, it will stop working.",
+					cidr, cidr,
+				),
+			})
+			continue
+		}
+
 		for _, rtSub := range sys.Routes {
 			_, rtNet, err := net.ParseCIDR(rtSub.CIDR)
 			if err != nil {
@@ -234,4 +287,28 @@ func rtProtocolName(proto uint8) string {
 	default:
 		return fmt.Sprintf("proto-%d", proto)
 	}
+}
+
+func rulePriority(r rtnetlink.RuleMessage) uint32 {
+	if r.Attributes != nil && r.Attributes.Priority != nil {
+		return *r.Attributes.Priority
+	}
+	return 0
+}
+
+func ruleTable(r rtnetlink.RuleMessage) uint32 {
+	if r.Attributes != nil && r.Attributes.Table != nil {
+		return *r.Attributes.Table
+	}
+	if r.Table != 0 {
+		return uint32(r.Table)
+	}
+	return 0
+}
+
+func derefUint32(p *uint32) uint32 {
+	if p != nil {
+		return *p
+	}
+	return 0
 }
