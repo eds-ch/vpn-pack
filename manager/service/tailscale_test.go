@@ -129,7 +129,7 @@ func TestActivate_NeedsLogin(t *testing.T) {
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
 				editCalled = true
 				assert.True(t, mp.CorpDNSSet)
-				assert.False(t, mp.Prefs.CorpDNS)
+				assert.False(t, mp.CorpDNS)
 				return &ipn.Prefs{}, nil
 			},
 			startLoginInteractiveFn: func(ctx context.Context) error {
@@ -155,7 +155,7 @@ func TestActivate_AlreadyAuthenticated(t *testing.T) {
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
 				editCalled = true
 				assert.True(t, mp.WantRunningSet)
-				assert.True(t, mp.Prefs.WantRunning)
+				assert.True(t, mp.WantRunning)
 				return &ipn.Prefs{}, nil
 			},
 		}
@@ -194,7 +194,7 @@ func TestDeactivate_Success(t *testing.T) {
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
 				editCalled = true
 				assert.True(t, mp.WantRunningSet)
-				assert.False(t, mp.Prefs.WantRunning)
+				assert.False(t, mp.WantRunning)
 				return &ipn.Prefs{}, nil
 			},
 		}

@@ -207,8 +207,8 @@ func TestSetRoutes_Success(t *testing.T) {
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
 				editCalled = true
 				assert.True(t, mp.AdvertiseRoutesSet)
-				assert.Len(t, mp.Prefs.AdvertiseRoutes, 1)
-				assert.Equal(t, "10.0.0.0/24", mp.Prefs.AdvertiseRoutes[0].String())
+				assert.Len(t, mp.AdvertiseRoutes, 1)
+				assert.Equal(t, "10.0.0.0/24", mp.AdvertiseRoutes[0].String())
 				return &ipn.Prefs{}, nil
 			},
 		}
@@ -241,7 +241,7 @@ func TestSetRoutes_ExitNodeWithVPNClients(t *testing.T) {
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
 				hasV4 := false
 				hasV6 := false
-				for _, p := range mp.Prefs.AdvertiseRoutes {
+				for _, p := range mp.AdvertiseRoutes {
 					if p.String() == "0.0.0.0/0" {
 						hasV4 = true
 					}
@@ -338,7 +338,7 @@ func TestActivateWithKey_Success(t *testing.T) {
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
 				editCalled = true
 				assert.True(t, mp.CorpDNSSet)
-				assert.False(t, mp.Prefs.CorpDNS)
+				assert.False(t, mp.CorpDNS)
 				return &ipn.Prefs{}, nil
 			},
 			startFn: func(ctx context.Context, opts ipn.Options) error {
@@ -599,7 +599,7 @@ func TestSetRoutes_OffCleansExitRoutes(t *testing.T) {
 	svc := newTestRoutingService(func(s *RoutingService) {
 		s.ts = &mockRoutingTailscale{
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-				advertisedRoutes = mp.Prefs.AdvertiseRoutes
+				advertisedRoutes = mp.AdvertiseRoutes
 				return &ipn.Prefs{}, nil
 			},
 		}

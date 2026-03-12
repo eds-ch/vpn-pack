@@ -264,7 +264,7 @@ func TestManifestDNSPolicy(t *testing.T) {
 	_, ok := m.GetDNSPolicy("test")
 	assert.False(t, ok)
 
-	m.SetDNSPolicy("test", "pol-123", "example.ts.net", "100.100.100.100")
+	require.NoError(t, m.SetDNSPolicy("test", "pol-123", "example.ts.net", "100.100.100.100"))
 	assert.True(t, m.HasDNSPolicy("test"))
 	entry, ok := m.GetDNSPolicy("test")
 	require.True(t, ok)
@@ -272,11 +272,11 @@ func TestManifestDNSPolicy(t *testing.T) {
 	assert.Equal(t, "example.ts.net", entry.Domain)
 	assert.Equal(t, "100.100.100.100", entry.IPAddress)
 
-	m.RemoveDNSPolicy("test")
+	require.NoError(t, m.RemoveDNSPolicy("test"))
 	assert.False(t, m.HasDNSPolicy("test"))
 
-	m.SetDNSPolicy("test2", "pol-456", "other.ts.net", "100.100.100.100")
-	m.ResetIntegration()
+	require.NoError(t, m.SetDNSPolicy("test2", "pol-456", "other.ts.net", "100.100.100.100"))
+	require.NoError(t, m.ResetIntegration())
 	assert.False(t, m.HasDNSPolicy("test2"))
 }
 

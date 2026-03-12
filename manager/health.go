@@ -217,8 +217,8 @@ func retryInterval(count int) time.Duration {
 		5 * time.Minute,
 		10 * time.Minute,
 	}
-	if count >= len(intervals) {
+	if count >= len(intervals) { //nolint:gosec // count is bounded by len check
 		return intervals[len(intervals)-1]
 	}
-	return intervals[count]
+	return intervals[count] //nolint:gosec // count is bounds-checked above
 }
