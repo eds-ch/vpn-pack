@@ -173,6 +173,89 @@ func TestValidateAllowedIPs_BlockedSkipsWarnCheck(t *testing.T) {
 	assert.Empty(t, vr.Warnings, "blocked CIDR should not also produce a warning")
 }
 
+func TestValidateAllowedIPs_Table52Conflict(t *testing.T) {
+	sys := &SystemSubnets{
+		Table52Routes: []RouteSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "tailscale0", Protocol: "proto-2"},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	assert.Empty(t, vr.Blocked)
+	require.Len(t, vr.Warnings, 1)
+	assert.Equal(t, "10.20.0.0/24", vr.Warnings[0].CIDR)
+	assert.Contains(t, vr.Warnings[0].ConflictsWith, "table 52")
+	assert.Contains(t, vr.Warnings[0].Message, "priority 5270")
+	assert.Contains(t, vr.Warnings[0].Message, "overrides")
+	assert.Equal(t, "warn", vr.Warnings[0].Severity)
+}
+
+func TestValidateAllowedIPs_Table52SupersetConflict(t *testing.T) {
+	sys := &SystemSubnets{
+		Table52Routes: []RouteSubnet{
+			{CIDR: "10.0.0.0/8", Interface: "tailscale0", Gateway: "100.100.100.100"},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	require.Len(t, vr.Warnings, 1)
+	assert.Contains(t, vr.Warnings[0].ConflictsWith, "table 52 via 100.100.100.100")
+	assert.Contains(t, vr.Warnings[0].Message, "10.0.0.0/8")
+}
+
+func TestValidateAllowedIPs_Table52PriorityOverMainRoute(t *testing.T) {
+	sys := &SystemSubnets{
+		Table52Routes: []RouteSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "tailscale0"},
+		},
+		Routes: []RouteSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "eth0", Protocol: "static"},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	require.Len(t, vr.Warnings, 1, "table 52 warning takes precedence, main table warning skipped")
+	assert.Contains(t, vr.Warnings[0].ConflictsWith, "table 52")
+}
+
+func TestValidateAllowedIPs_BlockedSkipsTable52(t *testing.T) {
+	sys := &SystemSubnets{
+		Interfaces: []InterfaceSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "br0"},
+		},
+		Table52Routes: []RouteSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "tailscale0"},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.20.0.0/24"}, sys)
+	assert.Len(t, vr.Blocked, 1)
+	assert.Empty(t, vr.Warnings, "blocked CIDR should not produce table 52 warning")
+}
+
+func TestValidateAllowedIPs_NoTable52NoRegression(t *testing.T) {
+	sys := &SystemSubnets{
+		Routes: []RouteSubnet{
+			{CIDR: "10.0.0.0/8", Interface: "eth0", Protocol: "static"},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"10.5.0.0/16"}, sys)
+	require.Len(t, vr.Warnings, 1)
+	assert.Contains(t, vr.Warnings[0].Message, "Overlaps with existing route")
+}
+
+func TestValidateAllowedIPs_Table52Disjoint(t *testing.T) {
+	sys := &SystemSubnets{
+		Table52Routes: []RouteSubnet{
+			{CIDR: "10.20.0.0/24", Interface: "tailscale0"},
+		},
+	}
+
+	vr := ValidateAllowedIPs([]string{"172.16.0.0/16"}, sys)
+	assert.True(t, vr.IsClean())
+}
+
 func TestValidationResult_Helpers(t *testing.T) {
 	t.Run("empty result", func(t *testing.T) {
 		vr := &ValidationResult{}

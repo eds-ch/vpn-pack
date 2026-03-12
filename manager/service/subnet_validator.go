@@ -21,9 +21,13 @@ type RouteSubnet struct {
 	Protocol  string
 }
 
+// tailscaleRouteTable is Tailscale's policy routing table (ip rule 5270, priority above main).
+const tailscaleRouteTable = 52
+
 type SystemSubnets struct {
-	Interfaces []InterfaceSubnet
-	Routes     []RouteSubnet
+	Interfaces     []InterfaceSubnet
+	Routes         []RouteSubnet
+	Table52Routes  []RouteSubnet
 }
 
 type ValidationResult struct {
@@ -86,10 +90,10 @@ func CollectSystemSubnets(excludeIfaces ...string) (*SystemSubnets, error) {
 		return sys, nil
 	}
 	for _, rt := range routes {
-		if rt.Table != unix.RT_TABLE_MAIN {
+		if rt.Attributes.Dst == nil {
 			continue
 		}
-		if rt.Attributes.Dst == nil {
+		if rt.Table != unix.RT_TABLE_MAIN && rt.Table != tailscaleRouteTable {
 			continue
 		}
 		ifName := ifIndexToName(rt.Attributes.OutIface)
@@ -101,12 +105,17 @@ func CollectSystemSubnets(excludeIfaces ...string) (*SystemSubnets, error) {
 		if rt.Attributes.Gateway != nil {
 			gateway = rt.Attributes.Gateway.String()
 		}
-		sys.Routes = append(sys.Routes, RouteSubnet{
+		rs := RouteSubnet{
 			CIDR:      cidr,
 			Interface: ifName,
 			Gateway:   gateway,
 			Protocol:  rtProtocolName(rt.Protocol),
-		})
+		}
+		if rt.Table == tailscaleRouteTable {
+			sys.Table52Routes = append(sys.Table52Routes, rs)
+		} else {
+			sys.Routes = append(sys.Routes, rs)
+		}
 	}
 
 	return sys, nil
@@ -121,7 +130,7 @@ func ValidateAllowedIPs(cidrs []string, sys *SystemSubnets) *ValidationResult {
 			continue
 		}
 
-		blocked := false
+		matched := false
 		for _, ifSub := range sys.Interfaces {
 			_, ifNet, err := net.ParseCIDR(ifSub.CIDR)
 			if err != nil {
@@ -135,11 +144,40 @@ func ValidateAllowedIPs(cidrs []string, sys *SystemSubnets) *ValidationResult {
 					Severity:      "block",
 					Message:       fmt.Sprintf("%s overlaps with %s (%s)", cidr, ifSub.CIDR, ifSub.Interface),
 				})
-				blocked = true
+				matched = true
 				break
 			}
 		}
-		if blocked {
+		if matched {
+			continue
+		}
+
+		for _, rtSub := range sys.Table52Routes {
+			_, rtNet, err := net.ParseCIDR(rtSub.CIDR)
+			if err != nil {
+				continue
+			}
+			if subnetsOverlap(candidateNet, rtNet) {
+				via := rtSub.Interface
+				if rtSub.Gateway != "" {
+					via = rtSub.Gateway
+				}
+				result.Warnings = append(result.Warnings, SubnetConflict{
+					CIDR:          cidr,
+					ConflictsWith: fmt.Sprintf("%s (table 52 via %s)", rtSub.CIDR, via),
+					Interface:     rtSub.Interface,
+					Severity:      "warn",
+					Message: fmt.Sprintf(
+						"Tailscale route %s in table 52 (priority 5270) overrides S2S routes in main table (priority 32000). "+
+							"Traffic will go through Tailscale instead of this tunnel.",
+						rtSub.CIDR,
+					),
+				})
+				matched = true
+				break
+			}
+		}
+		if matched {
 			continue
 		}
 
