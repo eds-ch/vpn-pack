@@ -60,6 +60,7 @@ type Server struct {
 	integration    *service.IntegrationService
 	routing        *service.RoutingService
 	exitSvc        *service.ExitNodeService
+	remoteExitSvc  *service.RemoteExitService
 	tailscaleSvc   *service.TailscaleService
 	wgS2sSvc       *service.WgS2sService
 	routingHealth  *service.RoutingHealthChecker
@@ -114,9 +115,10 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		fileKeyStore{},
 	)
 	s.exitSvc = service.NewExitNodeService(opts.Manifest, nil)
+	s.remoteExitSvc = service.NewRemoteExitService(opts.Tailscale, s.exitSvc, opts.Manifest)
 	s.routing = service.NewRoutingService(
 		opts.Tailscale, opts.Firewall, opts.Integration, opts.Manifest,
-		localSubnetProvider, s.exitSvc,
+		localSubnetProvider,
 	)
 	s.tailscaleSvc = service.NewTailscaleService(opts.Tailscale, opts.Firewall)
 
@@ -179,6 +181,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/integration/api-key", s.handleSetIntegrationKey)
 	mux.HandleFunc("DELETE /api/integration/api-key", s.handleDeleteIntegrationKey)
 	mux.HandleFunc("POST /api/integration/test", s.handleTestIntegrationKey)
+
+	mux.HandleFunc("GET /api/exit-node", s.handleGetRemoteExit)
+	mux.HandleFunc("POST /api/exit-node", s.handleEnableRemoteExit)
+	mux.HandleFunc("DELETE /api/exit-node", s.handleDisableRemoteExit)
 
 	mux.HandleFunc("GET /api/wg-s2s/tunnels", s.handleWgS2sListTunnels)
 	mux.HandleFunc("POST /api/wg-s2s/tunnels", s.handleWgS2sCreateTunnel)

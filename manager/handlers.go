@@ -321,6 +321,36 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"lines": entries})
 }
 
+func (s *Server) handleGetRemoteExit(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.remoteExitSvc.GetAvailable(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleEnableRemoteExit(w http.ResponseWriter, r *http.Request) {
+	var req service.EnableRemoteExitRequest
+	if err := readJSON(w, r, &req); err != nil {
+		return
+	}
+	result, err := s.remoteExitSvc.Enable(r.Context(), &req)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleDisableRemoteExit(w http.ResponseWriter, r *http.Request) {
+	if err := s.remoteExitSvc.Disable(r.Context()); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeOK(w)
+}
+
 func (s *Server) handleWgS2sListTunnels(w http.ResponseWriter, r *http.Request) {
 	if !s.wgS2sSvc.Available() {
 		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")

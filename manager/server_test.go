@@ -96,7 +96,8 @@ func newTestServer(opts ...func(*Server)) *Server {
 	)
 	s.diagnostics = service.NewDiagnosticsService(s.ts, s.fw, nil)
 	s.exitSvc = service.NewExitNodeService(s.manifest, nil)
-	s.routing = service.NewRoutingService(s.ts, s.fw, s.ic, s.manifest, nil, s.exitSvc)
+	s.remoteExitSvc = service.NewRemoteExitService(s.ts, s.exitSvc, s.manifest)
+	s.routing = service.NewRoutingService(s.ts, s.fw, s.ic, s.manifest, nil)
 
 	var wgFw service.WgS2sFirewall
 	if s.fw != nil {

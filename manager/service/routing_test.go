@@ -3,12 +3,10 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/netip"
 	"testing"
 	"time"
 	"unifi-tailscale/manager/config"
-	"unifi-tailscale/manager/domain"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,7 +85,6 @@ func (m *mockRoutingIntegration) HasAPIKey() bool {
 
 type mockRoutingManifest struct {
 	getTailscaleChainPrefixFn func() string
-	exitPolicy                domain.ExitNodePolicy
 }
 
 func (m *mockRoutingManifest) GetTailscaleChainPrefix() string {
@@ -95,10 +92,6 @@ func (m *mockRoutingManifest) GetTailscaleChainPrefix() string {
 		return m.getTailscaleChainPrefixFn()
 	}
 	return "TS"
-}
-
-func (m *mockRoutingManifest) GetExitNodePolicy() domain.ExitNodePolicy {
-	return m.exitPolicy
 }
 
 // --- Factory ---
@@ -258,7 +251,6 @@ func TestSetRoutes_ExitNodeWithVPNClients(t *testing.T) {
 
 	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
 		ExitNode: true,
-		Confirm:  true,
 	}, []string{"wgclt1", "wgclt2"})
 	require.NoError(t, err)
 	assert.True(t, result.OK)
@@ -271,43 +263,51 @@ func TestSetRoutes_ExitNodeNoVPNClients(t *testing.T) {
 
 	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
 		ExitNode: true,
-		Confirm:  true,
 	}, nil)
 	require.NoError(t, err)
+	assert.True(t, result.OK)
 	assert.Empty(t, result.Warning)
 }
 
-func TestSetRoutes_ExitNodeRequiresConfirm(t *testing.T) {
-	svc := newTestRoutingService()
-
-	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
-		ExitNode: true,
-	}, nil)
-	require.NoError(t, err)
-	assert.False(t, result.OK)
-	assert.True(t, result.ConfirmRequired)
-	assert.Contains(t, result.Message, "ALL")
-}
-
-func TestSetRoutes_ExitNodeWithConfirm(t *testing.T) {
-	editCalled := false
+func TestSetRoutes_ExitNodeAddsDefaultRoutes(t *testing.T) {
+	var advertisedRoutes []netip.Prefix
 	svc := newTestRoutingService(func(s *RoutingService) {
 		s.ts = &mockRoutingTailscale{
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-				editCalled = true
+				advertisedRoutes = mp.AdvertiseRoutes
 				return &ipn.Prefs{}, nil
 			},
 		}
 	})
 
 	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		Routes:   []string{"10.0.0.0/24"},
 		ExitNode: true,
-		Confirm:  true,
 	}, nil)
 	require.NoError(t, err)
 	assert.True(t, result.OK)
-	assert.False(t, result.ConfirmRequired)
-	assert.True(t, editCalled)
+	assert.Len(t, advertisedRoutes, 3) // 10.0.0.0/24 + 0.0.0.0/0 + ::/0
+}
+
+func TestSetRoutes_OffCleansExitRoutes(t *testing.T) {
+	var advertisedRoutes []netip.Prefix
+	svc := newTestRoutingService(func(s *RoutingService) {
+		s.ts = &mockRoutingTailscale{
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				advertisedRoutes = mp.AdvertiseRoutes
+				return &ipn.Prefs{}, nil
+			},
+		}
+	})
+
+	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
+		Routes:   []string{"10.0.0.0/24"},
+		ExitNode: false,
+	}, nil)
+	require.NoError(t, err)
+	assert.True(t, result.OK)
+	assert.Len(t, advertisedRoutes, 1)
+	assert.Equal(t, "10.0.0.0/24", advertisedRoutes[0].String())
 }
 
 func TestSetRoutes_EditPrefsError(t *testing.T) {
@@ -555,128 +555,4 @@ func TestBuildRouteStatuses_Empty(t *testing.T) {
 	result, isExit := BuildRouteStatuses(nil, nil)
 	assert.Empty(t, result)
 	assert.False(t, isExit)
-}
-
-// --- Exit node mode tests ---
-
-func TestSetRoutes_SelectiveNoConfirmRequired(t *testing.T) {
-	svc := newTestRoutingService()
-
-	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
-		ExitNode:     true,
-		ExitNodeMode: "selective",
-		ExitClients:  []ExitNodeClient{{IP: "192.168.1.100"}},
-	}, nil)
-	require.NoError(t, err)
-	assert.True(t, result.OK)
-	assert.False(t, result.ConfirmRequired)
-}
-
-func TestSetRoutes_AllModeRequiresConfirm(t *testing.T) {
-	svc := newTestRoutingService()
-
-	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
-		ExitNode:     true,
-		ExitNodeMode: "all",
-	}, nil)
-	require.NoError(t, err)
-	assert.True(t, result.ConfirmRequired)
-}
-
-func TestSetRoutes_BackwardCompat_EmptyModeIsAll(t *testing.T) {
-	svc := newTestRoutingService()
-
-	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
-		ExitNode: true,
-		// no ExitNodeMode — backward compat
-	}, nil)
-	require.NoError(t, err)
-	assert.True(t, result.ConfirmRequired)
-}
-
-func TestSetRoutes_OffCleansExitRoutes(t *testing.T) {
-	var advertisedRoutes []netip.Prefix
-	svc := newTestRoutingService(func(s *RoutingService) {
-		s.ts = &mockRoutingTailscale{
-			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-				advertisedRoutes = mp.AdvertiseRoutes
-				return &ipn.Prefs{}, nil
-			},
-		}
-	})
-
-	result, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
-		Routes:   []string{"10.0.0.0/24"},
-		ExitNode: false,
-	}, nil)
-	require.NoError(t, err)
-	assert.True(t, result.OK)
-	assert.Len(t, advertisedRoutes, 1)
-	assert.Equal(t, "10.0.0.0/24", advertisedRoutes[0].String())
-}
-
-func TestSetRoutes_SelectiveInvalidClient(t *testing.T) {
-	svc := newTestRoutingService()
-
-	_, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
-		ExitNode:     true,
-		ExitNodeMode: "selective",
-		ExitClients:  []ExitNodeClient{{IP: "not-valid"}},
-	}, nil)
-	require.Error(t, err)
-}
-
-func TestSetRoutes_ExitSvcApplyError(t *testing.T) {
-	editCalled := false
-	failRunner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return nil, fmt.Errorf("ip rule add failed")
-	}
-	svc := newTestRoutingService(func(s *RoutingService) {
-		s.ts = &mockRoutingTailscale{
-			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-				editCalled = true
-				return &ipn.Prefs{}, nil
-			},
-		}
-		s.exitSvc = NewExitNodeService(&mockExitManifest{}, failRunner)
-	})
-
-	_, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{
-		ExitNode:     true,
-		ExitNodeMode: "selective",
-		ExitClients:  []ExitNodeClient{{IP: "192.168.1.100"}},
-	}, nil)
-	require.Error(t, err)
-	assert.True(t, editCalled, "EditPrefs should have been called before exitSvc.Apply")
-	var se *Error
-	require.ErrorAs(t, err, &se)
-	assert.Equal(t, ErrInternal, se.Kind)
-}
-
-func TestGetRoutes_IncludesExitPolicy(t *testing.T) {
-	svc := newTestRoutingService(func(s *RoutingService) {
-		s.ts = &mockRoutingTailscale{
-			getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
-				return &ipn.Prefs{
-					AdvertiseRoutes: []netip.Prefix{
-						netip.MustParsePrefix("0.0.0.0/0"),
-						netip.MustParsePrefix("::/0"),
-					},
-				}, nil
-			},
-		}
-		s.manifest = &mockRoutingManifest{
-			exitPolicy: domain.ExitNodePolicy{
-				Mode:    domain.ExitNodeSelective,
-				Clients: []domain.ExitNodeClient{{IP: "10.0.0.1", Label: "test"}},
-			},
-		}
-	})
-
-	resp, err := svc.GetRoutes(context.Background())
-	require.NoError(t, err)
-	assert.True(t, resp.ExitNode)
-	assert.Equal(t, "selective", resp.ExitNodeMode)
-	require.Len(t, resp.ExitClients, 1)
-	assert.Equal(t, "10.0.0.1", resp.ExitClients[0].IP)
 }
