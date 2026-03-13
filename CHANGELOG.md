@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0-beta.13] - 2026-03-13
+
+### Fixed
+- **TKA log spam**: added `--statedir` to tailscaled service — eliminates repeated "cannot fetch existing TKA state; no state directory for network-lock" messages every ~30s
+
 ## [1.4.0-beta.4] - 2026-03-13
 
 ### Fixed
