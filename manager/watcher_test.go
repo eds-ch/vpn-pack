@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -218,11 +219,16 @@ func TestBuildUsingExitNode_EmptyExitNodeID(t *testing.T) {
 	assert.Nil(t, result, "empty exit node ID means no active exit node")
 }
 
-func TestRestoreExitNodeRules_NilRemoteExitNode_CleansUp(t *testing.T) {
-	var cleanupCalled atomic.Bool
+func TestRestoreExitNodeRules_NilRemoteExitNode_NoFlush(t *testing.T) {
+	var conntrackFlushed atomic.Bool
 
 	runner := func(_ context.Context, name string, args ...string) ([]byte, error) {
-		cleanupCalled.Store(true)
+		if name == "conntrack" {
+			conntrackFlushed.Store(true)
+		}
+		if name == "iptables" || name == "ip6tables" {
+			return []byte(""), fmt.Errorf("rule not found")
+		}
 		return []byte(""), nil
 	}
 
@@ -236,7 +242,7 @@ func TestRestoreExitNodeRules_NilRemoteExitNode_CleansUp(t *testing.T) {
 	s.exitSvc = service.NewExitNodeService(manifest, runner)
 
 	s.restoreExitNodeRules(context.Background())
-	assert.True(t, cleanupCalled.Load(), "should call Cleanup when no remote exit node configured")
+	assert.False(t, conntrackFlushed.Load(), "should not flush conntrack when no rules to clean up")
 }
 
 func TestRestoreExitNodeRules_ActiveRemote_Reconciles(t *testing.T) {

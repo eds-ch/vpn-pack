@@ -604,3 +604,36 @@ func TestApplyAllNoBridgesError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no LAN bridge")
 }
+
+func TestReconcileOffCleansStaleMasquerade(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
+
+	// Apply "all" to create rules + masquerade
+	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	assert.Equal(t, 2, state.masqCount())
+
+	// Simulate partial cleanup: rules removed but masquerade left behind
+	state.mu.Lock()
+	state.rules = map[string][]string{"-4": {}, "-6": {}}
+	state.mu.Unlock()
+
+	flushBefore := state.conntrackFlushCount()
+	err := svc.Reconcile(context.Background(), domain.ExitNodePolicy{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, state.masqCount(), "stale masquerade should be cleaned")
+	assert.Greater(t, state.conntrackFlushCount(), flushBefore, "should flush conntrack when cleaning stale masquerade")
+}
+
+func TestReconcileOffNoopWhenClean(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	flushBefore := state.conntrackFlushCount()
+	err := svc.Reconcile(context.Background(), domain.ExitNodePolicy{})
+	require.NoError(t, err)
+	assert.Equal(t, flushBefore, state.conntrackFlushCount(), "should not flush conntrack when already clean")
+}

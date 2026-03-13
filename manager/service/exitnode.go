@@ -181,7 +181,7 @@ func (s *ExitNodeService) Reconcile(ctx context.Context, policy domain.ExitNodeP
 	}
 
 	needsMasq := len(desired) > 0
-	if rulesMatch(current, desired) && (!needsMasq || s.hasMasquerade(ctx)) {
+	if rulesMatch(current, desired) && needsMasq == s.hasMasquerade(ctx) {
 		return nil
 	}
 

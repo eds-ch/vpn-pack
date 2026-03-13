@@ -286,14 +286,10 @@ func (s *Server) restoreExitNodeRules(ctx context.Context) {
 	}
 
 	rem := s.manifest.GetRemoteExitNode()
-	if rem == nil || rem.Mode == domain.ExitNodeOff {
-		if err := s.exitSvc.Cleanup(ctx); err != nil {
-			slog.Warn("exit node stale rules cleanup failed", "err", err)
-		}
-		return
+	var policy domain.ExitNodePolicy
+	if rem != nil && rem.Mode != domain.ExitNodeOff {
+		policy = domain.ExitNodePolicy{Mode: rem.Mode, Clients: rem.Clients}
 	}
-
-	policy := domain.ExitNodePolicy{Mode: rem.Mode, Clients: rem.Clients}
 	if err := s.exitSvc.Reconcile(ctx, policy); err != nil {
 		slog.Warn("exit node rule restore failed", "err", err)
 	}
