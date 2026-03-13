@@ -47,6 +47,7 @@ export interface RemoteExitNodeStatus {
     hostName: string;
     online: boolean;
     mode: string;
+    clients?: ExitNodeClient[];
 }
 
 export interface ExitNodePeer {

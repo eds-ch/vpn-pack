@@ -344,6 +344,7 @@ func BuildRemoteExitNodeStatus(st *ipnstate.Status, rem *domain.RemoteExitNode) 
 		HostName: hostName,
 		Online:   online,
 		Mode:     mode,
+		Clients:  rem.Clients,
 	}
 }
 

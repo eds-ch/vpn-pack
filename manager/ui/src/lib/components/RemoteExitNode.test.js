@@ -1,202 +1,190 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 
-vi.mock('../api.js', () => ({
-    getRemoteExitNode: vi.fn(),
-    enableRemoteExitNode: vi.fn(),
-    disableRemoteExitNode: vi.fn(),
-}));
-
-import { getRemoteExitNode, enableRemoteExitNode, disableRemoteExitNode } from '../api.js';
 import RemoteExitNode from './RemoteExitNode.svelte';
 
 const onlinePeer = { id: 'stable-1', hostName: 'exit-server', dnsName: 'exit-server.ts.net.', online: true, os: 'linux', active: false };
 const offlinePeer = { id: 'stable-2', hostName: 'backup-exit', dnsName: 'backup-exit.ts.net.', online: false, os: 'linux', active: false };
 
 describe('RemoteExitNode', () => {
+    let ontoggle, onpeerchange, onmodechange, onclientschange;
+
     beforeEach(() => {
-        vi.clearAllMocks();
+        ontoggle = vi.fn();
+        onpeerchange = vi.fn();
+        onmodechange = vi.fn();
+        onclientschange = vi.fn();
     });
 
-    it('renders title and description', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [], current: null });
+    function renderWith(props = {}) {
+        return render(RemoteExitNode, {
+            peers: [],
+            peersLoading: false,
+            current: null,
+            enabled: false,
+            selectedPeerId: '',
+            mode: 'all',
+            clients: [],
+            ontoggle,
+            onpeerchange,
+            onmodechange,
+            onclientschange,
+            ...props,
+        });
+    }
 
-        render(RemoteExitNode);
-
+    it('renders title and description', () => {
+        renderWith();
         expect(screen.getByText('Use Remote Exit Node')).toBeInTheDocument();
-        expect(screen.getByText(/Route this router.*internet traffic/)).toBeInTheDocument();
+        expect(screen.getByText(/Route LAN clients/)).toBeInTheDocument();
     });
 
-    it('shows "no peers" message when list is empty', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [], current: null });
-
-        render(RemoteExitNode);
-
-        await waitFor(() => {
-            expect(screen.getByText(/No exit node peers available/)).toBeInTheDocument();
-        });
+    it('shows toggle in off state by default', () => {
+        renderWith();
+        const checkbox = screen.getByRole('checkbox');
+        expect(checkbox.checked).toBe(false);
     });
 
-    it('shows peer selector with online/offline groups', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [onlinePeer, offlinePeer], current: null });
+    it('does not show form when disabled', () => {
+        renderWith({ peers: [onlinePeer] });
+        expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    });
 
-        render(RemoteExitNode);
+    it('calls ontoggle when toggle is clicked', async () => {
+        renderWith();
+        await fireEvent.click(screen.getByRole('checkbox'));
+        expect(ontoggle).toHaveBeenCalledWith(true);
+    });
 
-        await waitFor(() => {
-            expect(screen.getByText(/Select a peer/)).toBeInTheDocument();
-        });
+    it('shows "no peers" message when enabled with empty list', () => {
+        renderWith({ enabled: true, peers: [] });
+        expect(screen.getByText(/No exit node peers available/)).toBeInTheDocument();
+    });
 
+    it('shows loading skeleton when peersLoading', () => {
+        const { container } = renderWith({ enabled: true, peersLoading: true });
+        expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+    });
+
+    it('shows peer selector with online/offline groups', () => {
+        renderWith({ enabled: true, peers: [onlinePeer, offlinePeer] });
+
+        expect(screen.getByText(/Select a peer/)).toBeInTheDocument();
         const select = screen.getByRole('combobox');
         const options = select.querySelectorAll('option');
-        expect(options.length).toBeGreaterThanOrEqual(3); // placeholder + 2 peers
+        expect(options.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('shows mode selector after peer is selected', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [onlinePeer], current: null });
-
-        render(RemoteExitNode);
-
-        await waitFor(() => {
-            expect(screen.getByRole('combobox')).toBeInTheDocument();
-        });
+    it('calls onpeerchange when peer is selected', async () => {
+        renderWith({ enabled: true, peers: [onlinePeer] });
 
         const select = screen.getByRole('combobox');
         await fireEvent.change(select, { target: { value: 'stable-1' } });
+
+        expect(onpeerchange).toHaveBeenCalledWith('stable-1');
+    });
+
+    it('shows mode selector when peer is selected', () => {
+        renderWith({ enabled: true, peers: [onlinePeer], selectedPeerId: 'stable-1' });
 
         expect(screen.getByText('All traffic')).toBeInTheDocument();
         expect(screen.getByText('Selected clients')).toBeInTheDocument();
     });
 
-    it('sends enable request with confirmation gate for mode "all"', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [onlinePeer], current: null });
-        enableRemoteExitNode.mockResolvedValueOnce({
-            confirmRequired: true,
-            message: 'All internet traffic from ALL clients will be routed through exit-server.',
-        });
+    it('calls onmodechange when mode button is clicked', async () => {
+        renderWith({ enabled: true, peers: [onlinePeer], selectedPeerId: 'stable-1' });
 
-        render(RemoteExitNode);
-
-        await waitFor(() => {
-            expect(screen.getByRole('combobox')).toBeInTheDocument();
-        });
-
-        const select = screen.getByRole('combobox');
-        await fireEvent.change(select, { target: { value: 'stable-1' } });
-
-        const enableBtn = screen.getByRole('button', { name: 'Enable' });
-        await fireEvent.click(enableBtn);
-
-        expect(enableRemoteExitNode).toHaveBeenCalledWith({
-            peerId: 'stable-1',
-            mode: 'all',
-            clients: undefined,
-            confirm: false,
-        });
-
-        await waitFor(() => {
-            expect(screen.getByText(/ALL clients/)).toBeInTheDocument();
-        });
-
-        expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+        await fireEvent.click(screen.getByText('Selected clients'));
+        expect(onmodechange).toHaveBeenCalledWith('selective');
     });
 
-    it('sends confirmed request after user confirms', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [onlinePeer], current: null });
-        enableRemoteExitNode
-            .mockResolvedValueOnce({
-                confirmRequired: true,
-                message: 'All traffic will be routed.',
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                message: 'Traffic routed through exit-server.',
-            });
-
-        render(RemoteExitNode);
-
-        await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
-
-        await fireEvent.change(screen.getByRole('combobox'), { target: { value: 'stable-1' } });
-        await fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
-
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument());
-
-        await fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
-
-        expect(enableRemoteExitNode).toHaveBeenCalledTimes(2);
-        expect(enableRemoteExitNode).toHaveBeenLastCalledWith({
-            peerId: 'stable-1',
-            mode: 'all',
-            clients: undefined,
-            confirm: true,
+    it('shows client input in selective mode', () => {
+        renderWith({
+            enabled: true,
+            peers: [onlinePeer],
+            selectedPeerId: 'stable-1',
+            mode: 'selective',
         });
+
+        expect(screen.getByPlaceholderText(/192\.168/)).toBeInTheDocument();
     });
 
-    it('cancels confirmation and resets state', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [onlinePeer], current: null });
-        enableRemoteExitNode.mockResolvedValueOnce({
-            confirmRequired: true,
-            message: 'Warning text.',
+    it('calls onclientschange when adding a client', async () => {
+        renderWith({
+            enabled: true,
+            peers: [onlinePeer],
+            selectedPeerId: 'stable-1',
+            mode: 'selective',
         });
 
-        render(RemoteExitNode);
+        const ipInput = screen.getByPlaceholderText(/192\.168/);
+        await fireEvent.input(ipInput, { target: { value: '10.0.0.1' } });
+        await fireEvent.click(screen.getByText('Add'));
 
-        await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
-
-        await fireEvent.change(screen.getByRole('combobox'), { target: { value: 'stable-1' } });
-        await fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
-
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument());
-        await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-        expect(screen.queryByText('Warning text.')).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Enable' })).toBeInTheDocument();
+        expect(onclientschange).toHaveBeenCalledWith([{ ip: '10.0.0.1', label: undefined }]);
     });
 
-    it('shows active exit node status with disable button', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [onlinePeer], current: null });
-
-        render(RemoteExitNode, {
-            current: { peerId: 'stable-1', hostName: 'exit-server', online: true, mode: 'all' },
+    it('calls onclientschange when removing a client chip', async () => {
+        renderWith({
+            enabled: true,
+            peers: [onlinePeer],
+            selectedPeerId: 'stable-1',
+            mode: 'selective',
+            clients: [{ ip: '10.0.0.1' }, { ip: '10.0.0.2' }],
         });
 
-        expect(screen.getByText('exit-server')).toBeInTheDocument();
-        expect(screen.getByText('All traffic')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Disable' })).toBeInTheDocument();
+        const removeButtons = screen.getAllByText('×');
+        await fireEvent.click(removeButtons[0]);
+
+        expect(onclientschange).toHaveBeenCalledWith([{ ip: '10.0.0.2' }]);
     });
 
-    it('calls disable API and refreshes on disable', async () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [onlinePeer], current: null });
-        disableRemoteExitNode.mockResolvedValue({ ok: true });
-
-        render(RemoteExitNode, {
-            current: { peerId: 'stable-1', hostName: 'exit-server', online: true, mode: 'all' },
+    it('shows validation error for invalid IP', async () => {
+        renderWith({
+            enabled: true,
+            peers: [onlinePeer],
+            selectedPeerId: 'stable-1',
+            mode: 'selective',
         });
 
-        const disableBtn = screen.getByRole('button', { name: 'Disable' });
-        await fireEvent.click(disableBtn);
+        const ipInput = screen.getByPlaceholderText(/192\.168/);
+        await fireEvent.input(ipInput, { target: { value: 'not-an-ip' } });
+        await fireEvent.click(screen.getByText('Add'));
 
-        expect(disableRemoteExitNode).toHaveBeenCalled();
+        expect(screen.getByText(/Invalid IP or CIDR/)).toBeInTheDocument();
+        expect(onclientschange).not.toHaveBeenCalled();
     });
 
-    it('shows offline warning when current exit node is offline', () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [], current: null });
-
-        render(RemoteExitNode, {
-            current: { peerId: 'stable-1', hostName: 'exit-server', online: false, mode: 'all' },
+    it('shows online status dot when peer is selected', () => {
+        const { container } = renderWith({
+            enabled: true,
+            peers: [onlinePeer],
+            selectedPeerId: 'stable-1',
         });
 
+        expect(container.querySelector('.bg-success')).toBeInTheDocument();
+    });
+
+    it('shows offline status dot and warning when selected peer is offline', () => {
+        const { container } = renderWith({
+            enabled: true,
+            peers: [offlinePeer],
+            selectedPeerId: 'stable-2',
+            current: { peerId: 'stable-2', hostName: 'backup-exit', online: false, mode: 'all' },
+        });
+
+        expect(container.querySelector('.bg-error')).toBeInTheDocument();
         expect(screen.getByText(/Exit node is offline/)).toBeInTheDocument();
     });
 
-    it('shows "Selected clients" label for selective mode', () => {
-        getRemoteExitNode.mockResolvedValue({ peers: [], current: null });
-
-        render(RemoteExitNode, {
-            current: { peerId: 'stable-1', hostName: 'exit-server', online: true, mode: 'selective' },
+    it('shows mode buttons when peer is selected', () => {
+        renderWith({
+            enabled: true,
+            peers: [onlinePeer],
+            selectedPeerId: 'stable-1',
         });
 
+        expect(screen.getByText('All traffic')).toBeInTheDocument();
         expect(screen.getByText('Selected clients')).toBeInTheDocument();
     });
 });

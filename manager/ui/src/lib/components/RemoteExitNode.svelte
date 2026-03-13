@@ -1,106 +1,31 @@
 <script>
-    import Button from './Button.svelte';
+    import Toggle from './Toggle.svelte';
     import { isValidIPOrCIDR } from '../utils.js';
-    import { getRemoteExitNode, enableRemoteExitNode, disableRemoteExitNode } from '../api.js';
-    import { getStatus } from '../stores/tailscale.svelte.js';
 
     let {
+        peers = [],
+        peersLoading = false,
         current = null,
+        enabled = false,
+        selectedPeerId = '',
+        mode = 'all',
+        clients = [],
+        ontoggle,
+        onpeerchange,
+        onmodechange,
+        onclientschange,
     } = $props();
 
     const MAX_EXIT_CLIENTS = 20;
 
-    let peers = $state([]);
-    let loading = $state(false);
-    let disabling = $state(false);
-    let enabling = $state(false);
-
-    let selectedPeerId = $state('');
-    let mode = $state('all');
-    let clients = $state([]);
     let clientIP = $state('');
     let clientLabel = $state('');
     let clientError = $state('');
 
-    let confirmWarning = $state('');
-    let awaitingConfirm = $state(false);
-
-    let isActive = $derived(current != null);
-let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
+    let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
     let onlinePeers = $derived(peers.filter(p => p.online));
     let offlinePeers = $derived(peers.filter(p => !p.online));
-
-    $effect(() => {
-        fetchPeers();
-    });
-
-    async function fetchPeers() {
-        loading = true;
-        const resp = await getRemoteExitNode();
-        loading = false;
-        if (resp) {
-            peers = resp.peers ?? [];
-        }
-    }
-
-    function resetForm() {
-        selectedPeerId = '';
-        mode = 'all';
-        clients = [];
-        awaitingConfirm = false;
-        confirmWarning = '';
-    }
-
-    async function handleEnable() {
-        if (!selectedPeerId) return;
-
-        enabling = true;
-
-        const result = await enableRemoteExitNode({
-            peerId: selectedPeerId,
-            mode,
-            clients: mode === 'selective' ? clients : undefined,
-            confirm: awaitingConfirm,
-        });
-
-        enabling = false;
-
-        if (!result) return;
-
-        if (result.confirmRequired) {
-            confirmWarning = result.message;
-            awaitingConfirm = true;
-            return;
-        }
-
-        if (result.ok) {
-            const selectedPeer = peers.find(p => p.id === selectedPeerId);
-            if (selectedPeer) {
-                getStatus().usingExitNode = {
-                    peerId: selectedPeerId,
-                    hostName: selectedPeer.hostName,
-                    online: selectedPeer.online,
-                    mode,
-                };
-            }
-            resetForm();
-            await fetchPeers();
-        }
-    }
-
-    async function handleDisable() {
-        disabling = true;
-        await disableRemoteExitNode();
-        disabling = false;
-        getStatus().usingExitNode = null;
-        resetForm();
-        await fetchPeers();
-    }
-
-    function cancelConfirm() {
-        awaitingConfirm = false;
-        confirmWarning = '';
-    }
+    let selectedPeer = $derived(peers.find(p => p.id === selectedPeerId));
 
     function addClient() {
         const ip = clientIP.trim();
@@ -114,13 +39,13 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
             return;
         }
         clientError = '';
-        clients = [...clients, { ip, label: clientLabel.trim() || undefined }];
+        onclientschange?.([...clients, { ip, label: clientLabel.trim() || undefined }]);
         clientIP = '';
         clientLabel = '';
     }
 
     function removeClient(ip) {
-        clients = clients.filter(c => c.ip !== ip);
+        onclientschange?.(clients.filter(c => c.ip !== ip));
     }
 
     function handleKeydown(e) {
@@ -128,76 +53,70 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
     }
 </script>
 
-<div class="py-6">
-    <div class="mb-4">
-        <h3 class="text-body text-text font-bold">Use Remote Exit Node</h3>
-        <p class="text-caption text-text-tertiary mt-0.5">Route LAN clients' internet traffic through another Tailscale device.</p>
+<div class="py-4">
+    <div class="flex justify-between items-center">
+        <div class="flex-1 mr-4">
+            <span class="text-body text-text">Use Remote Exit Node</span>
+            <p class="text-caption text-text-tertiary mt-0.5">Route LAN clients' internet traffic through another Tailscale device.</p>
+        </div>
+        <Toggle checked={enabled} onchange={(e) => ontoggle?.(e.target.checked)} />
     </div>
 
-    {#if isActive}
-        <div class="p-4 rounded-xl border border-border bg-surface/50">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <span class="inline-block w-2 h-2 rounded-full {current.online ? 'bg-success' : 'bg-error'}"></span>
-                    <div>
-                        <span class="text-body text-text font-medium">{current.hostName}</span>
-                        <span class="text-caption text-text-tertiary ml-2">{current.mode === 'all' ? 'All traffic' : 'Selected clients'}</span>
-                    </div>
-                </div>
-                <Button variant="secondary" size="sm" disabled={disabling} onclick={handleDisable}>
-                    {disabling ? 'Disabling...' : 'Disable'}
-                </Button>
-            </div>
-            {#if !current.online}
-                <p class="text-caption text-warning mt-2">Exit node is offline. Traffic will not be routed until it comes back online.</p>
-            {/if}
-        </div>
-    {:else}
-        {#if loading}
-            <div class="h-10 bg-surface rounded-lg animate-pulse"></div>
-        {:else if peers.length === 0}
-            <p class="text-caption text-text-tertiary">No exit node peers available in your tailnet.</p>
-        {:else}
-            <div class="space-y-4">
+    {#if enabled}
+        <div class="mt-3 space-y-4">
+            {#if peersLoading}
+                <div class="h-10 bg-surface rounded-lg animate-pulse"></div>
+            {:else if peers.length === 0}
+                <p class="text-caption text-text-tertiary">No exit node peers available in your tailnet.</p>
+            {:else}
                 <div>
                     <label class="block text-caption text-text-tertiary mb-1.5" for="exit-peer-select">Peer</label>
-                    <select
-                        id="exit-peer-select"
-                        bind:value={selectedPeerId}
-                        onchange={() => { awaitingConfirm = false; confirmWarning = ''; }}
-                        class="w-full px-3 py-2 text-body rounded-lg border border-border bg-input text-text focus:outline-none focus:border-blue appearance-none"
-                    >
-                        <option value="">Select a peer...</option>
-                        {#if onlinePeers.length > 0}
-                            <optgroup label="Online">
-                                {#each onlinePeers as peer (peer.id)}
-                                    <option value={peer.id}>{peer.hostName} ({peer.os})</option>
-                                {/each}
-                            </optgroup>
+                    <div class="relative flex items-center">
+                        {#if selectedPeer}
+                            <span class="absolute left-3 z-10 w-2 h-2 rounded-full {selectedPeer.online ? 'bg-success' : 'bg-error'}"></span>
                         {/if}
-                        {#if offlinePeers.length > 0}
-                            <optgroup label="Offline">
-                                {#each offlinePeers as peer (peer.id)}
-                                    <option value={peer.id}>{peer.hostName} ({peer.os})</option>
-                                {/each}
-                            </optgroup>
-                        {/if}
-                    </select>
+                        <select
+                            id="exit-peer-select"
+                            value={selectedPeerId}
+                            onchange={(e) => onpeerchange?.(e.target.value)}
+                            class="w-full py-2 pr-3 text-body rounded-lg border border-border bg-input text-text focus:outline-none focus:border-blue appearance-none {selectedPeer ? 'pl-8' : 'pl-3'}"
+                        >
+                            <option value="">Select a peer...</option>
+                            {#if onlinePeers.length > 0}
+                                <optgroup label="Online">
+                                    {#each onlinePeers as peer (peer.id)}
+                                        <option value={peer.id}>{peer.hostName} ({peer.os})</option>
+                                    {/each}
+                                </optgroup>
+                            {/if}
+                            {#if offlinePeers.length > 0}
+                                <optgroup label="Offline">
+                                    {#each offlinePeers as peer (peer.id)}
+                                        <option value={peer.id}>{peer.hostName} ({peer.os})</option>
+                                    {/each}
+                                </optgroup>
+                            {/if}
+                        </select>
+                    </div>
                 </div>
+
+                {#if current && !current.online}
+                    <p class="text-caption text-warning">Exit node is offline. Traffic will not be routed until it comes back online.</p>
+                {/if}
 
                 {#if selectedPeerId}
                     <div>
                         <span class="block text-caption text-text-tertiary mb-1.5">Routing mode</span>
                         <div class="flex gap-1">
                             <button
-                                onclick={() => { mode = 'all'; awaitingConfirm = false; confirmWarning = ''; }}
+                                onclick={() => onmodechange?.('all')}
                                 class="flex-1 px-3 py-1.5 rounded-lg text-caption text-center transition-colors
                                     {mode === 'all'
                                         ? 'bg-blue/15 text-blue border border-blue/40'
                                         : 'bg-surface text-text-secondary border border-border hover:bg-surface-hover'}"
                             >All traffic</button>
                             <button
-                                onclick={() => { mode = 'selective'; awaitingConfirm = false; confirmWarning = ''; }}
+                                onclick={() => onmodechange?.('selective')}
                                 class="flex-1 px-3 py-1.5 rounded-lg text-caption text-center transition-colors
                                     {mode === 'selective'
                                         ? 'bg-blue/15 text-blue border border-blue/40'
@@ -207,24 +126,25 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
                     </div>
 
                     {#if mode === 'selective'}
-                        <div>
+                        <div class="space-y-3">
                             {#if clients.length > 0}
-                                <div class="space-y-0.5 mb-3">
+                                <div class="flex flex-wrap gap-1.5">
                                     {#each clients as client (client.ip)}
-                                        <div class="flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-lg group hover:bg-surface-hover transition-colors">
-                                            <span class="text-text font-mono text-caption">{client.ip}</span>
-                                            {#if client.label}
-                                                <span class="text-text-tertiary text-caption">{client.label}</span>
-                                            {/if}
+                                        <span class="inline-flex items-center rounded border border-blue/20 overflow-hidden text-caption">
                                             <button
                                                 onclick={() => removeClient(client.ip)}
-                                                class="ml-auto text-text-tertiary hover:text-error text-caption transition-colors opacity-0 group-hover:opacity-100"
+                                                class="flex items-center px-1.5 self-stretch border-r border-blue/20 text-error/50 hover:text-error hover:bg-error/10 transition-colors"
+                                                aria-label="Remove {client.ip}"
                                             >&times;</button>
-                                        </div>
+                                            <span class="px-2 py-0.5 font-mono text-text bg-blue/10">{client.ip}</span>
+                                            {#if client.label}
+                                                <span class="px-2 py-0.5 text-text-tertiary border-l border-blue/20">{client.label}</span>
+                                            {/if}
+                                        </span>
                                     {/each}
                                 </div>
                             {:else}
-                                <p class="text-caption text-text-tertiary mb-3">No clients added. Only specified clients will be routed through the exit node. Clients must have a static IP assigned in UniFi Network settings.</p>
+                                <p class="text-caption text-text-tertiary">No clients added. Only specified clients will be routed through the exit node. Clients must have a static IP assigned in UniFi Network settings.</p>
                             {/if}
 
                             {#if atClientLimit}
@@ -256,25 +176,8 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
                             {/if}
                         </div>
                     {/if}
-
-                    {#if awaitingConfirm}
-                        <div class="p-3 rounded-lg bg-warning/10 border border-warning/30">
-                            <p class="text-body text-warning font-bold mb-1">Confirm exit node</p>
-                            <p class="text-caption text-text-secondary mb-3">{confirmWarning}</p>
-                            <div class="flex gap-2">
-                                <Button variant="warning" size="sm" disabled={enabling} onclick={handleEnable}>
-                                    {enabling ? 'Enabling...' : 'Confirm'}
-                                </Button>
-                                <Button variant="secondary" size="sm" onclick={cancelConfirm}>Cancel</Button>
-                            </div>
-                        </div>
-                    {:else}
-                        <Button disabled={enabling || (mode === 'selective' && clients.length === 0)} onclick={handleEnable}>
-                            {enabling ? 'Enabling...' : 'Enable'}
-                        </Button>
-                    {/if}
                 {/if}
-            </div>
-        {/if}
+            {/if}
+        </div>
     {/if}
 </div>

@@ -4,6 +4,10 @@
 
     let { activeTab = 'status', onTabChange } = $props();
 
+    const versionParts = __APP_VERSION__.match(/^([^-]+)(-.*)?$/);
+    const versionBase = versionParts?.[1] ?? __APP_VERSION__;
+    const versionSuffix = versionParts?.[2];
+
     const mainTabs = [
         { id: 'status', icon: 'layout-dashboard', label: 'Dashboard' },
     ];
@@ -85,7 +89,9 @@
                     GitHub
                 </span>
             </div>
-            <span class="text-micro text-text-tertiary">v{__APP_VERSION__}</span>
+            <span class="text-micro text-text-tertiary text-center leading-tight">
+                v{versionBase}{#if versionSuffix}<br/><span class="opacity-60">{versionSuffix}</span>{/if}
+            </span>
         </div>
     </div>
 </nav>

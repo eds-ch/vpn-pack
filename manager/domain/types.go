@@ -132,10 +132,11 @@ type RemoteExitNode struct {
 }
 
 type RemoteExitNodeStatus struct {
-	PeerID   string `json:"peerId"`
-	HostName string `json:"hostName"`
-	Online   bool   `json:"online"`
-	Mode     string `json:"mode"`
+	PeerID   string           `json:"peerId"`
+	HostName string           `json:"hostName"`
+	Online   bool             `json:"online"`
+	Mode     string           `json:"mode"`
+	Clients  []ExitNodeClient `json:"clients,omitempty"`
 }
 
 type SubnetConflict struct {
