@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0-beta.4] - 2026-03-13
+
+### Fixed
+- **Exit node routing stuck after disable**: watcher was pushing manifest → Tailscale, re-enabling exit node 3s after `tailscale set --exit-node=`; reversed sync direction so Tailscale is source of truth — external disable now clears manifest and ip rules
+- Enable exit node reordered: manifest and ip rules persisted before `EditPrefs` to survive HTTP drop when routing changes mid-request
+- Context cancellation during Enable no longer rolls back already-applied state
+
 ## [1.4.0-beta.3] - 2026-03-12
 
 ### Changed
@@ -309,7 +316,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.3...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.4...HEAD
+[1.4.0-beta.4]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.3...v1.4.0-beta.4
 [1.4.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.2...v1.4.0-beta.3
 [1.4.0-beta.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.1...v1.4.0-beta.2
 [1.4.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...v1.4.0-beta.1
