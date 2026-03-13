@@ -164,7 +164,7 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 		ExitNodeAllowLANAccessSet: true,
 	}
 	if wasAdvertising {
-		mp.Prefs.AdvertiseRoutes = filterNonExitRoutes(prefs.AdvertiseRoutes)
+		mp.AdvertiseRoutes = filterNonExitRoutes(prefs.AdvertiseRoutes)
 		mp.AdvertiseRoutesSet = true
 	}
 

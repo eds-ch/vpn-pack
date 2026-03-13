@@ -749,14 +749,14 @@ func TestEnable_DisablesAdvertiseAtomically(t *testing.T) {
 	assert.True(t, result.OK)
 
 	require.NotNil(t, capturedPrefs)
-	assert.Equal(t, tailcfg.StableNodeID("stable-1"), capturedPrefs.Prefs.ExitNodeID)
+	assert.Equal(t, tailcfg.StableNodeID("stable-1"), capturedPrefs.ExitNodeID)
 	assert.True(t, capturedPrefs.ExitNodeIDSet)
 	assert.True(t, capturedPrefs.AdvertiseRoutesSet)
 
-	for _, r := range capturedPrefs.Prefs.AdvertiseRoutes {
+	for _, r := range capturedPrefs.AdvertiseRoutes {
 		assert.NotEqual(t, 0, r.Bits(), "exit routes (/0) should be stripped")
 	}
-	assert.Len(t, capturedPrefs.Prefs.AdvertiseRoutes, 2)
+	assert.Len(t, capturedPrefs.AdvertiseRoutes, 2)
 	assert.False(t, manifest.advertiseEnabled)
 }
 
