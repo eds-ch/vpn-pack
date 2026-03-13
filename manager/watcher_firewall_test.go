@@ -12,6 +12,10 @@ import (
 )
 
 func TestCheckAndRestoreRulesDeduplication(t *testing.T) {
+	orig := interfaceExistsFunc
+	interfaceExistsFunc = func(string) bool { return true }
+	t.Cleanup(func() { interfaceExistsFunc = orig })
+
 	var concurrent atomic.Int32
 	var maxConcurrent atomic.Int32
 

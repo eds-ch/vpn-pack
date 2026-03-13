@@ -15,6 +15,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+var interfaceExistsFunc = interfaceExists
+
 func interfaceExists(name string) bool {
 	_, err := os.Stat("/sys/class/net/" + name)
 	return err == nil
@@ -192,7 +194,7 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 	if s.health.IsDegraded(WatcherFirewall) {
 		return
 	}
-	if !interfaceExists(config.TailscaleInterface) {
+	if !interfaceExistsFunc(config.TailscaleInterface) {
 		return
 	}
 
