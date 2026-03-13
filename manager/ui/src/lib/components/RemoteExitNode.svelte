@@ -131,7 +131,7 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
 <div class="py-6">
     <div class="mb-4">
         <h3 class="text-body text-text font-bold">Use Remote Exit Node</h3>
-        <p class="text-caption text-text-tertiary mt-0.5">Route this router's internet traffic through another Tailscale device.</p>
+        <p class="text-caption text-text-tertiary mt-0.5">Route LAN clients' internet traffic through another Tailscale device.</p>
     </div>
 
     {#if isActive}
@@ -224,7 +224,7 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
                                     {/each}
                                 </div>
                             {:else}
-                                <p class="text-caption text-text-tertiary mb-3">No clients added. Only specified clients will be routed through the exit node.</p>
+                                <p class="text-caption text-text-tertiary mb-3">No clients added. Only specified clients will be routed through the exit node. Clients must have a static IP assigned in UniFi Network settings.</p>
                             {/if}
 
                             {#if atClientLimit}

@@ -132,17 +132,10 @@
                         <span class="ml-2 text-text">{tunnel.routeMetric ?? WG_DEFAULT_ROUTE_METRIC}</span>
                     </div>
                     {#if tunnel.publicKey}
-                        <div class="md:col-span-2">
+                        <div class="md:col-span-2 flex items-baseline gap-2">
                             <span class="text-text-secondary">Public Key</span>
-                            <div class="mt-1 flex gap-2">
-                                <input
-                                    type="text"
-                                    readonly
-                                    value={tunnel.publicKey}
-                                    class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono text-caption"
-                                />
-                                <Button variant="secondary" size="sm" onclick={() => clip.copy(tunnel.publicKey)}>{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</Button>
-                            </div>
+                            <span class="font-mono text-caption text-text break-all">{tunnel.publicKey}</span>
+                            <Button variant="secondary" size="sm" onclick={() => clip.copy(tunnel.publicKey)}>{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy Key'}</Button>
                         </div>
                     {/if}
                     <div class="md:col-span-2">
