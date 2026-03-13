@@ -8,6 +8,7 @@ After=network-pre.target ubios-udapi-server.service
 EnvironmentFile=/persistent/vpn-pack/tailscaled.defaults
 ExecStart=/persistent/vpn-pack/bin/tailscaled \
   --state=/persistent/vpn-pack/state/tailscaled.state \
+  --statedir=/persistent/vpn-pack/state \
   --socket=/run/tailscale/tailscaled.sock \
   --port=${PORT} $FLAGS
 ExecStopPost=/persistent/vpn-pack/bin/tailscaled --cleanup
