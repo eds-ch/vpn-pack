@@ -285,15 +285,27 @@ func TestRestoreExitNodeRules_ExitSvcNil_Noop(t *testing.T) {
 	s.restoreExitNodeRules(context.Background())
 }
 
-func TestRestoreExitNodeRules_SyncsExitNodeID(t *testing.T) {
+func TestRestoreExitNodeRules_TsNoExitNode_ClearsManifest(t *testing.T) {
 	var editPrefsCalled atomic.Bool
+	var setRemoteNode *domain.RemoteExitNode
+	setRemoteCalled := false
+
+	remoteNode := &domain.RemoteExitNode{
+		PeerID: "peer-abc",
+		Mode:   domain.ExitNodeAll,
+	}
 
 	manifest := &mockManifestStore{
 		getRemoteExitNodeFn: func() *domain.RemoteExitNode {
-			return &domain.RemoteExitNode{
-				PeerID: "peer-abc",
-				Mode:   domain.ExitNodeAll,
+			if setRemoteCalled {
+				return nil
 			}
+			return remoteNode
+		},
+		setRemoteExitNodeFn: func(r *domain.RemoteExitNode) error {
+			setRemoteCalled = true
+			setRemoteNode = r
+			return nil
 		},
 		getExitNodePolicyFn: func() domain.ExitNodePolicy {
 			return domain.ExitNodePolicy{Mode: domain.ExitNodeOff}
@@ -302,14 +314,10 @@ func TestRestoreExitNodeRules_SyncsExitNodeID(t *testing.T) {
 
 	ts := &mockTailscaleControl{
 		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
-			return &ipn.Prefs{
-				ExitNodeID: tailcfg.StableNodeID("peer-OLD"),
-			}, nil
+			return &ipn.Prefs{ExitNodeID: ""}, nil
 		},
 		editPrefsFn: func(_ context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
 			editPrefsCalled.Store(true)
-			assert.Equal(t, tailcfg.StableNodeID("peer-abc"), mp.Prefs.ExitNodeID)
-			assert.True(t, mp.Prefs.ExitNodeAllowLANAccess)
 			return &ipn.Prefs{}, nil
 		},
 	}
@@ -326,5 +334,7 @@ func TestRestoreExitNodeRules_SyncsExitNodeID(t *testing.T) {
 	s.remoteExitSvc = service.NewRemoteExitService(ts, s.exitSvc, manifest)
 
 	s.restoreExitNodeRules(context.Background())
-	assert.True(t, editPrefsCalled.Load(), "should sync diverged exit node ID from manifest")
+	assert.False(t, editPrefsCalled.Load(), "should NOT call EditPrefs (reverse sync clears manifest, not Tailscale)")
+	assert.True(t, setRemoteCalled, "should call SetRemoteExitNode")
+	assert.Nil(t, setRemoteNode, "should clear manifest (SetRemoteExitNode(nil))")
 }

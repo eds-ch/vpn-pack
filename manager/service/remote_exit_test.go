@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"testing"
 
@@ -48,6 +49,24 @@ func (m *mockRemoteExitManifest) SetRemoteExitNode(r *domain.RemoteExitNode) err
 func (m *mockRemoteExitManifest) SetAdvertiseExitNode(enabled bool) error {
 	m.advertiseEnabled = enabled
 	return nil
+}
+
+type orderTrackingManifest struct {
+	*mockRemoteExitManifest
+	callOrder *[]string
+}
+
+func (m *orderTrackingManifest) SetRemoteExitNode(r *domain.RemoteExitNode) error {
+	*m.callOrder = append(*m.callOrder, "setRemoteExitNode")
+	return m.mockRemoteExitManifest.SetRemoteExitNode(r)
+}
+
+func (m *orderTrackingManifest) GetRemoteExitNode() *domain.RemoteExitNode {
+	return m.mockRemoteExitManifest.GetRemoteExitNode()
+}
+
+func (m *orderTrackingManifest) SetAdvertiseExitNode(enabled bool) error {
+	return m.mockRemoteExitManifest.SetAdvertiseExitNode(enabled)
 }
 
 // --- Helpers ---
@@ -419,42 +438,30 @@ func TestDisable_ClearsExitNodeAllowLANAccess(t *testing.T) {
 		"ExitNodeAllowLANAccess must be false after disable")
 }
 
-// --- SyncExitNodeID tests ---
+// --- SyncManifestFromTailscale tests ---
 
-func TestSyncExitNodeID_InSync(t *testing.T) {
-	editCalled := false
+func TestSyncManifestFromTailscale_InSync(t *testing.T) {
 	ts := &mockRoutingTailscale{
 		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
 			return &ipn.Prefs{
 				ExitNodeID: tailcfg.StableNodeID("stable-1"),
 			}, nil
 		},
-		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-			editCalled = true
-			return &ipn.Prefs{}, nil
-		},
 	}
 	manifest := &mockRemoteExitManifest{
 		remoteExitNode: &domain.RemoteExitNode{PeerID: "stable-1", Mode: domain.ExitNodeAll},
 	}
 	svc := newTestRemoteExitService(ts, manifest)
 
-	err := svc.SyncExitNodeID(context.Background())
+	err := svc.SyncManifestFromTailscale(context.Background())
 	require.NoError(t, err)
-	assert.False(t, editCalled, "EditPrefs should not be called when in sync")
+	assert.Equal(t, "stable-1", manifest.remoteExitNode.PeerID)
 }
 
-func TestSyncExitNodeID_Diverged(t *testing.T) {
-	var editedPrefs ipn.MaskedPrefs
+func TestSyncManifestFromTailscale_TsEmpty_ClearsManifest(t *testing.T) {
 	ts := &mockRoutingTailscale{
 		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
-			return &ipn.Prefs{
-				ExitNodeID: tailcfg.StableNodeID("wrong-id"),
-			}, nil
-		},
-		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-			editedPrefs = *mp
-			return &ipn.Prefs{}, nil
+			return &ipn.Prefs{ExitNodeID: ""}, nil
 		},
 	}
 	manifest := &mockRemoteExitManifest{
@@ -462,28 +469,185 @@ func TestSyncExitNodeID_Diverged(t *testing.T) {
 	}
 	svc := newTestRemoteExitService(ts, manifest)
 
-	err := svc.SyncExitNodeID(context.Background())
+	err := svc.SyncManifestFromTailscale(context.Background())
 	require.NoError(t, err)
-
-	assert.True(t, editedPrefs.ExitNodeIDSet)
-	assert.Equal(t, tailcfg.StableNodeID("stable-1"), editedPrefs.ExitNodeID)
-	assert.True(t, editedPrefs.ExitNodeAllowLANAccess)
+	assert.Nil(t, manifest.remoteExitNode, "manifest should be cleared when Tailscale has no exit node")
 }
 
-func TestSyncExitNodeID_NoManifest(t *testing.T) {
-	editCalled := false
+func TestSyncManifestFromTailscale_TsEmpty_ManifestNil(t *testing.T) {
 	ts := &mockRoutingTailscale{
-		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-			editCalled = true
-			return &ipn.Prefs{}, nil
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{ExitNodeID: ""}, nil
 		},
 	}
 	manifest := &mockRemoteExitManifest{}
 	svc := newTestRemoteExitService(ts, manifest)
 
-	err := svc.SyncExitNodeID(context.Background())
+	err := svc.SyncManifestFromTailscale(context.Background())
 	require.NoError(t, err)
-	assert.False(t, editCalled, "should no-op when manifest has no remote exit node")
+	assert.Nil(t, manifest.remoteExitNode)
+}
+
+func TestSyncManifestFromTailscale_TsSet_ManifestNil(t *testing.T) {
+	ts := &mockRoutingTailscale{
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{
+				ExitNodeID: tailcfg.StableNodeID("peer-xyz"),
+			}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	err := svc.SyncManifestFromTailscale(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, manifest.remoteExitNode)
+	assert.Equal(t, "peer-xyz", manifest.remoteExitNode.PeerID)
+	assert.Equal(t, domain.ExitNodeAll, manifest.remoteExitNode.Mode)
+}
+
+func TestSyncManifestFromTailscale_TsSet_DifferentPeer(t *testing.T) {
+	ts := &mockRoutingTailscale{
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{
+				ExitNodeID: tailcfg.StableNodeID("peer-xyz"),
+			}, nil
+		},
+	}
+	clients := []domain.ExitNodeClient{{IP: "192.168.1.100", Label: "PC"}}
+	manifest := &mockRemoteExitManifest{
+		remoteExitNode: &domain.RemoteExitNode{
+			PeerID:  "peer-abc",
+			Mode:    domain.ExitNodeSelective,
+			Clients: clients,
+		},
+	}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	err := svc.SyncManifestFromTailscale(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, manifest.remoteExitNode)
+	assert.Equal(t, "peer-xyz", manifest.remoteExitNode.PeerID)
+	assert.Equal(t, domain.ExitNodeSelective, manifest.remoteExitNode.Mode)
+	assert.Len(t, manifest.remoteExitNode.Clients, 1)
+}
+
+func TestSyncManifestFromTailscale_ApplyingFlag(t *testing.T) {
+	getPrefsCalled := false
+	ts := &mockRoutingTailscale{
+		getPrefsFn: func(ctx context.Context) (*ipn.Prefs, error) {
+			getPrefsCalled = true
+			return &ipn.Prefs{ExitNodeID: ""}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{
+		remoteExitNode: &domain.RemoteExitNode{PeerID: "stable-1", Mode: domain.ExitNodeAll},
+	}
+	svc := newTestRemoteExitService(ts, manifest)
+	svc.applying.Store(true)
+
+	err := svc.SyncManifestFromTailscale(context.Background())
+	require.NoError(t, err)
+	assert.False(t, getPrefsCalled, "should skip sync when applying flag is set")
+	assert.NotNil(t, manifest.remoteExitNode, "manifest should be unchanged")
+}
+
+// --- Enable order/rollback tests ---
+
+func TestEnable_ManifestSavedBeforeEditPrefs(t *testing.T) {
+	var callOrder []string
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			callOrder = append(callOrder, "editPrefs")
+			return &ipn.Prefs{}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	origSet := manifest.SetRemoteExitNode
+	_ = origSet
+	state := newFakeIPRuleState()
+	exitSvc := NewExitNodeService(&mockExitManifest{}, state.runner())
+	svc := &RemoteExitService{ts: ts, exitSvc: exitSvc, manifest: &orderTrackingManifest{
+		mockRemoteExitManifest: manifest,
+		callOrder:              &callOrder,
+	}}
+
+	result, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.OK)
+
+	require.True(t, len(callOrder) >= 2, "expected at least 2 calls, got %v", callOrder)
+	setIdx := -1
+	editIdx := -1
+	for i, c := range callOrder {
+		if c == "setRemoteExitNode" && setIdx == -1 {
+			setIdx = i
+		}
+		if c == "editPrefs" && editIdx == -1 {
+			editIdx = i
+		}
+	}
+	assert.True(t, setIdx < editIdx,
+		"SetRemoteExitNode (idx=%d) must be called before EditPrefs (idx=%d)", setIdx, editIdx)
+}
+
+func TestEnable_EditPrefsFails_RollsBack(t *testing.T) {
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	_, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: true,
+	})
+	require.Error(t, err)
+	assert.Nil(t, manifest.remoteExitNode, "manifest should be rolled back on EditPrefs failure")
+}
+
+func TestEnable_ContextCancelled_NoRollback(t *testing.T) {
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			return nil, context.Canceled
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := svc.Enable(ctx, &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.OK)
+	assert.NotNil(t, manifest.remoteExitNode, "manifest should NOT be rolled back on context cancellation")
 }
 
 // --- Mutual exclusion tests ---

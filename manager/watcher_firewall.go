@@ -277,18 +277,18 @@ func (s *Server) restoreExitNodeRules(ctx context.Context) {
 		return
 	}
 
+	if s.remoteExitSvc != nil {
+		if err := s.remoteExitSvc.SyncManifestFromTailscale(ctx); err != nil {
+			slog.Warn("exit node manifest sync failed", "err", err)
+		}
+	}
+
 	rem := s.manifest.GetRemoteExitNode()
 	if rem == nil || rem.Mode == domain.ExitNodeOff {
 		if err := s.exitSvc.Cleanup(ctx); err != nil {
 			slog.Warn("exit node stale rules cleanup failed", "err", err)
 		}
 		return
-	}
-
-	if s.remoteExitSvc != nil {
-		if err := s.remoteExitSvc.SyncExitNodeID(ctx); err != nil {
-			slog.Warn("exit node ID sync failed", "err", err)
-		}
 	}
 
 	policy := domain.ExitNodePolicy{Mode: rem.Mode, Clients: rem.Clients}

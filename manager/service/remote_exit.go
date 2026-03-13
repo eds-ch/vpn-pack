@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"sync/atomic"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
@@ -23,6 +24,7 @@ type RemoteExitService struct {
 	ts       RoutingTailscale
 	exitSvc  *ExitNodeService
 	manifest RemoteExitManifest
+	applying atomic.Bool
 }
 
 func NewRemoteExitService(ts RoutingTailscale, exitSvc *ExitNodeService, manifest RemoteExitManifest) *RemoteExitService {
@@ -129,6 +131,30 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 		}
 	}
 
+	svc.applying.Store(true)
+	defer svc.applying.Store(false)
+
+	if err := svc.manifest.SetRemoteExitNode(&domain.RemoteExitNode{
+		PeerID:  req.PeerID,
+		Mode:    mode,
+		Clients: req.Clients,
+	}); err != nil {
+		return nil, internalError(fmt.Sprintf("persist remote exit node: %v", err), err)
+	}
+
+	if wasAdvertising {
+		if err := svc.manifest.SetAdvertiseExitNode(false); err != nil {
+			slog.Warn("failed to clear advertise exit node in manifest", "err", err)
+		}
+	}
+
+	if svc.exitSvc != nil {
+		if err := svc.exitSvc.Apply(ctx, policy); err != nil {
+			_ = svc.manifest.SetRemoteExitNode(nil)
+			return nil, internalError(fmt.Sprintf("apply exit node rules: %v", err), err)
+		}
+	}
+
 	mp := &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			ExitNodeID:             tailcfg.StableNodeID(req.PeerID),
@@ -144,27 +170,19 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 
 	_, err = svc.ts.EditPrefs(ctx, mp)
 	if err != nil {
+		if ctx.Err() != nil {
+			slog.Warn("exit node enable: context cancelled after EditPrefs",
+				"peer", req.PeerID, "err", err)
+			return &EnableRemoteExitResult{
+				OK:      true,
+				Message: fmt.Sprintf("Traffic routed through %s.", peer.HostName),
+			}, nil
+		}
+		_ = svc.manifest.SetRemoteExitNode(nil)
+		if svc.exitSvc != nil {
+			_ = svc.exitSvc.Cleanup(ctx)
+		}
 		return nil, upstreamError(humanizeLocalAPIError(err), err)
-	}
-
-	if wasAdvertising {
-		if err := svc.manifest.SetAdvertiseExitNode(false); err != nil {
-			slog.Warn("failed to clear advertise exit node in manifest", "err", err)
-		}
-	}
-
-	if svc.exitSvc != nil {
-		if err := svc.exitSvc.Apply(ctx, policy); err != nil {
-			return nil, internalError(fmt.Sprintf("apply exit node rules: %v", err), err)
-		}
-	}
-
-	if err := svc.manifest.SetRemoteExitNode(&domain.RemoteExitNode{
-		PeerID:  req.PeerID,
-		Mode:    mode,
-		Clients: req.Clients,
-	}); err != nil {
-		slog.Warn("failed to persist remote exit node", "err", err)
 	}
 
 	return &EnableRemoteExitResult{
@@ -199,37 +217,53 @@ func (svc *RemoteExitService) Disable(ctx context.Context) error {
 	return nil
 }
 
-func (svc *RemoteExitService) SyncExitNodeID(ctx context.Context) error {
-	rem := svc.manifest.GetRemoteExitNode()
-	if rem == nil {
+func (svc *RemoteExitService) SyncManifestFromTailscale(ctx context.Context) error {
+	if svc.applying.Load() {
 		return nil
 	}
 
 	prefs, err := svc.ts.GetPrefs(ctx)
 	if err != nil {
-		return upstreamError(humanizeLocalAPIError(err), err)
+		return fmt.Errorf("get prefs: %w", err)
 	}
 
-	if string(prefs.ExitNodeID) == rem.PeerID {
+	tsExitNode := string(prefs.ExitNodeID)
+	rem := svc.manifest.GetRemoteExitNode()
+
+	if tsExitNode == "" {
+		if rem != nil {
+			slog.Info("exit node disabled externally, clearing manifest",
+				"previousPeer", rem.PeerID)
+			if svc.exitSvc != nil {
+				if err := svc.exitSvc.Cleanup(ctx); err != nil {
+					slog.Warn("exit node rules cleanup after external disable", "err", err)
+				}
+			}
+			return svc.manifest.SetRemoteExitNode(nil)
+		}
 		return nil
 	}
 
-	slog.Info("exit node ID diverged, syncing from manifest",
-		"manifest", rem.PeerID, "tailscaled", string(prefs.ExitNodeID))
-
-	_, err = svc.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
-		Prefs: ipn.Prefs{
-			ExitNodeID:             tailcfg.StableNodeID(rem.PeerID),
-			ExitNodeAllowLANAccess: true,
-		},
-		ExitNodeIDSet:             true,
-		ExitNodeAllowLANAccessSet: true,
-	})
-	if err != nil {
-		return upstreamError(humanizeLocalAPIError(err), err)
+	if rem != nil && rem.PeerID == tsExitNode {
+		return nil
 	}
 
-	return nil
+	if rem == nil {
+		slog.Info("exit node active without manifest, creating entry",
+			"peerId", tsExitNode)
+		return svc.manifest.SetRemoteExitNode(&domain.RemoteExitNode{
+			PeerID: tsExitNode,
+			Mode:   domain.ExitNodeAll,
+		})
+	}
+
+	slog.Info("exit node peer changed externally, updating manifest",
+		"from", rem.PeerID, "to", tsExitNode)
+	return svc.manifest.SetRemoteExitNode(&domain.RemoteExitNode{
+		PeerID:  tsExitNode,
+		Mode:    rem.Mode,
+		Clients: rem.Clients,
+	})
 }
 
 func filterExitNodePeers(st *ipnstate.Status) []ExitNodePeer {
