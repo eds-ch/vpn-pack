@@ -239,7 +239,7 @@ func (s *ExitNodeService) addMasquerade(ctx context.Context) error {
 func (s *ExitNodeService) delMasquerade(ctx context.Context) {
 	cmds := []string{"iptables", "ip6tables"}
 	for i, args := range s.masqArgs("-D") {
-		s.run(ctx, cmds[i], args...)
+		_, _ = s.run(ctx, cmds[i], args...)
 	}
 }
 

@@ -7,76 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.0-beta.13] - 2026-03-13
-
-### Fixed
-- **TKA log spam**: added `--statedir` to tailscaled service — eliminates repeated "cannot fetch existing TKA state; no state directory for network-lock" messages every ~30s
-
-## [1.4.0-beta.4] - 2026-03-13
-
-### Fixed
-- **Exit node routing stuck after disable**: watcher was pushing manifest → Tailscale, re-enabling exit node 3s after `tailscale set --exit-node=`; reversed sync direction so Tailscale is source of truth — external disable now clears manifest and ip rules
-- Enable exit node reordered: manifest and ip rules persisted before `EditPrefs` to survive HTTP drop when routing changes mid-request
-- Context cancellation during Enable no longer rolls back already-applied state
-
-## [1.4.0-beta.3] - 2026-03-12
-
-### Changed
-- **Exit node mutual exclusion**: advertise and remote exit node can no longer coexist — enabling one atomically disables the other with user confirmation
-- Enabling remote exit node strips `/0` routes from `AdvertiseRoutes` in the same `EditPrefs` call and clears manifest
-- Enabling advertise exit node calls `Disable()` on remote exit first
-- Frontend confirmation dialog in both directions before destructive action
-
-### Fixed
-- Potential crash when SSE update clears `usingExitNode` while advertise confirmation dialog is open
-
-### Removed
-- Dead `Warning` field from `EnableRemoteExitResult` (routing loop warning replaced by mutual exclusion)
-- Unused `GetAdvertiseExitNodeEnabled()` from `RemoteExitManifest` interface
-
-## [1.4.0-beta.2] - 2026-03-12
-
-### Changed
-- **Exit node split**: separated into two independent paths — advertise (simple toggle) and remote exit node (peer selection with confirmation gate, client picker, ip rules)
-- New `RemoteExitService` with peer selection, `ExitNodeAllowLANAccess`, per-client ip rules, manifest persistence
-- Domain types split: `AdvertiseExitNode` + `RemoteExitNode` with migration from legacy `ExitNodePolicy`
-- Watcher: `extractPeers` adds ID/ExitNodeOption/ExitNode fields, `restoreExitNodeRules` reads remote exit from manifest with stale rule cleanup
-- Frontend: `ExitNodeToggle` simplified to pure advertise toggle, new `RemoteExitNode` component with peer selector/confirmation gate/client picker
+## [1.4.0] - 2026-03-13
 
 ### Added
-- UI tests for remote exit node API client, `ExitNodeToggle`, `RemoteExitNode` component
-
-## [1.4.0-beta.1] - 2026-03-12
-
-### Added
-- **Exit node**: confirmation gate before enabling, selective per-client ip rules (table 53)
-- **Routing health monitor**: validates rp_filter, BypassMark, IPv6 settings (P8)
+- **Exit node**: confirmation gate before enabling, selective per-client ip rules (table 53), mutual exclusion with advertise exit node
+- **Remote exit node**: peer selection with online/offline grouping, routing mode (all traffic / selected clients), confirmation gate, unified Apply flow with routes
+- **Routing health monitor**: validates rp_filter, BypassMark, IPv6 settings
 - **Subnet validator**: table 52 route validation, accept-routes vs S2S conflict detection
 - **S2S routing**: per-tunnel configurable route metric, ref-counted route ownership (fixes shared-prefix race)
 - **PBR conflict detection**: warns when Traffic Routes conflict with S2S tunnels
 - **HealthTracker**: exponential backoff, `/api/health` endpoint, SSE health events
 - **Beta release support**: `VERSION_PIN` env var in `get.sh`, pre-release version comparison
+- **Firewall zone reconciliation** for WG S2S tunnels
+- UI tests for remote exit node, exit node toggle, API client
 
 ### Changed
 - **Architecture overhaul**: monolithic Server decomposed into isolated services (Settings, Diagnostics, Integration, Routing, Tailscale, WgS2s, FirewallOrchestrator) with dependency injection and interfaces
+- **Exit node split**: separated into advertise (simple toggle) and remote exit node (peer selection, client picker, ip rules) — enabling one atomically disables the other
 - Result types, context propagation, typed SSE events throughout
 - Centralized manifest mutations with atomic save
 - Synchronous firewall coordination with transaction semantics and inline rollback
 - Restructured `manager/` into sub-packages for progressive disclosure
-- Frontend: extracted FormField, Button components; typed API layer; normalized imports
+- Frontend: extracted FormField, Button components; typed API layer; RemoteExitNode as presentational component with state lifted to RoutingTab
 - Deduplicated firewall rollback/logging, extracted service error infrastructure
-- Fixed domain→internal/wgs2s dependency inversion
 
 ### Fixed
-- Patch 005: ts-forward chain reordered after UBIOS_FORWARD_JUMP on UBNT devices (P1)
-- Off-by-one in `ubntFindForwardInsertPos` (idx+2 → idx+1)
-- Off-by-one in exit node priority range
+- Patch 005: ts-forward chain reordered after UBIOS_FORWARD_JUMP on UBNT devices
+- **TKA log spam**: added `--statedir` to tailscaled service
+- **Conntrack flush spam** in firewall watcher eliminated
+- **Exit node routing stuck after disable**: reversed sync direction so Tailscale is source of truth
+- Enable exit node reordered: manifest and ip rules persisted before `EditPrefs` to survive HTTP drop
+- Off-by-one in `ubntFindForwardInsertPos` and exit node priority range
 - Data races in SetWgS2s/SetWireGuard, DPI logic inversion, cleanup timeout
 - WAN IP detection for UDM-SE and UCG-Ultra
 - Stale chain prefix read, unsafe TailscaleState Lock/Data/Unlock
 - Reconcile mutex race in exit node
-- Update URL in UI corrected (install.sh → get.sh)
-- Lint issues: errcheck, gosec, staticcheck, unused
+- Potential crash when SSE update clears `usingExitNode` while confirmation dialog is open
+
+### Removed
+- Dead `Warning` field from `EnableRemoteExitResult`
+- Unused `GetAdvertiseExitNodeEnabled()` from `RemoteExitManifest` interface
 
 ## [1.3.1] - 2026-03-02
 
@@ -321,11 +291,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.4...HEAD
-[1.4.0-beta.4]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.3...v1.4.0-beta.4
-[1.4.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.2...v1.4.0-beta.3
-[1.4.0-beta.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0-beta.1...v1.4.0-beta.2
-[1.4.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...v1.4.0-beta.1
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/eds-ch/vpn-pack/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/eds-ch/vpn-pack/compare/v1.2.2...v1.2.3
