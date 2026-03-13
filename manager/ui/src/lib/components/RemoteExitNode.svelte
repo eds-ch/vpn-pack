@@ -2,6 +2,7 @@
     import Button from './Button.svelte';
     import { isValidIPOrCIDR } from '../utils.js';
     import { getRemoteExitNode, enableRemoteExitNode, disableRemoteExitNode } from '../api.js';
+    import { getStatus } from '../stores/tailscale.svelte.js';
 
     let {
         current = null,
@@ -73,6 +74,15 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
         }
 
         if (result.ok) {
+            const selectedPeer = peers.find(p => p.id === selectedPeerId);
+            if (selectedPeer) {
+                getStatus().usingExitNode = {
+                    peerId: selectedPeerId,
+                    hostName: selectedPeer.hostName,
+                    online: selectedPeer.online,
+                    mode,
+                };
+            }
             resetForm();
             await fetchPeers();
         }
@@ -82,6 +92,7 @@ let atClientLimit = $derived(clients.length >= MAX_EXIT_CLIENTS);
         disabling = true;
         await disableRemoteExitNode();
         disabling = false;
+        getStatus().usingExitNode = null;
         resetForm();
         await fetchPeers();
     }
