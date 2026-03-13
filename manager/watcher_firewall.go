@@ -244,6 +244,8 @@ func (s *Server) restoreWgS2sRules(ctx context.Context) {
 		return
 	}
 
+	s.wgS2sSvc.ReconcileZones(ctx)
+
 	tunnels := s.wgManager.GetTunnels()
 	var ifaces []string
 	for _, t := range tunnels {

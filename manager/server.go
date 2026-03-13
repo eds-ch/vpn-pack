@@ -192,6 +192,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/wg-s2s/tunnels/{id}", s.handleWgS2sDeleteTunnel)
 	mux.HandleFunc("POST /api/wg-s2s/tunnels/{id}/enable", s.handleWgS2sEnableTunnel)
 	mux.HandleFunc("POST /api/wg-s2s/tunnels/{id}/disable", s.handleWgS2sDisableTunnel)
+	mux.HandleFunc("POST /api/wg-s2s/tunnels/{id}/setup-zone", s.handleWgS2sSetupZone)
 	mux.HandleFunc("POST /api/wg-s2s/generate-keypair", s.handleWgS2sGenerateKeypair)
 	mux.HandleFunc("GET /api/wg-s2s/tunnels/{id}/config", s.handleWgS2sGetConfig)
 	mux.HandleFunc("GET /api/wg-s2s/wan-ip", s.handleWgS2sWanIP)
@@ -285,6 +286,7 @@ func (s *Server) initWgS2s(ctx context.Context) {
 	if s.fw == nil {
 		return
 	}
+	s.wgS2sSvc.ReconcileZones(ctx)
 	for _, t := range wgMgr.GetTunnels() {
 		if t.Enabled {
 			if err := s.fw.SetupWgS2sFirewall(ctx, t.ID, t.InterfaceName, t.AllowedIPs); err != nil {

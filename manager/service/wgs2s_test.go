@@ -527,3 +527,155 @@ func TestSubnetConflictError(t *testing.T) {
 	require.True(t, errors.As(err, &sce))
 	assert.Len(t, sce.Conflicts, 1)
 }
+
+func TestReconcileZonesCreatesDefault(t *testing.T) {
+	var setupCalls []string
+	svc := newTestWgS2sService(
+		&mockWgS2sWireGuard{
+			getTunnelsFn: func() []wgs2s.TunnelConfig {
+				return []wgs2s.TunnelConfig{{ID: "t1"}, {ID: "t2"}}
+			},
+		},
+		func(s *WgS2sService) {
+			s.fw = &mockWgS2sFirewall{
+				integrationReadyFn: func() bool { return true },
+				setupZoneFn: func(_ context.Context, tid, zid, zname string) *ZoneSetupResult {
+					setupCalls = append(setupCalls, tid)
+					return &ZoneSetupResult{ZoneCreated: true, PoliciesReady: true}
+				},
+			}
+		},
+	)
+	svc.ReconcileZones(context.Background())
+	assert.Equal(t, []string{"t1", "t2"}, setupCalls)
+}
+
+func TestReconcileZonesSkipsExisting(t *testing.T) {
+	var setupCalls []string
+	svc := newTestWgS2sService(
+		&mockWgS2sWireGuard{
+			getTunnelsFn: func() []wgs2s.TunnelConfig {
+				return []wgs2s.TunnelConfig{{ID: "t1"}, {ID: "t2"}}
+			},
+		},
+		func(s *WgS2sService) {
+			s.manifest = &mockWgS2sManifest{
+				getZoneFn: func(tid string) (ZoneInfo, bool) {
+					if tid == "t1" {
+						return ZoneInfo{ZoneID: "z1", ZoneName: "existing"}, true
+					}
+					return ZoneInfo{}, false
+				},
+			}
+			s.fw = &mockWgS2sFirewall{
+				integrationReadyFn: func() bool { return true },
+				setupZoneFn: func(_ context.Context, tid, zid, zname string) *ZoneSetupResult {
+					setupCalls = append(setupCalls, tid)
+					return &ZoneSetupResult{ZoneCreated: true, PoliciesReady: true}
+				},
+			}
+		},
+	)
+	svc.ReconcileZones(context.Background())
+	assert.Equal(t, []string{"t2"}, setupCalls)
+}
+
+func TestReconcileZonesNoopWithoutIntegration(t *testing.T) {
+	called := false
+	svc := newTestWgS2sService(
+		&mockWgS2sWireGuard{
+			getTunnelsFn: func() []wgs2s.TunnelConfig {
+				return []wgs2s.TunnelConfig{{ID: "t1"}}
+			},
+		},
+		func(s *WgS2sService) {
+			s.fw = &mockWgS2sFirewall{
+				integrationReadyFn: func() bool { return false },
+				setupZoneFn: func(context.Context, string, string, string) *ZoneSetupResult {
+					called = true
+					return nil
+				},
+			}
+		},
+	)
+	svc.ReconcileZones(context.Background())
+	assert.False(t, called)
+}
+
+func TestReconcileZonesReusesExistingZone(t *testing.T) {
+	var capturedZoneID string
+	svc := newTestWgS2sService(
+		&mockWgS2sWireGuard{
+			getTunnelsFn: func() []wgs2s.TunnelConfig {
+				return []wgs2s.TunnelConfig{{ID: "t1"}}
+			},
+		},
+		func(s *WgS2sService) {
+			s.manifest = &mockWgS2sManifest{
+				getZoneFn:  func(string) (ZoneInfo, bool) { return ZoneInfo{}, false },
+				getZonesFn: func() []WgS2sZoneEntry { return []WgS2sZoneEntry{{ZoneID: "z1", ZoneName: "existing"}} },
+			}
+			s.fw = &mockWgS2sFirewall{
+				integrationReadyFn: func() bool { return true },
+				setupZoneFn: func(_ context.Context, _, zid, _ string) *ZoneSetupResult {
+					capturedZoneID = zid
+					return &ZoneSetupResult{ZoneCreated: true, PoliciesReady: true}
+				},
+			}
+		},
+	)
+	svc.ReconcileZones(context.Background())
+	assert.Equal(t, "z1", capturedZoneID)
+}
+
+func TestSetupZoneForTunnelNotFound(t *testing.T) {
+	svc := newTestWgS2sService(&mockWgS2sWireGuard{
+		getTunnelsFn: func() []wgs2s.TunnelConfig { return nil },
+	})
+	_, err := svc.SetupZoneForTunnel(context.Background(), "nonexistent")
+	require.Error(t, err)
+	var se *Error
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, ErrNotFound, se.Kind)
+}
+
+func TestSetupZoneForTunnelAlreadyHasZone(t *testing.T) {
+	svc := newTestWgS2sService(
+		&mockWgS2sWireGuard{
+			getTunnelsFn: func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{{ID: "t1"}} },
+		},
+		func(s *WgS2sService) {
+			s.manifest = &mockWgS2sManifest{
+				getZoneFn: func(string) (ZoneInfo, bool) {
+					return ZoneInfo{ZoneID: "z1"}, true
+				},
+			}
+		},
+	)
+	result, err := svc.SetupZoneForTunnel(context.Background(), "t1")
+	require.NoError(t, err)
+	assert.True(t, result.ZoneCreated)
+	assert.True(t, result.PoliciesReady)
+}
+
+func TestSetupZoneForTunnelCreatesZone(t *testing.T) {
+	var setupTunnelID string
+	svc := newTestWgS2sService(
+		&mockWgS2sWireGuard{
+			getTunnelsFn: func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{{ID: "t1"}} },
+		},
+		func(s *WgS2sService) {
+			s.fw = &mockWgS2sFirewall{
+				integrationReadyFn: func() bool { return true },
+				setupZoneFn: func(_ context.Context, tid, _, _ string) *ZoneSetupResult {
+					setupTunnelID = tid
+					return &ZoneSetupResult{ZoneCreated: true, PoliciesReady: true}
+				},
+			}
+		},
+	)
+	result, err := svc.SetupZoneForTunnel(context.Background(), "t1")
+	require.NoError(t, err)
+	assert.True(t, result.ZoneCreated)
+	assert.Equal(t, "t1", setupTunnelID)
+}

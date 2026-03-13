@@ -1,5 +1,5 @@
 <script>
-    import { wgS2sUpdateTunnel, wgS2sDeleteTunnel, wgS2sEnableTunnel, wgS2sDisableTunnel } from '../api.js';
+    import { wgS2sUpdateTunnel, wgS2sDeleteTunnel, wgS2sEnableTunnel, wgS2sDisableTunnel, wgS2sSetupTunnelZone } from '../api.js';
     import { formatBytes, relativeTime, validateTunnelFields, tunnelStatusInfo } from '../utils.js';
     import { WG_DEFAULT_MTU, WG_DEFAULT_KEEPALIVE, WG_DEFAULT_ROUTE_METRIC } from '../constants.js';
     import { useClipboard } from '../helpers/clipboard.svelte.js';
@@ -8,7 +8,7 @@
     import Button from './Button.svelte';
     import WgConfigCopy from './WgConfigCopy.svelte';
 
-    let { tunnel, onUpdate, onDelete } = $props();
+    let { tunnel, onUpdate, onDelete, integrationConfigured = false } = $props();
 
     let editing = $state(false);
     let editData = $state({});
@@ -80,6 +80,14 @@
         }
         actionLoading = false;
     }
+
+    let zoneLoading = $state(false);
+    async function setupZone() {
+        zoneLoading = true;
+        const result = await wgS2sSetupTunnelZone(tunnel.id);
+        if (result) onUpdate();
+        zoneLoading = false;
+    }
 </script>
 
 <div class="bg-surface rounded-xl border border-border overflow-hidden">
@@ -113,6 +121,16 @@
                         <div>
                             <span class="text-text-secondary">Firewall Zone</span>
                             <span class="ml-2 text-text">{tunnel.zoneName}</span>
+                        </div>
+                    {:else if integrationConfigured}
+                        <div class="flex items-center gap-2">
+                            <span class="text-text-secondary">Firewall Zone</span>
+                            <span class="ml-2 text-warning text-caption">No zone assigned</span>
+                            <button
+                                onclick={setupZone}
+                                disabled={zoneLoading}
+                                class="px-2 py-0.5 text-caption rounded border border-warning/50 text-warning hover:bg-warning/10 disabled:opacity-50 transition-colors"
+                            >{zoneLoading ? 'Setting up...' : 'Setup Zone'}</button>
                         </div>
                     {/if}
                     <div>

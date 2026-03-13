@@ -508,6 +508,58 @@ func (svc *WgS2sService) setupTunnelZone(ctx context.Context, tunnelID string, c
 	return result
 }
 
+func (svc *WgS2sService) reconcileTunnelZone(ctx context.Context, tunnelID string) *ZoneSetupResult {
+	if svc.fw == nil || !svc.fw.IntegrationReady() {
+		return nil
+	}
+	zones := svc.manifest.GetZones()
+	if len(zones) > 0 {
+		return svc.fw.SetupZone(ctx, tunnelID, zones[0].ZoneID, "")
+	}
+	return svc.fw.SetupZone(ctx, tunnelID, "", "WireGuard S2S")
+}
+
+func (svc *WgS2sService) ReconcileZones(ctx context.Context) {
+	wg := svc.loadWG()
+	if wg == nil {
+		return
+	}
+	for _, t := range wg.GetTunnels() {
+		if _, ok := svc.manifest.GetZone(t.ID); ok {
+			continue
+		}
+		result := svc.reconcileTunnelZone(ctx, t.ID)
+		if result == nil {
+			return
+		}
+		if result.hasErrors() {
+			slog.Warn("wg-s2s zone reconciliation failed", "tunnelID", t.ID, "errors", result.Errors)
+		} else {
+			slog.Info("wg-s2s zone reconciled", "tunnelID", t.ID)
+		}
+	}
+}
+
+func (svc *WgS2sService) SetupZoneForTunnel(ctx context.Context, tunnelID string) (*ZoneSetupResult, error) {
+	if svc.loadWG() == nil {
+		return nil, upstreamError("WG S2S manager not initialized", nil)
+	}
+	if svc.findTunnelByID(tunnelID) == nil {
+		return nil, notFoundError("tunnel not found")
+	}
+	if _, ok := svc.manifest.GetZone(tunnelID); ok {
+		return &ZoneSetupResult{ZoneCreated: true, PoliciesReady: true}, nil
+	}
+	result := svc.reconcileTunnelZone(ctx, tunnelID)
+	if result == nil {
+		return nil, upstreamError("integration not ready", nil)
+	}
+	if result.hasErrors() {
+		return result, upstreamError("zone setup failed: "+result.Errors[0], nil)
+	}
+	return result, nil
+}
+
 func firewallResultStatus(zoneResult *ZoneSetupResult, fwErr error) string {
 	if !zoneResult.hasErrors() && fwErr == nil {
 		return "ok"

@@ -79,7 +79,7 @@
     {:else}
         <div class="space-y-3">
             {#each mergedTunnels as tunnel (tunnel.id)}
-                <TunnelCard {tunnel} onUpdate={refreshTunnels} onDelete={refreshTunnels} />
+                <TunnelCard {tunnel} onUpdate={refreshTunnels} onDelete={refreshTunnels} integrationConfigured={status.integrationStatus?.configured ?? false} />
             {/each}
         </div>
     {/if}

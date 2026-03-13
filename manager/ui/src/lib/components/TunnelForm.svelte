@@ -116,8 +116,8 @@
             routeMetric: Number(routeMetric),
             privateKey: keypair?.privateKey || undefined,
         };
-        if (integrationConfigured && zones.length > 0) {
-            if (selectedZone === 'new') {
+        if (integrationConfigured) {
+            if (selectedZone === 'new' || zones.length === 0) {
                 payload.createZone = true;
                 payload.zoneName = newZoneName.trim() || 'WireGuard S2S';
             } else {
@@ -195,7 +195,7 @@
             oninput={() => fieldErrors = clearFieldError(fieldErrors,'routeMetric')} />
     </div>
 
-    {#if integrationConfigured && zones.length > 0}
+    {#if integrationConfigured}
         <div>
             <span class="text-caption text-text-secondary font-bold uppercase tracking-wider">Firewall Zone</span>
             <div class="space-y-1.5 mt-2">
@@ -205,7 +205,7 @@
                             type="radio"
                             name="zone"
                             value={zone.zoneId}
-                            checked={selectedZone === zone.zoneId || (selectedZone === '' && zones[0].zoneId === zone.zoneId)}
+                            checked={selectedZone === zone.zoneId || (selectedZone === '' && zones[0]?.zoneId === zone.zoneId)}
                             onchange={() => selectedZone = zone.zoneId}
                             class="w-4 h-4 accent-blue"
                         />
@@ -213,20 +213,25 @@
                         <span class="text-caption text-text-secondary">({zone.tunnelCount} {zone.tunnelCount === 1 ? 'tunnel' : 'tunnels'})</span>
                     </label>
                 {/each}
-                <label class="flex items-center gap-2 text-body cursor-pointer hover:bg-surface-hover rounded px-2 py-1.5 -mx-2 transition-colors">
-                    <input
-                        type="radio"
-                        name="zone"
-                        value="new"
-                        checked={selectedZone === 'new'}
-                        onchange={() => selectedZone = 'new'}
-                        class="w-4 h-4 accent-blue"
-                    />
-                    <span class="text-text">Create new zone</span>
-                </label>
-                {#if selectedZone === 'new'}
+                {#if zones.length > 0}
+                    <label class="flex items-center gap-2 text-body cursor-pointer hover:bg-surface-hover rounded px-2 py-1.5 -mx-2 transition-colors">
+                        <input
+                            type="radio"
+                            name="zone"
+                            value="new"
+                            checked={selectedZone === 'new'}
+                            onchange={() => selectedZone = 'new'}
+                            class="w-4 h-4 accent-blue"
+                        />
+                        <span class="text-text">Create new zone</span>
+                    </label>
+                {/if}
+                {#if selectedZone === 'new' || zones.length === 0}
+                    {#if zones.length === 0}
+                        <p class="text-caption text-text-secondary">A firewall zone will be created for this tunnel:</p>
+                    {/if}
                     <input type="text" bind:value={newZoneName} placeholder="Zone name"
-                        class="ml-6 w-64 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue" />
+                        class="{zones.length > 0 ? 'ml-6' : ''} w-64 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue" />
                 {/if}
             </div>
         </div>

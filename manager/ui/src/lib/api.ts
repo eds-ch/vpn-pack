@@ -203,6 +203,9 @@ export function wgS2sGetLocalSubnets(): Promise<{ subnets: SubnetEntry[] } | nul
 export function wgS2sListZones(): Promise<WgS2sZoneEntry[] | null> {
     return apiFetch<WgS2sZoneEntry[]>('GET', `${API_BASE}/wg-s2s/zones`);
 }
+export function wgS2sSetupTunnelZone(id: string): Promise<OperationResponse | null> {
+    return apiFetch<OperationResponse>('POST', `${API_BASE}/wg-s2s/tunnels/${id}/setup-zone`);
+}
 
 // Remote Exit Node
 export function getRemoteExitNode(): Promise<RemoteExitResponse | null> {

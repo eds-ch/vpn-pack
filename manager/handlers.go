@@ -438,6 +438,19 @@ func (s *Server) handleWgS2sDisableTunnel(w http.ResponseWriter, r *http.Request
 	writeOK(w)
 }
 
+func (s *Server) handleWgS2sSetupZone(w http.ResponseWriter, r *http.Request) {
+	if !s.wgS2sSvc.Available() {
+		writeError(w, http.StatusServiceUnavailable, "WG S2S manager not initialized")
+		return
+	}
+	result, err := s.wgS2sSvc.SetupZoneForTunnel(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeWgS2sError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleWgS2sGenerateKeypair(w http.ResponseWriter, r *http.Request) {
 	kp, err := s.wgS2sSvc.GenerateKeypair()
 	if err != nil {
