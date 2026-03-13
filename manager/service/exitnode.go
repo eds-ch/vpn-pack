@@ -20,7 +20,11 @@ const (
 	exitRuleMaxPrio  = 5300
 	bypassMark       = 0x80000
 	bypassMask       = 0xff0000
-	maxExitClients   = 20
+	maxExitClients  = 20
+	exitMasqComment = "vpn-pack-exit-masq"
+	tsInterface     = "tailscale0"
+	tsCGNATv4       = "100.64.0.0/10"
+	tsCGNATv6       = "fd7a:115c:a1e0::/48"
 )
 
 type ExitNodeManifest interface {
@@ -102,6 +106,9 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 		return validationError(fmt.Sprintf("unknown exit node mode: %s", policy.Mode))
 	}
 
+	if err := s.addMasquerade(ctx); err != nil {
+		return err
+	}
 	return s.manifest.SetExitNodePolicy(policy)
 }
 
@@ -114,6 +121,7 @@ func (s *ExitNodeService) Cleanup(ctx context.Context) error {
 }
 
 func (s *ExitNodeService) cleanupLocked(ctx context.Context) error {
+	s.delMasquerade(ctx)
 	var errs []string
 	for _, fam := range []string{"-4", "-6"} {
 		rules, err := s.listRules(ctx, fam)
@@ -143,7 +151,8 @@ func (s *ExitNodeService) Reconcile(ctx context.Context, policy domain.ExitNodeP
 		return fmt.Errorf("list current exit rules: %w", err)
 	}
 
-	if rulesMatch(current, desired) {
+	needsMasq := len(desired) > 0
+	if rulesMatch(current, desired) && (!needsMasq || s.hasMasquerade(ctx)) {
 		return nil
 	}
 
@@ -174,6 +183,45 @@ func (s *ExitNodeService) flushConntrack(ctx context.Context) {
 		return
 	}
 	slog.Info("conntrack flushed after exit node routing change")
+}
+
+func (s *ExitNodeService) masqArgs(action string) [][]string {
+	return [][]string{
+		{"-t", "nat", action, "POSTROUTING",
+			"-o", tsInterface, "!", "-s", tsCGNATv4,
+			"-j", "MASQUERADE", "-m", "comment", "--comment", exitMasqComment},
+		{"-t", "nat", action, "POSTROUTING",
+			"-o", tsInterface, "!", "-s", tsCGNATv6,
+			"-j", "MASQUERADE", "-m", "comment", "--comment", exitMasqComment},
+	}
+}
+
+func (s *ExitNodeService) addMasquerade(ctx context.Context) error {
+	cmds := []string{"iptables", "ip6tables"}
+	for i, args := range s.masqArgs("-A") {
+		out, err := s.run(ctx, cmds[i], args...)
+		if err != nil {
+			return fmt.Errorf("%s masquerade add: %w (%s)", cmds[i], err, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
+}
+
+func (s *ExitNodeService) delMasquerade(ctx context.Context) {
+	cmds := []string{"iptables", "ip6tables"}
+	for i, args := range s.masqArgs("-D") {
+		s.run(ctx, cmds[i], args...)
+	}
+}
+
+func (s *ExitNodeService) hasMasquerade(ctx context.Context) bool {
+	cmds := []string{"iptables", "ip6tables"}
+	for i, args := range s.masqArgs("-C") {
+		if _, err := s.run(ctx, cmds[i], args...); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *ExitNodeService) delRule(ctx context.Context, family string, prio int) error {

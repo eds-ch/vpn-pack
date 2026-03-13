@@ -32,14 +32,16 @@ func (m *mockExitManifest) SetExitNodePolicy(p domain.ExitNodePolicy) error {
 }
 
 type fakeIPRuleState struct {
-	mu    sync.Mutex
-	rules map[string][]string // family -> list of rule lines
-	cmds  []string
+	mu        sync.Mutex
+	rules     map[string][]string // family -> list of rule lines
+	cmds      []string
+	masqRules map[string]bool // "iptables" / "ip6tables" -> exists
 }
 
 func newFakeIPRuleState() *fakeIPRuleState {
 	return &fakeIPRuleState{
-		rules: map[string][]string{"-4": {}, "-6": {}},
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: make(map[string]bool),
 	}
 }
 
@@ -52,6 +54,10 @@ func (f *fakeIPRuleState) runner() CmdRunner {
 
 		if name == "conntrack" {
 			return nil, nil
+		}
+
+		if name == "iptables" || name == "ip6tables" {
+			return f.handleIptablesLocked(name, args)
 		}
 
 		if len(args) < 3 {
@@ -128,6 +134,40 @@ func extractPrio(args []string) string {
 		}
 	}
 	return ""
+}
+
+func (f *fakeIPRuleState) handleIptablesLocked(cmd string, args []string) ([]byte, error) {
+	action := ""
+	for _, a := range args {
+		switch a {
+		case "-A", "-D", "-C":
+			action = a
+		}
+	}
+	switch action {
+	case "-A":
+		f.masqRules[cmd] = true
+		return nil, nil
+	case "-D":
+		if !f.masqRules[cmd] {
+			return nil, fmt.Errorf("rule not found")
+		}
+		delete(f.masqRules, cmd)
+		return nil, nil
+	case "-C":
+		if f.masqRules[cmd] {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("rule not found")
+	default:
+		return nil, fmt.Errorf("unknown iptables action: %s", action)
+	}
+}
+
+func (f *fakeIPRuleState) masqCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.masqRules)
 }
 
 func (f *fakeIPRuleState) ruleCount() int {
@@ -280,10 +320,10 @@ func TestReconcileNoDrift(t *testing.T) {
 
 	err := svc.Reconcile(context.Background(), policy)
 	require.NoError(t, err)
-	// Reconcile should only have done "show" commands (no adds/deletes)
+	// Reconcile should only have done "show" + "check" commands (no adds/deletes)
 	cmdsAfter := state.commandCount()
-	// 2 show commands (for -4 and -6), no add/del
-	assert.Equal(t, cmdsBefore+2, cmdsAfter)
+	// 2 show (ip rule) + 2 check (iptables -C)
+	assert.Equal(t, cmdsBefore+4, cmdsAfter)
 }
 
 func TestReconcileDrift(t *testing.T) {
@@ -405,4 +445,78 @@ func TestFamilyForAddr(t *testing.T) {
 	assert.Equal(t, "-6", familyForAddr("fd00::1"))
 	assert.Equal(t, "-6", familyForAddr("fd00::/64"))
 	assert.Equal(t, "", familyForAddr("invalid"))
+}
+
+func TestMasqueradeOnApplyAll(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.NoError(t, err)
+	assert.Equal(t, 2, state.masqCount())
+
+	err = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeOff})
+	require.NoError(t, err)
+	assert.Equal(t, 0, state.masqCount())
+}
+
+func TestMasqueradeOnApplySelective(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{
+		Mode:    domain.ExitNodeSelective,
+		Clients: []domain.ExitNodeClient{{IP: "192.168.1.100"}},
+	}
+	err := svc.Apply(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 2, state.masqCount())
+}
+
+func TestMasqueradeSelectiveEmptyClients(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{
+		Mode:    domain.ExitNodeSelective,
+		Clients: nil,
+	}
+	err := svc.Apply(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 0, state.masqCount())
+}
+
+func TestMasqueradeCleanup(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	assert.Equal(t, 2, state.masqCount())
+
+	err := svc.Cleanup(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, state.masqCount())
+}
+
+func TestReconcileMasqDrift(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
+	_ = svc.Apply(context.Background(), policy)
+	assert.Equal(t, 2, state.masqCount())
+
+	// Simulate drift: someone removed masquerade rules
+	state.mu.Lock()
+	state.masqRules = make(map[string]bool)
+	state.mu.Unlock()
+
+	err := svc.Reconcile(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 2, state.masqCount())
 }
