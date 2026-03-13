@@ -50,6 +50,10 @@ func (f *fakeIPRuleState) runner() CmdRunner {
 		full := strings.Join(append([]string{name}, args...), " ")
 		f.cmds = append(f.cmds, full)
 
+		if name == "conntrack" {
+			return nil, nil
+		}
+
 		if len(args) < 3 {
 			return nil, fmt.Errorf("too few args")
 		}
@@ -140,6 +144,18 @@ func (f *fakeIPRuleState) commandCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.cmds)
+}
+
+func (f *fakeIPRuleState) conntrackFlushCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, cmd := range f.cmds {
+		if cmd == "conntrack -F" {
+			n++
+		}
+	}
+	return n
 }
 
 func TestApplyOff(t *testing.T) {
@@ -342,6 +358,45 @@ func TestParseRules(t *testing.T) {
 	assert.Equal(t, "", rules[0].Src)
 	assert.Equal(t, 5281, rules[1].Priority)
 	assert.Equal(t, "192.168.1.100", rules[1].Src)
+}
+
+func TestConntrackFlush(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	// Enable exit node — flush after routing change
+	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	assert.Equal(t, 1, state.conntrackFlushCount())
+
+	// Disable exit node — flush after routing reverts
+	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeOff})
+	assert.Equal(t, 2, state.conntrackFlushCount())
+
+	// Switch to selective — flush
+	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{
+		Mode:    domain.ExitNodeSelective,
+		Clients: []domain.ExitNodeClient{{IP: "10.0.0.1"}},
+	})
+	assert.Equal(t, 3, state.conntrackFlushCount())
+
+	// Cleanup (shutdown) — flush
+	_ = svc.Cleanup(context.Background())
+	assert.Equal(t, 4, state.conntrackFlushCount())
+}
+
+func TestReconcileNoDriftSkipsFlush(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
+	_ = svc.Apply(context.Background(), policy)
+	flushBefore := state.conntrackFlushCount()
+
+	// Reconcile with no drift — should NOT flush
+	_ = svc.Reconcile(context.Background(), policy)
+	assert.Equal(t, flushBefore, state.conntrackFlushCount())
 }
 
 func TestFamilyForAddr(t *testing.T) {

@@ -64,6 +64,8 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 		slog.Warn("exit node cleanup before apply", "err", err)
 	}
 
+	defer s.flushConntrack(ctx)
+
 	switch policy.Mode {
 	case domain.ExitNodeOff, "":
 		return s.manifest.SetExitNodePolicy(domain.ExitNodePolicy{Mode: domain.ExitNodeOff})
@@ -106,7 +108,9 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 func (s *ExitNodeService) Cleanup(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.cleanupLocked(ctx)
+	err := s.cleanupLocked(ctx)
+	s.flushConntrack(ctx)
+	return err
 }
 
 func (s *ExitNodeService) cleanupLocked(ctx context.Context) error {
@@ -161,6 +165,15 @@ func (s *ExitNodeService) addRule(ctx context.Context, family, src string, prio 
 		return fmt.Errorf("ip %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func (s *ExitNodeService) flushConntrack(ctx context.Context) {
+	out, err := s.run(ctx, "conntrack", "-F")
+	if err != nil {
+		slog.Warn("conntrack flush", "err", err, "out", strings.TrimSpace(string(out)))
+		return
+	}
+	slog.Info("conntrack flushed after exit node routing change")
 }
 
 func (s *ExitNodeService) delRule(ctx context.Context, family string, prio int) error {
