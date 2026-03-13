@@ -97,7 +97,7 @@ func buildFakeRuleLine(args []string) string {
 	prio := ""
 	src := "all"
 	lookup := ""
-	hasFwmark := false
+	iif := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "prio":
@@ -115,13 +115,16 @@ func buildFakeRuleLine(args []string) string {
 				lookup = args[i+1]
 				i++
 			}
-		case "not":
-			hasFwmark = true
+		case "iif":
+			if i+1 < len(args) {
+				iif = args[i+1]
+				i++
+			}
 		}
 	}
 	line := fmt.Sprintf("%s:\tfrom %s", prio, src)
-	if hasFwmark {
-		line += " not fwmark 0x80000/0xff0000"
+	if iif != "" {
+		line += fmt.Sprintf(" iif %s", iif)
 	}
 	line += fmt.Sprintf(" lookup %s", lookup)
 	return line
@@ -198,6 +201,10 @@ func (f *fakeIPRuleState) conntrackFlushCount() int {
 	return n
 }
 
+func stubBridges(svc *ExitNodeService, bridges ...string) {
+	svc.discoverBridges = func() ([]string, error) { return bridges, nil }
+}
+
 func TestApplyOff(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
@@ -213,19 +220,19 @@ func TestApplyAll(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
 	require.NoError(t, err)
 	assert.Equal(t, 2, state.ruleCount()) // IPv4 + IPv6
 	assert.Equal(t, domain.ExitNodeAll, manifest.policy.Mode)
 
-	// Verify rules contain lookup 53
 	state.mu.Lock()
 	for _, fam := range []string{"-4", "-6"} {
 		require.Len(t, state.rules[fam], 1, "expected 1 rule for %s", fam)
 		assert.Contains(t, state.rules[fam][0], "lookup 53")
 		assert.Contains(t, state.rules[fam][0], "5280:")
-		assert.Contains(t, state.rules[fam][0], "from all")
+		assert.Contains(t, state.rules[fam][0], "iif br0")
 	}
 	state.mu.Unlock()
 }
@@ -280,6 +287,7 @@ func TestApplyReplacesExisting(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	// Apply "all" first
 	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
@@ -300,6 +308,7 @@ func TestCleanup(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
 	assert.Equal(t, 2, state.ruleCount())
@@ -313,6 +322,7 @@ func TestReconcileNoDrift(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
 	_ = svc.Apply(context.Background(), policy)
@@ -330,6 +340,7 @@ func TestReconcileDrift(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
 	_ = svc.Apply(context.Background(), policy)
@@ -385,25 +396,42 @@ func TestValidateExitNodePolicy(t *testing.T) {
 }
 
 func TestParseRules(t *testing.T) {
-	output := `0:	from all lookup local
+	t.Run("iif rules", func(t *testing.T) {
+		output := `0:	from all lookup local
 5270:	not from all fwmark 0x80000/0xff0000 lookup 52
-5280:	from all not fwmark 0x80000/0xff0000 lookup 53
-5281:	from 192.168.1.100 not fwmark 0x80000/0xff0000 lookup 53
+5280:	from all iif br0 lookup 53
+5281:	from all iif br2 lookup 53
 32766:	from all lookup main
 32767:	from all lookup default
 `
-	rules := parseRules(output, "-4")
-	assert.Len(t, rules, 2)
-	assert.Equal(t, 5280, rules[0].Priority)
-	assert.Equal(t, "", rules[0].Src)
-	assert.Equal(t, 5281, rules[1].Priority)
-	assert.Equal(t, "192.168.1.100", rules[1].Src)
+		rules := parseRules(output, "-4")
+		assert.Len(t, rules, 2)
+		assert.Equal(t, 5280, rules[0].Priority)
+		assert.Equal(t, "", rules[0].Src)
+		assert.Equal(t, "br0", rules[0].Iif)
+		assert.Equal(t, 5281, rules[1].Priority)
+		assert.Equal(t, "br2", rules[1].Iif)
+	})
+
+	t.Run("selective rules", func(t *testing.T) {
+		output := `0:	from all lookup local
+5281:	from 192.168.1.100 lookup 53
+5282:	from 10.0.0.0/24 lookup 53
+32766:	from all lookup main
+`
+		rules := parseRules(output, "-4")
+		assert.Len(t, rules, 2)
+		assert.Equal(t, "192.168.1.100", rules[0].Src)
+		assert.Equal(t, "", rules[0].Iif)
+		assert.Equal(t, "10.0.0.0/24", rules[1].Src)
+	})
 }
 
 func TestConntrackFlush(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	// Enable exit node — flush after routing change
 	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
@@ -429,6 +457,7 @@ func TestReconcileNoDriftSkipsFlush(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
 	_ = svc.Apply(context.Background(), policy)
@@ -451,6 +480,7 @@ func TestMasqueradeOnApplyAll(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
 	require.NoError(t, err)
@@ -493,6 +523,7 @@ func TestMasqueradeCleanup(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	_ = svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
 	assert.Equal(t, 2, state.masqCount())
@@ -506,6 +537,7 @@ func TestReconcileMasqDrift(t *testing.T) {
 	state := newFakeIPRuleState()
 	manifest := &mockExitManifest{}
 	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
 
 	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
 	_ = svc.Apply(context.Background(), policy)
@@ -519,4 +551,56 @@ func TestReconcileMasqDrift(t *testing.T) {
 	err := svc.Reconcile(context.Background(), policy)
 	require.NoError(t, err)
 	assert.Equal(t, 2, state.masqCount())
+}
+
+func TestApplyAllMultipleBridges(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0", "br2", "br5")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.NoError(t, err)
+	assert.Equal(t, 6, state.ruleCount()) // 3 bridges × 2 families
+
+	state.mu.Lock()
+	assert.Len(t, state.rules["-4"], 3)
+	assert.Contains(t, state.rules["-4"][0], "iif br0")
+	assert.Contains(t, state.rules["-4"][0], "5280:")
+	assert.Contains(t, state.rules["-4"][1], "iif br2")
+	assert.Contains(t, state.rules["-4"][1], "5281:")
+	assert.Contains(t, state.rules["-4"][2], "iif br5")
+	assert.Contains(t, state.rules["-4"][2], "5282:")
+	state.mu.Unlock()
+}
+
+func TestReconcileDetectsNewBridge(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+
+	bridges := []string{"br0"}
+	svc.discoverBridges = func() ([]string, error) { return bridges, nil }
+
+	policy := domain.ExitNodePolicy{Mode: domain.ExitNodeAll}
+	_ = svc.Apply(context.Background(), policy)
+	assert.Equal(t, 2, state.ruleCount()) // 1 bridge × 2 families
+
+	// New VLAN added — bridge appears
+	bridges = []string{"br0", "br2"}
+
+	err := svc.Reconcile(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, 4, state.ruleCount()) // 2 bridges × 2 families
+}
+
+func TestApplyAllNoBridgesError(t *testing.T) {
+	state := newFakeIPRuleState()
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc)
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no LAN bridge")
 }

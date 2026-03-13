@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,16 +38,17 @@ type ExitNodeManifest interface {
 type CmdRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type ExitNodeService struct {
-	manifest ExitNodeManifest
-	run      CmdRunner
-	mu       sync.Mutex
+	manifest        ExitNodeManifest
+	run             CmdRunner
+	discoverBridges func() ([]string, error)
+	mu              sync.Mutex
 }
 
 func NewExitNodeService(manifest ExitNodeManifest, runner CmdRunner) *ExitNodeService {
 	if runner == nil {
 		runner = defaultCmdRunner
 	}
-	return &ExitNodeService{manifest: manifest, run: runner}
+	return &ExitNodeService{manifest: manifest, run: runner, discoverBridges: defaultDiscoverBridges}
 }
 
 func defaultCmdRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -54,7 +58,8 @@ func defaultCmdRunner(ctx context.Context, name string, args ...string) ([]byte,
 type exitRule struct {
 	Priority int
 	Family   string // "-4" or "-6"
-	Src      string // "" for catchall
+	Src      string // client IP/CIDR for selective mode
+	Iif      string // input interface for mode=all (e.g. "br0")
 }
 
 func (s *ExitNodeService) Apply(ctx context.Context, policy domain.ExitNodePolicy) error {
@@ -75,9 +80,24 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 		return s.manifest.SetExitNodePolicy(domain.ExitNodePolicy{Mode: domain.ExitNodeOff})
 
 	case domain.ExitNodeAll:
-		for _, fam := range []string{"-4", "-6"} {
-			if err := s.addRule(ctx, fam, "", exitRuleBasePrio); err != nil {
-				return fmt.Errorf("add %s catchall exit rule: %w", fam, err)
+		bridges, err := s.discoverBridges()
+		if err != nil {
+			return fmt.Errorf("discover LAN bridges: %w", err)
+		}
+		if len(bridges) == 0 {
+			return fmt.Errorf("no LAN bridge interfaces found")
+		}
+		prio := exitRuleBasePrio
+		for _, br := range bridges {
+			for _, fam := range []string{"-4", "-6"} {
+				if err := s.addRule(ctx, fam, "", prio, br); err != nil {
+					return fmt.Errorf("add %s iif %s exit rule: %w", fam, br, err)
+				}
+			}
+			prio++
+			if prio > exitRuleMaxPrio {
+				slog.Warn("exit node bridge limit reached", "max", exitRuleMaxPrio-exitRuleBasePrio)
+				break
 			}
 		}
 
@@ -92,7 +112,7 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 				slog.Warn("skip invalid exit client address", "ip", c.IP)
 				continue
 			}
-			if err := s.addRule(ctx, fam, c.IP, prio); err != nil {
+			if err := s.addRule(ctx, fam, c.IP, prio, ""); err != nil {
 				return fmt.Errorf("add exit rule for %s: %w", c.IP, err)
 			}
 			prio++
@@ -145,7 +165,16 @@ func (s *ExitNodeService) Reconcile(ctx context.Context, policy domain.ExitNodeP
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	desired := buildDesiredRules(policy)
+	var bridges []string
+	if policy.Mode == domain.ExitNodeAll {
+		var bErr error
+		bridges, bErr = s.discoverBridges()
+		if bErr != nil {
+			return fmt.Errorf("discover bridges for reconcile: %w", bErr)
+		}
+	}
+
+	desired := buildDesiredRules(policy, bridges)
 	current, err := s.allCurrentRules(ctx)
 	if err != nil {
 		return fmt.Errorf("list current exit rules: %w", err)
@@ -160,11 +189,11 @@ func (s *ExitNodeService) Reconcile(ctx context.Context, policy domain.ExitNodeP
 	return s.applyLocked(ctx, policy)
 }
 
-func (s *ExitNodeService) addRule(ctx context.Context, family, src string, prio int) error {
-	args := []string{family, "rule", "add",
-		"not", "fwmark", fmt.Sprintf("0x%x/0x%x", bypassMark, bypassMask),
-	}
-	if src != "" {
+func (s *ExitNodeService) addRule(ctx context.Context, family, src string, prio int, iif string) error {
+	args := []string{family, "rule", "add"}
+	if iif != "" {
+		args = append(args, "iif", iif)
+	} else if src != "" {
 		args = append(args, "from", src)
 	}
 	args = append(args, "lookup", strconv.Itoa(exitRouteTable), "prio", strconv.Itoa(prio))
@@ -267,7 +296,8 @@ func parseRules(output, family string) []exitRule {
 			continue
 		}
 		src := parseRuleFrom(line)
-		rules = append(rules, exitRule{Priority: prio, Family: family, Src: src})
+		iif := parseRuleIif(line)
+		rules = append(rules, exitRule{Priority: prio, Family: family, Src: src, Iif: iif})
 	}
 	return rules
 }
@@ -302,13 +332,35 @@ func parseRuleFrom(line string) string {
 	return src
 }
 
-func buildDesiredRules(policy domain.ExitNodePolicy) []exitRule {
+func parseRuleIif(line string) string {
+	const prefix = "iif "
+	idx := strings.Index(line, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := line[idx+len(prefix):]
+	end := strings.IndexByte(rest, ' ')
+	if end < 0 {
+		return rest
+	}
+	return rest[:end]
+}
+
+func buildDesiredRules(policy domain.ExitNodePolicy, bridges []string) []exitRule {
 	switch policy.Mode {
 	case domain.ExitNodeAll:
-		return []exitRule{
-			{Priority: exitRuleBasePrio, Family: "-4"},
-			{Priority: exitRuleBasePrio, Family: "-6"},
+		var rules []exitRule
+		prio := exitRuleBasePrio
+		for _, br := range bridges {
+			for _, fam := range []string{"-4", "-6"} {
+				rules = append(rules, exitRule{Priority: prio, Family: fam, Iif: br})
+			}
+			prio++
+			if prio > exitRuleMaxPrio {
+				break
+			}
 		}
+		return rules
 	case domain.ExitNodeSelective:
 		var rules []exitRule
 		prio := exitRuleBasePrio + 1
@@ -317,7 +369,7 @@ func buildDesiredRules(policy domain.ExitNodePolicy) []exitRule {
 			if fam == "" {
 				continue
 			}
-			rules = append(rules, exitRule{Priority: prio, Family: fam, Src: c.IP})
+			rules = append(rules, exitRule{Priority: prio, Family: fam, Src: normalizeRuleSrc(c.IP)})
 			prio++
 			if prio > exitRuleMaxPrio {
 				break
@@ -346,7 +398,16 @@ func rulesMatch(current, desired []exitRule) bool {
 }
 
 func ruleKey(r exitRule) string {
-	return fmt.Sprintf("%d/%s/%s", r.Priority, r.Family, r.Src)
+	return fmt.Sprintf("%d/%s/%s/%s", r.Priority, r.Family, r.Src, r.Iif)
+}
+
+func normalizeRuleSrc(s string) string {
+	if p, err := netip.ParsePrefix(s); err == nil {
+		if (p.Addr().Is4() && p.Bits() == 32) || (p.Addr().Is6() && p.Bits() == 128) {
+			return p.Addr().String()
+		}
+	}
+	return s
 }
 
 func familyForAddr(s string) string {
@@ -363,6 +424,22 @@ func familyForAddr(s string) string {
 		return "-6"
 	}
 	return ""
+}
+
+func defaultDiscoverBridges() ([]string, error) {
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return nil, fmt.Errorf("read /sys/class/net: %w", err)
+	}
+	var bridges []string
+	for _, e := range entries {
+		bridgeDir := filepath.Join("/sys/class/net", e.Name(), "bridge")
+		if fi, err := os.Stat(bridgeDir); err == nil && fi.IsDir() {
+			bridges = append(bridges, e.Name())
+		}
+	}
+	sort.Strings(bridges)
+	return bridges, nil
 }
 
 func ValidateExitNodePolicy(policy domain.ExitNodePolicy) error {
