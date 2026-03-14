@@ -8,8 +8,11 @@ Tailscale and WireGuard Site-to-Site VPN for UniFi Cloud Gateway devices (UDM SE
 - **Web UI** at `https://<gateway-ip>/vpn-pack/` — protected by UniFi controller auth
 - **Subnet routing** — advertise local networks to your tailnet
 - **Exit node** — route all traffic from other Tailscale devices through your gateway
+- **Remote exit node** — use another Tailscale peer as exit node with per-client selective routing
+- **DNS forwarding** — LAN clients resolve Tailscale peer names (*.ts.net) without MagicDNS on the router
 - **WireGuard site-to-site tunnels** — encrypted point-to-point links between networks, managed from the UI
 - **UniFi firewall integration** — automatic zone and policy creation visible in the UniFi Network UI
+- **Health diagnostics** — routing health monitor, subnet conflict detection, PBR conflict warnings
 
 ## Supported Devices
 
@@ -57,11 +60,11 @@ Everything under `/persistent/` survives firmware updates and factory resets.
 
 The management interface runs behind the UniFi controller's authentication — no extra passwords needed.
 
-**Dashboard** — connection status, Tailscale IP, peers with latency, DERP relay info, WG S2S tunnel status.
+**Dashboard** — connection status, Tailscale IP, peers with latency, DERP relay info, WG S2S tunnel status, device info (hostname, firmware, uptime).
 
 ![Dashboard](https://raw.githubusercontent.com/wiki/eds-ch/vpn-pack/screenshots/dashboard.png)
 
-**Settings** — hostname, UDP port, relay server mode, custom control URL, subnet routes, exit node toggle, UniFi Integration API key.
+**Settings** — hostname, UDP port, relay server mode, custom control URL, subnet routes, DNS forwarding, UniFi Integration API key. Routing tab with advertise exit node toggle, remote exit node (peer selection, all-traffic or per-client mode), and subnet route management.
 
 ![Settings](https://raw.githubusercontent.com/wiki/eds-ch/vpn-pack/screenshots/ts_settings.png)
 
@@ -83,6 +86,8 @@ When you provide a UniFi Network API key in the Settings, vpn-pack:
 4. Assigns each S2S tunnel its own firewall zone
 
 These zones and policies appear in the UniFi Network UI and persist across reboots. All auto-created rules are prefixed with `VPN Pack:` so they're easy to spot in the UI.
+
+Firewall zones are automatically reconciled after reboots or UniFi policy changes — if a zone binding is lost, it's restored within seconds.
 
 ## Uninstall
 
@@ -108,11 +113,11 @@ make package                    # create vpn-pack-<version>.tar.gz
 make deploy HOST=<gateway-ip>   # deploy via SSH
 ```
 
-The build applies four patches to upstream Tailscale v1.94.2 and strips 38 unused modules to produce a binary tailored for UniFi devices (28 MB vs 62 MB stock). See the [Custom Tailscale Build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) wiki page for full details, or `patches/README.md` for patch mechanics.
+The build applies six patches to upstream Tailscale v1.94.2 and strips 38 unused modules to produce a binary tailored for UniFi devices (19 MB vs 62 MB stock). See the [Custom Tailscale Build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) wiki page for full details, or `patches/README.md` for patch mechanics.
 
 ## How It Works
 
-Tailscale runs as a [custom build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) — patched to avoid fwmark collisions with UniFi VPN clients, stripped of desktop/cloud modules, and statically linked. It operates in userspace via `/dev/net/tun` — no kernel modules needed. It uses its own iptables chains (`ts-*`) and fwmark bits that don't overlap with UniFi's (`UBIOS_*`). DNS resolution is left to UniFi (`--accept-dns=false`) to avoid conflicts.
+Tailscale runs as a [custom build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) — patched to avoid fwmark collisions with UniFi VPN clients, ensure correct iptables chain ordering, and provide custom exit node routing tables. Stripped of desktop/cloud modules and statically linked. It operates in userspace via `/dev/net/tun` — no kernel modules needed. It uses its own iptables chains (`ts-*`) and fwmark bits that don't overlap with UniFi's (`UBIOS_*`). DNS resolution is left to UniFi (`--accept-dns=false`) to avoid conflicts.
 
 The manager is a single Go binary with the Svelte UI embedded. It talks to tailscaled via the local Unix socket and to UniFi via the Integration API and UDAPI socket.
 

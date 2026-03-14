@@ -12,6 +12,8 @@ Patches applied to upstream Tailscale source before cross-compiling for UniFi de
 | `002-ubnt-device-model.patch` | Report DeviceModel as actual product name (e.g. "UDM-SE") instead of SoC name |
 | `003-ubnt-distro-version.patch` | Report Distro="ubnt", Version=firmware version, CodeName from os-release |
 | `004-package-type-unifi.patch` | Set Package="unifi-tailscale" via build tag `ts_package_unifi` |
+| `005-ubnt-forward-chain-order.patch` | Fix ts-forward chain order on UBNT: insert after UBIOS_FORWARD_JUMP, add ts-mark chain |
+| `006-ubnt-exit-route-table.patch` | Route exit-node prefixes (bits ≤ 1) to table 53 on UBNT, keeping subnet routes in table 52. Duplicate throw routes into both tables to prevent LAN/WAN breakage with exit nodes |
 
 ## Verifying Patches
 
@@ -62,7 +64,7 @@ Runs a dry-run application against the reference source. No files are modified. 
    ```bash
    diff -ruN reference/tailscale /tmp/tailscale-work > patches/NNN-description.patch
    ```
-   Use the next sequential number (e.g. `005-...`).
+   Use the next sequential number (e.g. `007-...`).
 4. Add a version header as the first two lines of the patch file:
    ```
    # Tailscale-Version: 1.94.2
