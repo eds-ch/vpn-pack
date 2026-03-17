@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-03-17
+
+### Fixed
+- Uninstall `--cleanup` now removes exit node ip rules (table 53, prio 5280-5300) and iptables masquerade rules that were previously orphaned
+- Uninstall `--cleanup` now deletes DNS forwarding policies from the Integration API
+- `uninstall.sh` removes itself so `--purge` leaves no orphan files in `/persistent/vpn-pack/`
+
 ## [1.4.1] - 2026-03-13
 
 ### Fixed
@@ -296,7 +303,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/eds-ch/vpn-pack/compare/v1.3.0...v1.3.1
