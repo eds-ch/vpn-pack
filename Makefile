@@ -190,7 +190,7 @@ checksums: package
 
 release: checksums
 	@echo "==> Creating GitHub release v$(VPNPACK_VERSION)..."
-	@printf 'Tailscale %s for UniFi Cloud Gateway devices.\n\n## Install\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/%s/main/get.sh | sudo bash\n```\n' \
+	@printf 'Tailscale %s for UniFi Cloud Gateway devices.\n\n## Install\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/%s/main/get.sh | bash\n```\n' \
 		"$(TAILSCALE_VERSION)" "$(GITHUB_REPO)" > $(DIST_DIR)/release-notes.md
 	gh release create "v$(VPNPACK_VERSION)" \
 		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz \
