@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ func runCleanup() {
 	removeWgS2sUDAPIRules(uc)
 	removeWgS2sInterfaces()
 	removeSubnetsEntries(uc)
+	removeExitNodeRules()
 
 	removeIntegrationResources()
 
@@ -152,6 +155,12 @@ func removeIntegrationResources() {
 		})
 	}
 
+	for marker, entry := range manifest.DNSPolicies {
+		deleteResourceBestEffort("DNS forwarding policy", marker, func() error {
+			return ic.DeletePolicy(ctx, siteID, entry.PolicyID)
+		})
+	}
+
 	deletedZones := make(map[string]bool)
 	for _, zm := range manifest.WgS2s {
 		if zm.ZoneID == "" || deletedZones[zm.ZoneID] {
@@ -170,6 +179,52 @@ func removeIntegrationResources() {
 	}
 
 	slog.Info("cleanup: Integration API cleanup complete")
+}
+
+func removeExitNodeRules() {
+	for _, fam := range []string{"-4", "-6"} {
+		out, err := exec.Command("ip", fam, "rule", "show").Output()
+		if err != nil {
+			slog.Warn("cleanup: ip rule show failed", "family", fam, "err", err)
+			continue
+		}
+		lookupStr := fmt.Sprintf("lookup %d", service.ExitRouteTable)
+		scanner := bufio.NewScanner(strings.NewReader(string(out)))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.Contains(line, lookupStr) {
+				continue
+			}
+			idx := strings.IndexByte(line, ':')
+			if idx <= 0 {
+				continue
+			}
+			prio, err := strconv.Atoi(strings.TrimSpace(line[:idx]))
+			if err != nil || prio < service.ExitRuleBasePrio || prio > service.ExitRuleMaxPrio {
+				continue
+			}
+			if delErr := exec.Command("ip", fam, "rule", "del", "prio", strconv.Itoa(prio)).Run(); delErr != nil {
+				slog.Warn("cleanup: exit node ip rule removal failed", "family", fam, "prio", prio, "err", delErr)
+			} else {
+				slog.Info("cleanup: exit node ip rule removed", "family", fam, "prio", prio)
+			}
+		}
+	}
+
+	masqRules := []struct {
+		cmd  string
+		src  string
+	}{
+		{"iptables", config.TailscaleCGNAT},
+		{"ip6tables", "fd7a:115c:a1e0::/48"},
+	}
+	for _, r := range masqRules {
+		if err := exec.Command(r.cmd, "-t", "nat", "-D", "POSTROUTING",
+			"-o", config.TailscaleInterface, "!", "-s", r.src,
+			"-j", "MASQUERADE", "-m", "comment", "--comment", service.ExitMasqComment).Run(); err == nil {
+			slog.Info("cleanup: exit node masquerade rule removed", "cmd", r.cmd)
+		}
+	}
 }
 
 func deleteResourceBestEffort(kind, id string, fn func() error) {

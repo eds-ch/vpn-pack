@@ -18,16 +18,17 @@ import (
 )
 
 const (
-	exitRouteTable   = 53
-	exitRuleBasePrio = 5280
-	exitRuleMaxPrio  = 5300
-	bypassMark       = 0x80000
-	bypassMask       = 0xff0000
-	maxExitClients  = 20
-	exitMasqComment = "vpn-pack-exit-masq"
-	tsInterface     = "tailscale0"
-	tsCGNATv4       = "100.64.0.0/10"
-	tsCGNATv6       = "fd7a:115c:a1e0::/48"
+	ExitRouteTable   = 53
+	ExitRuleBasePrio = 5280
+	ExitRuleMaxPrio  = 5300
+	ExitMasqComment  = "vpn-pack-exit-masq"
+
+	bypassMark     = 0x80000
+	bypassMask     = 0xff0000
+	maxExitClients = 20
+	tsInterface    = "tailscale0"
+	tsCGNATv4      = "100.64.0.0/10"
+	tsCGNATv6      = "fd7a:115c:a1e0::/48"
 )
 
 type ExitNodeManifest interface {
@@ -87,7 +88,7 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 		if len(bridges) == 0 {
 			return fmt.Errorf("no LAN bridge interfaces found")
 		}
-		prio := exitRuleBasePrio
+		prio := ExitRuleBasePrio
 		for _, br := range bridges {
 			for _, fam := range []string{"-4", "-6"} {
 				if err := s.addRule(ctx, fam, "", prio, br); err != nil {
@@ -95,8 +96,8 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 				}
 			}
 			prio++
-			if prio > exitRuleMaxPrio {
-				slog.Warn("exit node bridge limit reached", "max", exitRuleMaxPrio-exitRuleBasePrio)
+			if prio > ExitRuleMaxPrio {
+				slog.Warn("exit node bridge limit reached", "max", ExitRuleMaxPrio-ExitRuleBasePrio)
 				break
 			}
 		}
@@ -105,7 +106,7 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 		if len(policy.Clients) == 0 {
 			return s.manifest.SetExitNodePolicy(policy)
 		}
-		prio := exitRuleBasePrio + 1
+		prio := ExitRuleBasePrio + 1
 		for _, c := range policy.Clients {
 			fam := familyForAddr(c.IP)
 			if fam == "" {
@@ -116,7 +117,7 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 				return fmt.Errorf("add exit rule for %s: %w", c.IP, err)
 			}
 			prio++
-			if prio > exitRuleMaxPrio {
+			if prio > ExitRuleMaxPrio {
 				slog.Warn("exit node client limit reached", "max", maxExitClients)
 				break
 			}
@@ -196,7 +197,7 @@ func (s *ExitNodeService) addRule(ctx context.Context, family, src string, prio 
 	} else if src != "" {
 		args = append(args, "from", src)
 	}
-	args = append(args, "lookup", strconv.Itoa(exitRouteTable), "prio", strconv.Itoa(prio))
+	args = append(args, "lookup", strconv.Itoa(ExitRouteTable), "prio", strconv.Itoa(prio))
 
 	out, err := s.run(ctx, "ip", args...)
 	if err != nil {
@@ -218,10 +219,10 @@ func (s *ExitNodeService) masqArgs(action string) [][]string {
 	return [][]string{
 		{"-t", "nat", action, "POSTROUTING",
 			"-o", tsInterface, "!", "-s", tsCGNATv4,
-			"-j", "MASQUERADE", "-m", "comment", "--comment", exitMasqComment},
+			"-j", "MASQUERADE", "-m", "comment", "--comment", ExitMasqComment},
 		{"-t", "nat", action, "POSTROUTING",
 			"-o", tsInterface, "!", "-s", tsCGNATv6,
-			"-j", "MASQUERADE", "-m", "comment", "--comment", exitMasqComment},
+			"-j", "MASQUERADE", "-m", "comment", "--comment", ExitMasqComment},
 	}
 }
 
@@ -285,14 +286,14 @@ func (s *ExitNodeService) allCurrentRules(ctx context.Context) ([]exitRule, erro
 func parseRules(output, family string) []exitRule {
 	var rules []exitRule
 	scanner := bufio.NewScanner(strings.NewReader(output))
-	lookupStr := fmt.Sprintf("lookup %d", exitRouteTable)
+	lookupStr := fmt.Sprintf("lookup %d", ExitRouteTable)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.Contains(line, lookupStr) {
 			continue
 		}
 		prio, ok := parseRulePriority(line)
-		if !ok || prio < exitRuleBasePrio || prio > exitRuleMaxPrio {
+		if !ok || prio < ExitRuleBasePrio || prio > ExitRuleMaxPrio {
 			continue
 		}
 		src := parseRuleFrom(line)
@@ -350,20 +351,20 @@ func buildDesiredRules(policy domain.ExitNodePolicy, bridges []string) []exitRul
 	switch policy.Mode {
 	case domain.ExitNodeAll:
 		var rules []exitRule
-		prio := exitRuleBasePrio
+		prio := ExitRuleBasePrio
 		for _, br := range bridges {
 			for _, fam := range []string{"-4", "-6"} {
 				rules = append(rules, exitRule{Priority: prio, Family: fam, Iif: br})
 			}
 			prio++
-			if prio > exitRuleMaxPrio {
+			if prio > ExitRuleMaxPrio {
 				break
 			}
 		}
 		return rules
 	case domain.ExitNodeSelective:
 		var rules []exitRule
-		prio := exitRuleBasePrio + 1
+		prio := ExitRuleBasePrio + 1
 		for _, c := range policy.Clients {
 			fam := familyForAddr(c.IP)
 			if fam == "" {
@@ -371,7 +372,7 @@ func buildDesiredRules(policy domain.ExitNodePolicy, bridges []string) []exitRul
 			}
 			rules = append(rules, exitRule{Priority: prio, Family: fam, Src: normalizeRuleSrc(c.IP)})
 			prio++
-			if prio > exitRuleMaxPrio {
+			if prio > ExitRuleMaxPrio {
 				break
 			}
 		}

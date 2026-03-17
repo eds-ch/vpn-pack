@@ -131,6 +131,7 @@ fi
 
 rm -f "${INSTALL_DIR}/tailscaled.defaults"
 rm -f "${INSTALL_DIR}/VERSION"
+rm -f "${INSTALL_DIR}/uninstall.sh"
 
 # ── Config handling ───────────────────────────────────────────────
 # Config includes: api-key, manifest.json, nginx-vpnpack.conf, wg-s2s/
