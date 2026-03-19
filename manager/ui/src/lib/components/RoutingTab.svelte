@@ -127,7 +127,7 @@
             || stagedRemoteExitPeerId !== status.usingExitNode?.peerId
             || stagedRemoteExitMode !== status.usingExitNode?.mode
             || (stagedRemoteExitMode === 'selective' && !clientsEqual(stagedRemoteExitClients, status.usingExitNode?.clients ?? [])));
-        // setRoutes с advertiseExit=true сам отключает remote exit на бэкенде
+        // setRoutes with advertiseExit=true disables remote exit on the backend
         const needDisable = !stagedRemoteExitEnabled && wasEnabled && !stagedAdvertiseExit;
 
         if (needEnable) {
