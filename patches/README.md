@@ -2,7 +2,7 @@
 
 Patches applied to upstream Tailscale source before cross-compiling for UniFi devices.
 
-**Current target version: 1.94.2**
+**Current target version: 1.96.2**
 
 ## Patch Files
 

@@ -113,7 +113,7 @@ make package                    # create vpn-pack-<version>.tar.gz
 make deploy HOST=<gateway-ip>   # deploy via SSH
 ```
 
-The build applies six patches to upstream Tailscale v1.94.2 and strips 38 unused modules to cut total binary size from 62 MB to 28 MB (–55%). See the [Custom Tailscale Build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) wiki page for full details, or `patches/README.md` for patch mechanics.
+The build applies six patches to upstream Tailscale v1.96.2 and strips 38 unused modules to cut total binary size from 62 MB to 28 MB (–55%). See the [Custom Tailscale Build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) wiki page for full details, or `patches/README.md` for patch mechanics.
 
 ## How It Works
 
