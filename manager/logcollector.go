@@ -77,7 +77,9 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) er
 			level = "warn"
 		}
 
-		buf.Add(state.NewLogEntry(level, text, ts))
+		e := state.NewLogEntry(level, text, "tailscale")
+		e.Timestamp = ts
+		buf.Add(e)
 	}
 	return scanner.Err()
 }
