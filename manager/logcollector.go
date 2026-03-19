@@ -64,9 +64,9 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) er
 			continue
 		}
 
-		ts := raw.Logtail.ClientTime
-		if ts == "" {
-			ts = time.Now().UTC().Format(time.RFC3339)
+		clientTime := raw.Logtail.ClientTime
+		if clientTime == "" {
+			clientTime = time.Now().UTC().Format(time.RFC3339)
 		}
 
 		level := "info"
@@ -78,7 +78,7 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) er
 		}
 
 		e := state.NewLogEntry(level, text, "tailscale")
-		e.Timestamp = ts
+		e.Timestamp = clientTime
 		buf.Add(e)
 	}
 	return scanner.Err()
