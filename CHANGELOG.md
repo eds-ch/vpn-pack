@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.1] - 2026-03-19
+
+### Changed
+- Tailscale updated from 1.94.2 to 1.96.2
+- VPN Pack Manager now waits for Tailscale connectivity before starting (`tailscale wait --timeout=120s`)
+
+### Added (upstream)
+- Connmark-based rp_filter workaround — saves/restores fwmarks via conntrack in mangle table (safe with our 0x800000 mark, no UBIOS mask overlap)
+- DNS health warnings suppressed when `--accept-dns=false`
+- `tailscale wait` command for service readiness gating
+- `tailscale dns status|query --json` output
+
 ## [1.4.2] - 2026-03-17
 
 ### Fixed
@@ -303,7 +315,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.0-beta.1...HEAD
+[1.5.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...v1.5.0-beta.1
 [1.4.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/eds-ch/vpn-pack/compare/v1.3.1...v1.4.0
