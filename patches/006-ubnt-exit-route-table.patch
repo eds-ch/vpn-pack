@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.94.2
+# Tailscale-Version: 1.96.2
 # Description: Route exit-node prefixes (bits <= 1) to table 53 on UBNT, keeping subnet routes in table 52.
 #              Duplicate throw routes into both tables to prevent LAN/WAN breakage with exit nodes.
 --- a/wgengine/router/osrouter/router_linux.go	2026-03-13 06:50:01.758937518 +0000

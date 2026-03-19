@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.94.2
+# Tailscale-Version: 1.96.2
 # Description: Use ubnt-device-info for accurate product name instead of generic SoC name
 --- a/hostinfo/hostinfo_linux.go	2026-02-21 10:13:12.854104053 +0000
 +++ b/hostinfo/hostinfo_linux.go	2026-02-21 10:16:23.501758797 +0000

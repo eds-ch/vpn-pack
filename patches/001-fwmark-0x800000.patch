@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.94.2
+# Tailscale-Version: 1.96.2
 # Description: Change subnet route fwmark from 0x40000 to 0x800000 to avoid conflict with UniFi wgclt1
 --- a/tsconst/linuxfw.go	2026-02-21 10:13:02.217119588 +0000
 +++ b/tsconst/linuxfw.go	2026-02-21 10:13:02.221119582 +0000

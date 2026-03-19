@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.94.2
+# Tailscale-Version: 1.96.2
 # Description: Set Package=unifi-tailscale via build tag ts_package_unifi
 --- /dev/null
 +++ b/hostinfo/packagetype_unifi.go

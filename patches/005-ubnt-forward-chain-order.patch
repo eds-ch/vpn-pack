@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.94.2
+# Tailscale-Version: 1.96.2
 # Description: Fix ts-forward chain order on UBNT: insert after UBIOS_FORWARD_JUMP, add ts-mark chain
 --- a/util/linuxfw/iptables_runner.go	2026-03-11 14:06:59.916458418 +0000
 +++ b/util/linuxfw/iptables_runner.go	2026-03-11 14:08:29.777113758 +0000
