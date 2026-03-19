@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.3] - 2026-03-19
+
+### Fixed
+- Tailscale log source filter showed "No matching entries" — timestamp was passed as source instead of `"tailscale"`, breaking UI filter and losing original event timestamp
+
 ## [1.5.0-beta.2] - 2026-03-19
 
 ### Fixed
@@ -319,7 +324,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.0-beta.2...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.0-beta.3...HEAD
+[1.5.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.5.0-beta.2...v1.5.0-beta.3
 [1.5.0-beta.2]: https://github.com/eds-ch/vpn-pack/compare/v1.5.0-beta.1...v1.5.0-beta.2
 [1.5.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...v1.5.0-beta.1
 [1.4.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.1...v1.4.2
