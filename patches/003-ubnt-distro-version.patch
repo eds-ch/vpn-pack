@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.94.2
+# Tailscale-Version: 1.96.2
 # Description: Report Distro=ubnt, Version=firmware, CodeName from os-release
 --- a/hostinfo/hostinfo_linux.go	2026-02-21 10:16:23.501758797 +0000
 +++ b/hostinfo/hostinfo_linux.go	2026-02-21 10:16:00.159807117 +0000

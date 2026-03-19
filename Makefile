@@ -12,7 +12,7 @@
 
 VPNPACK_VERSION   := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
 PRERELEASE_FLAG   := $(if $(findstring -,$(VPNPACK_VERSION)),--prerelease,)
-TAILSCALE_VERSION := 1.94.2
+TAILSCALE_VERSION := 1.96.2
 
 TAILSCALE_SRC     := reference/tailscale
 BUILD_DIR         := build

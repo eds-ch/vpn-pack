@@ -27,9 +27,7 @@
     let filtered = $derived.by(() => {
         let result = daemonLogs;
         if (source !== 'all') {
-            result = result.filter(l =>
-                source === 'tailscale' ? !l.source : l.source === 'wgs2s'
-            );
+            result = result.filter(l => l.source === source);
         }
         if (filter !== 'all') {
             result = result.filter(l => l.level === filter);

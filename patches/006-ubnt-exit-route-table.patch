@@ -1,9 +1,9 @@
-# Tailscale-Version: 1.94.2
+# Tailscale-Version: 1.96.2
 # Description: Route exit-node prefixes (bits <= 1) to table 53 on UBNT, keeping subnet routes in table 52.
 #              Duplicate throw routes into both tables to prevent LAN/WAN breakage with exit nodes.
 --- a/wgengine/router/osrouter/router_linux.go	2026-03-13 06:50:01.758937518 +0000
 +++ b/wgengine/router/osrouter/router_linux.go	2026-03-13 06:50:28.506816691 +0000
-@@ -851,7 +851,7 @@
+@@ -887,7 +887,7 @@
  	return netlink.RouteReplace(&netlink.Route{
  		LinkIndex: linkIndex,
  		Dst:       netipx.PrefixIPNet(cidr.Masked()),
@@ -11,8 +11,8 @@
 +		Table:     r.routeTableForPrefix(cidr),
  	})
  }
- 
-@@ -876,8 +876,18 @@
+
+@@ -912,8 +912,18 @@
  	})
  	if err != nil {
  		r.logf("THROW ERROR adding %v: %#v", cidr, err)
@@ -30,9 +30,9 @@
 +	}
 +	return nil
  }
- 
+
  func (r *linuxRouter) addRouteDef(routeDef []string, cidr netip.Prefix) error {
-@@ -886,7 +896,7 @@
+@@ -922,7 +932,7 @@
  	}
  	args := append([]string{"ip", "route", "add"}, routeDef...)
  	if r.ipRuleAvailable {
@@ -41,7 +41,7 @@
  	}
  	err := r.cmd.run(args...)
  	if err == nil {
-@@ -928,7 +938,7 @@
+@@ -964,7 +974,7 @@
  	err = netlink.RouteDel(&netlink.Route{
  		LinkIndex: linkIndex,
  		Dst:       netipx.PrefixIPNet(cidr.Masked()),
@@ -50,7 +50,7 @@
  	})
  	if errors.Is(err, errESRCH) {
  		// Didn't exist to begin with.
-@@ -955,10 +965,22 @@
+@@ -991,10 +1001,22 @@
  		Type:  unix.RTN_THROW,
  	})
  	if errors.Is(err, errESRCH) {
@@ -74,9 +74,9 @@
 +	}
 +	return nil
  }
- 
+
  func (r *linuxRouter) delRouteDef(routeDef []string, cidr netip.Prefix) error {
-@@ -967,7 +989,7 @@
+@@ -1003,7 +1025,7 @@
  	}
  	args := append([]string{"ip", "route", "del"}, routeDef...)
  	if r.ipRuleAvailable {
@@ -85,10 +85,10 @@
  	}
  	err := r.cmd.run(args...)
  	if err != nil {
-@@ -1029,6 +1051,20 @@
+@@ -1065,6 +1087,20 @@
  	return 0
  }
- 
+
 +func (r *linuxRouter) routeTableForPrefix(cidr netip.Prefix) int {
 +	if getDistroFunc() == distro.UBNT && r.ipRuleAvailable && cidr.Bits() <= 1 {
 +		return tailscaleExitRouteTable.Num
@@ -106,7 +106,7 @@
  // upInterface brings up the tunnel interface.
  func (r *linuxRouter) upInterface() error {
  	if r.useIPCommand() {
-@@ -1221,7 +1257,8 @@
+@@ -1257,7 +1293,8 @@
  	// stay in the 0-255 range even though linux itself supports
  	// larger numbers. (but nowadays we use netlink directly and
  	// aren't affected by the busybox binary's limitations)
@@ -114,5 +114,5 @@
 +	tailscaleRouteTable     = newRouteTable("tailscale", 52)
 +	tailscaleExitRouteTable = newRouteTable("tailscale-exit", 53)
  )
- 
+
  // baseIPRules are the policy routing rules that Tailscale uses, when not
