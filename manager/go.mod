@@ -1,6 +1,6 @@
 module unifi-tailscale/manager
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
