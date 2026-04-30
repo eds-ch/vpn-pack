@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-04-30
+
+### Changed
+- Tailscale updated from 1.96.2 to 1.96.4
+
+### Notes
+- Upstream `v1.96.2..v1.96.4` introduces no Linux-side runtime changes affecting
+  this build. The range contains a Go toolchain bump (MIPS/Synology segv fix —
+  not applicable to ARM64 but inherited), a Windows NRPT DNS fix, a kube/certs
+  TLS domain discovery change, and a test skip — all out of scope for the
+  vpn-pack ARM64 Linux daemon. This release is a baseline-maintenance bump to
+  stay current with upstream; all six local patches apply cleanly with no
+  regeneration.
+- Released after a 24-hour soak on UDM-SE through pre-release `v1.5.1-beta.1`
+  with four checkpoints (T+6h/12h/18h/24h), all clean.
+
 ## [1.5.1-beta.1] - 2026-04-29
 
 ### Changed
