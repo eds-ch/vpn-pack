@@ -36,7 +36,8 @@ temp/
 CLAUDE.md
 
 # Documentation
-docs/
+docs/*
+!docs/RELEASE-CHECKLIST.md
 
 # GitHub Wiki (separate git repo)
 wiki/
@@ -50,4 +51,5 @@ scripts/*
 !scripts/test-systemd-hardening.sh
 !scripts/check-tls-pinning.sh
 !scripts/hardening-smoke.sh
+!scripts/test-release-roundtrip.sh
 
