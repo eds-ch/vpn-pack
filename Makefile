@@ -47,7 +47,7 @@ MANAGER_LDFLAGS   := -s -w -X unifi-tailscale/manager/config.Version=$(VPNPACK_V
                      -X unifi-tailscale/manager/config.BuildDate=$(BUILD_DATE) \
                      -X unifi-tailscale/manager/config.GithubRepo=$(GITHUB_REPO)
 
-.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning
+.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning hardening-smoke
 
 # ── Checks (lint + test) ──────────────────────────────────────────
 
@@ -60,6 +60,17 @@ check-nginx-symmetry:
 check-tls-pinning:
 	@echo "==> Verifying SPKI pin TLS guard..."
 	./scripts/check-tls-pinning.sh
+
+# Device-side smoke for the systemd hardening (SEC-B2). Requires SSH
+# access to a UDM-SE-like device. Restarts unifi-core and the manager
+# unit — disruptive on a production gateway, intended for the test
+# device only.
+hardening-smoke:
+ifndef HOST
+	$(error HOST is required. Usage: make hardening-smoke HOST=192.168.1.1)
+endif
+	@echo "==> Running hardening smoke on $(HOST) (restarts unifi-core + manager)..."
+	./scripts/hardening-smoke.sh $(HOST)
 
 check-go: fetch-tailscale ui-stub
 	@echo "==> Running go vet..."

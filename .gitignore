@@ -49,4 +49,5 @@ scripts/*
 !scripts/test-uninstall-integrity.sh
 !scripts/test-systemd-hardening.sh
 !scripts/check-tls-pinning.sh
+!scripts/hardening-smoke.sh
 
