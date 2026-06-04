@@ -43,7 +43,8 @@ if [ -n "${VERSION_PIN:-}" ]; then
 else
     API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 fi
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d -t vpn-pack-install.XXXXXX)
+chmod 700 "$TMPDIR"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 if [ -t 1 ]; then

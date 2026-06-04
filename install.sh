@@ -11,7 +11,6 @@ set -eu
 
 REPO="eds-ch/vpn-pack"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
-INSTALL_TMP="/tmp/vpn-pack-install"
 
 # Pinned per release line; rotate together with the signing identity
 # in CHANGELOG.md. No override flag — verification either succeeds
@@ -178,8 +177,9 @@ echo ""
 
 # ── Phase 3: Download & verify ────────────────────────────────────
 
-rm -rf "$INSTALL_TMP"
-mkdir -p "$INSTALL_TMP"
+INSTALL_TMP=$(mktemp -d -t vpn-pack-install.XXXXXX)
+chmod 700 "$INSTALL_TMP"
+trap 'rm -rf "$INSTALL_TMP"' EXIT
 
 ARCHIVE_FILE=$(basename "$ASSET_URL")
 

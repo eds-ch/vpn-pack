@@ -105,6 +105,33 @@ for installer in get.sh install.sh; do
     run_case "$installer: passing cosign exits zero"     "$src" ok      0
 done
 
+# SEC-C2: installers must use mktemp -d (not predictable paths) and
+# tighten the resulting directory to 0700 with an EXIT-cleanup trap.
+assert_secure_tmp() {
+    local installer=$1
+    local src="$ROOT/$installer"
+    if grep -qE '^[^#]*=[[:space:]]*"?/tmp/vpn-pack-install"?[[:space:]]*$' "$src"; then
+        red "$installer: predictable /tmp/vpn-pack-install path present"
+        return
+    fi
+    if ! grep -qE 'mktemp -d' "$src"; then
+        red "$installer: mktemp -d missing"
+        return
+    fi
+    if ! grep -qE 'chmod 700' "$src"; then
+        red "$installer: chmod 700 on staging dir missing"
+        return
+    fi
+    if ! grep -qE "trap .*rm -rf.* EXIT" "$src"; then
+        red "$installer: EXIT-cleanup trap on staging dir missing"
+        return
+    fi
+    green "$installer: staging dir is mktemp+0700+trap"
+}
+
+assert_secure_tmp get.sh
+assert_secure_tmp install.sh
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 exit "$FAIL"
