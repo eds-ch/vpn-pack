@@ -166,7 +166,11 @@ func removeIntegrationResources() {
 		return
 	}
 
-	ic := NewIntegrationClient(apiKey)
+	ic := buildIntegrationAPI(apiKey)
+	if !ic.HasAPIKey() {
+		slog.Warn("cleanup: integration disabled (SPKI pin missing); skipping zone/policy cleanup")
+		return
+	}
 	slog.Info("cleanup: removing Integration API zones and policies", "siteId", siteID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

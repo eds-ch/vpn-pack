@@ -1,7 +1,9 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,12 +17,98 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// placeholderPin is accepted by NewIntegrationClient (length-checked) but
+// never matched against any real cert — use in tests that exercise plain
+// HTTP servers where VerifyPeerCertificate is never invoked.
+func placeholderPin() []byte { return bytes.Repeat([]byte{0}, sha256.Size) }
+
 func newTestIntegrationClient(t *testing.T, handler http.HandlerFunc) *IntegrationClient {
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	ic := NewIntegrationClient("test-api-key")
-	ic.baseURL = ts.URL
+	ic, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: ts.URL,
+		APIKey:   "test-api-key",
+		SPKIPin:  placeholderPin(),
+	})
+	if err != nil {
+		t.Fatalf("NewIntegrationClient: %v", err)
+	}
 	return ic
+}
+
+// TestIntegrationClient_AcceptsPinnedCert verifies that a leaf cert
+// whose SPKI matches the pin is accepted through Validate over TLS.
+// Closes SEC-C5 (positive path).
+func TestIntegrationClient_AcceptsPinnedCert(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"applicationVersion":"9.0.1"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	pin := sha256.Sum256(srv.Certificate().RawSubjectPublicKeyInfo)
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: srv.URL,
+		APIKey:   "test",
+		SPKIPin:  pin[:],
+	})
+	require.NoError(t, err)
+
+	info, err := cli.Validate(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, info)
+	assert.Equal(t, "9.0.1", info.ApplicationVersion)
+}
+
+// TestIntegrationClient_RejectsUnpinnedCert verifies that a leaf cert
+// whose SPKI does NOT match the pin is rejected — the Validate call
+// must error out, with no integration request reaching the server.
+// Closes SEC-C5 (negative path, primary).
+func TestIntegrationClient_RejectsUnpinnedCert(t *testing.T) {
+	var serverHit bool
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		serverHit = true
+		_, _ = w.Write([]byte(`{"applicationVersion":"9.0.1"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	wrongPin := bytes.Repeat([]byte{0xaa}, sha256.Size)
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: srv.URL,
+		APIKey:   "test",
+		SPKIPin:  wrongPin,
+	})
+	require.NoError(t, err)
+
+	_, err = cli.Validate(context.Background())
+	require.Error(t, err, "expected pin mismatch")
+	assert.False(t, serverHit, "request must not be sent if pin verification fails")
+}
+
+// TestIntegrationClient_RefusesWithoutPin verifies fail-closed behaviour
+// when no pin material is provided — the constructor returns an error
+// and a nil client, so the integration features are simply disabled.
+// Closes SEC-C5 (boot fail-closed).
+func TestIntegrationClient_RefusesWithoutPin(t *testing.T) {
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: "https://127.0.0.1/",
+		APIKey:   "test",
+		SPKIPin:  nil,
+	})
+	require.Error(t, err, "expected fail-closed when pin material absent")
+	assert.Nil(t, cli, "client must be nil on fail-closed")
+}
+
+// TestIntegrationClient_RejectsWrongPinLength verifies that a pin of
+// the wrong size is rejected at construction. This guards against a
+// silent truncation/extension bug in LoadSPKIPin or its callers.
+func TestIntegrationClient_RejectsWrongPinLength(t *testing.T) {
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: "https://127.0.0.1/",
+		APIKey:   "test",
+		SPKIPin:  []byte{0x01, 0x02, 0x03},
+	})
+	require.Error(t, err)
+	assert.Nil(t, cli)
 }
 
 func TestIntegrationValidate(t *testing.T) {
@@ -80,8 +168,14 @@ func TestIntegrationValidate(t *testing.T) {
 			ts := httptest.NewServer(handler)
 			t.Cleanup(ts.Close)
 
-			ic := NewIntegrationClient(tt.apiKey)
-			ic.baseURL = ts.URL
+			ic, err := NewIntegrationClient(IntegrationConfig{
+				Endpoint: ts.URL,
+				APIKey:   tt.apiKey,
+				SPKIPin:  placeholderPin(),
+			})
+			if err != nil {
+				t.Fatalf("NewIntegrationClient: %v", err)
+			}
 
 			info, err := ic.Validate(context.Background())
 

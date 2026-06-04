@@ -3,13 +3,18 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +22,37 @@ import (
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 )
+
+// IntegrationConfig is the boot-time configuration for the
+// Integration API client. SPKIPin is a 32-byte SHA-256 hash of the
+// UniFi loopback leaf cert's SubjectPublicKeyInfo and is REQUIRED:
+// the constructor refuses to build a client without it (fail-closed
+// — see SEC-C5). Loaded via LoadSPKIPin.
+type IntegrationConfig struct {
+	Endpoint string
+	APIKey   string
+	SPKIPin  []byte
+}
+
+// LoadSPKIPin reads a PEM-encoded X.509 cert from certPath and
+// returns the SHA-256 of its SubjectPublicKeyInfo. The result is the
+// material baked into IntegrationConfig.SPKIPin.
+func LoadSPKIPin(certPath string) ([]byte, error) {
+	pemBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", certPath, err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block in %s", certPath)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse cert: %w", err)
+	}
+	sum := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	return sum[:], nil
+}
 
 // debugBody truncates an upstream response body to a safe length and
 // records it at debug level only. The error returned to callers never
@@ -51,18 +87,56 @@ type paginatedResponse struct {
 	Data json.RawMessage `json:"data"`
 }
 
-func NewIntegrationClient(apiKey string) *IntegrationClient {
-	return &IntegrationClient{
-		apiKey:  apiKey,
-		baseURL: config.IntegrationBaseURL,
-		httpClient: &http.Client{
-			Timeout: config.IntegrationHTTPTimeout,
-			Transport: &http.Transport{
-				// Integration API on localhost uses self-signed cert.
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+// NewIntegrationClient builds an IntegrationClient with SPKI-pinned TLS
+// for the UniFi loopback endpoint (SEC-C5). InsecureSkipVerify=true is
+// deliberate AND paired with a VerifyPeerCertificate callback that
+// rejects any leaf whose SubjectPublicKeyInfo SHA-256 does not match
+// cfg.SPKIPin. Skipping chain validation is necessary because the
+// UniFi self-signed cert is not in any trusted root and its SAN does
+// not match 127.0.0.1; the SPKI check is strictly stronger than chain
+// validation for this single endpoint.
+//
+// The pin is REQUIRED — callers that do not have pin material must
+// route through NoopIntegrationAPI instead of passing nil/zero.
+func NewIntegrationClient(cfg IntegrationConfig) (*IntegrationClient, error) {
+	if len(cfg.SPKIPin) != sha256.Size {
+		return nil, fmt.Errorf("integration: SPKI pin required (%d bytes, got %d)", sha256.Size, len(cfg.SPKIPin))
+	}
+	endpoint := cfg.Endpoint
+	if endpoint == "" {
+		endpoint = config.IntegrationBaseURL
+	}
+	pin := append([]byte(nil), cfg.SPKIPin...)
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec // intentional — SPKI-pinned via VerifyPeerCertificate below
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return errors.New("integration: no peer cert")
+			}
+			leaf, err := x509.ParseCertificate(rawCerts[0])
+			if err != nil {
+				return fmt.Errorf("integration: parse leaf: %w", err)
+			}
+			sum := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
+			if subtle.ConstantTimeCompare(sum[:], pin) != 1 {
+				return errors.New("integration: SPKI pin mismatch")
+			}
+			// Chain validation was skipped; enforce validity window directly.
+			now := time.Now()
+			if now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
+				return errors.New("integration: peer cert outside validity window")
+			}
+			return nil
 		},
 	}
+	return &IntegrationClient{
+		apiKey:  cfg.APIKey,
+		baseURL: endpoint,
+		httpClient: &http.Client{
+			Timeout:   config.IntegrationHTTPTimeout,
+			Transport: &http.Transport{TLSClientConfig: tlsCfg},
+		},
+	}, nil
 }
 
 func (c *IntegrationClient) SetAPIKey(key string) {

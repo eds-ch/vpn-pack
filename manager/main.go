@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"unifi-tailscale/manager/client"
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/service"
@@ -61,7 +62,7 @@ func main() {
 	}
 
 	apiKey := service.LoadAPIKey()
-	ic := NewIntegrationClient(apiKey)
+	ic := buildIntegrationAPI(apiKey)
 
 	sweepStartupOrphanTmps([]string{
 		filepath.Dir(config.ManifestPath),
@@ -109,4 +110,26 @@ func main() {
 	}
 
 	slog.Info("shutting down")
+}
+
+// buildIntegrationAPI returns a real IntegrationClient when the UniFi
+// loopback cert SPKI pin can be loaded, or a NoopIntegrationAPI when
+// not (SEC-C5 fail-closed). The Server path is nil-unsafe so a no-op
+// implementation is always required when the real client is absent.
+func buildIntegrationAPI(apiKey string) IntegrationAPI {
+	pin, err := client.LoadSPKIPin(config.UniFiCertPath)
+	if err != nil {
+		slog.Error("integration disabled — SPKI pin unavailable", "err", err, "certPath", config.UniFiCertPath)
+		return client.NoopIntegrationAPI()
+	}
+	ic, err := client.NewIntegrationClient(client.IntegrationConfig{
+		Endpoint: config.IntegrationBaseURL,
+		APIKey:   apiKey,
+		SPKIPin:  pin,
+	})
+	if err != nil {
+		slog.Error("integration disabled — client construct failed", "err", err)
+		return client.NoopIntegrationAPI()
+	}
+	return ic
 }

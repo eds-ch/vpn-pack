@@ -18,6 +18,7 @@ const (
 	NginxConfigDir  = "/data/unifi-core/config/http"
 	NginxConfigDest = NginxConfigDir + "/shared-runnable-vpnpack.conf"
 	NginxConfigFile = "shared-runnable-vpnpack.conf"
+	UniFiCertPath   = "/data/unifi-core/config/unifi-core.crt"
 )
 
 const (

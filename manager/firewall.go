@@ -26,7 +26,7 @@ var errIntegrationNotConfigured = errors.New("integration API not configured")
 
 type FirewallManager struct {
 	udapi    *udapi.UDAPIClient
-	ic       *IntegrationClient
+	ic       IntegrationAPI
 	manifest ManifestStore
 	bgWg     sync.WaitGroup
 
@@ -62,7 +62,7 @@ func (fm *FirewallManager) IntegrationReady() bool {
 	return fm.ic != nil && fm.ic.HasAPIKey() && fm.manifest != nil && fm.manifest.HasSiteID()
 }
 
-func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest ManifestStore) *FirewallManager {
+func NewFirewallManager(socketPath string, ic IntegrationAPI, manifest ManifestStore) *FirewallManager {
 	fm := &FirewallManager{
 		udapi:    udapi.NewClient(socketPath),
 		ic:       ic,

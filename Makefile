@@ -47,15 +47,19 @@ MANAGER_LDFLAGS   := -s -w -X unifi-tailscale/manager/config.Version=$(VPNPACK_V
                      -X unifi-tailscale/manager/config.BuildDate=$(BUILD_DATE) \
                      -X unifi-tailscale/manager/config.GithubRepo=$(GITHUB_REPO)
 
-.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry
+.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning
 
 # ── Checks (lint + test) ──────────────────────────────────────────
 
-check: check-go check-ui check-nginx-symmetry
+check: check-go check-ui check-nginx-symmetry check-tls-pinning
 
 check-nginx-symmetry:
 	@echo "==> Verifying nginx location include symmetry..."
 	./deploy/check-nginx-symmetry.sh
+
+check-tls-pinning:
+	@echo "==> Verifying SPKI pin TLS guard..."
+	./scripts/check-tls-pinning.sh
 
 check-go: fetch-tailscale ui-stub
 	@echo "==> Running go vet..."
