@@ -36,6 +36,20 @@ curl -fsSL https://raw.githubusercontent.com/eds-ch/vpn-pack/main/get.sh | bash
 
 The script checks for an existing installation, downloads the latest release from GitHub, verifies the SHA256 checksum, and runs the installer. On upgrade, auth state and config are preserved.
 
+### Verifying release signatures
+
+Starting with v1.6.0, release artifacts are signed with [cosign](https://docs.sigstore.dev/cosign/installation) (keyless OIDC). The signing identity is documented in `CHANGELOG.md` for each release line; verify before installing manually:
+
+```bash
+cosign verify-blob \
+  --certificate-identity 'eduard.chesnokov@gmail.com' \
+  --certificate-oidc-issuer 'https://github.com/login/oauth' \
+  --bundle vpn-pack-<version>.tar.gz.cosign.bundle \
+  vpn-pack-<version>.tar.gz
+```
+
+The `get.sh` installer enforces this check automatically; there is no silent fallback if `cosign` is missing or the bundle fails to verify.
+
 After installation:
 
 1. Log in to your gateway at `https://<gateway-ip>` (establishes a UniFi auth session)

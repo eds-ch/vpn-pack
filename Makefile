@@ -47,7 +47,7 @@ MANAGER_LDFLAGS   := -s -w -X unifi-tailscale/manager/config.Version=$(VPNPACK_V
                      -X unifi-tailscale/manager/config.BuildDate=$(BUILD_DATE) \
                      -X unifi-tailscale/manager/config.GithubRepo=$(GITHUB_REPO)
 
-.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums release check check-go check-ui ui-stub check-nginx-symmetry
+.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry
 
 # ── Checks (lint + test) ──────────────────────────────────────────
 
@@ -190,15 +190,25 @@ checksums: package
 	cd $(DIST_DIR) && sha256sum $(ARCHIVE_NAME).tar.gz > checksums.txt
 	@cat $(DIST_DIR)/checksums.txt
 
+# ── Sign ───────────────────────────────────────────────────────────
+
+sign: checksums
+	@echo "==> Signing release artifacts (cosign keyless OIDC)..."
+	./scripts/cosign-sign.sh \
+		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz \
+		$(DIST_DIR)/checksums.txt
+
 # ── Release ────────────────────────────────────────────────────────
 
-release: checksums
+release: sign
 	@echo "==> Creating GitHub release v$(VPNPACK_VERSION)..."
 	@printf 'Tailscale %s for UniFi Cloud Gateway devices.\n\n## Install\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/%s/main/get.sh | bash\n```\n' \
 		"$(TAILSCALE_VERSION)" "$(GITHUB_REPO)" > $(DIST_DIR)/release-notes.md
 	gh release create "v$(VPNPACK_VERSION)" \
 		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz \
+		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz.cosign.bundle \
 		$(DIST_DIR)/checksums.txt \
+		$(DIST_DIR)/checksums.txt.cosign.bundle \
 		get.sh \
 		--title "vpn-pack v$(VPNPACK_VERSION)" \
 		--notes-file $(DIST_DIR)/release-notes.md \
