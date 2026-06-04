@@ -283,6 +283,14 @@ func (ts *TailscaleState) Snapshot() StateData {
 		self := *s.Self
 		s.Self = &self
 	}
+	if s.IntegrationStatus != nil {
+		st := *s.IntegrationStatus
+		s.IntegrationStatus = &st
+	}
+	if s.FirewallHealth != nil {
+		fh := *s.FirewallHealth
+		s.FirewallHealth = &fh
+	}
 	return s
 }
 
