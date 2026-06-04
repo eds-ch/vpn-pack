@@ -125,10 +125,14 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *service.Inte
 		return status
 	}
 	slog.Info("ZBF enabled but policies missing, retrying firewall setup")
-	if result := s.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
+	result, ran := s.guardedSetupTailscaleFirewall(ctx)
+	switch {
+	case !ran:
+		slog.Info("policy repair skipped: another reconcile in flight")
+	case result.Err() != nil:
 		slog.Warn("firewall setup retry failed, will not retry until restart", "err", result.Err())
 		s.health.SetDegraded(WatcherFirewall, "setup_failed")
-	} else {
+	default:
 		s.openTailscaleWanPort(ctx)
 	}
 	return s.integration.GetStatus(ctx)

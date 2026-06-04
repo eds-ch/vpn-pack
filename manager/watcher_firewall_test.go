@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"unifi-tailscale/manager/internal/stress"
 )
 
 func TestCheckAndRestoreRulesDeduplication(t *testing.T) {
@@ -91,4 +93,62 @@ func TestRetryLoopContinuesOnError(t *testing.T) {
 	ctx := context.Background()
 	retryLoop(ctx, 3, 10*time.Millisecond, fn)
 	assert.Equal(t, 3, callCount, "should retry all attempts even on errors")
+}
+
+// TestSetupTailscaleFirewall_ConcurrencyGuard verifies that the restoring CAS
+// serialises SetupTailscaleFirewall callers so concurrent paths (SIGHUP
+// reapply, OnKeyConfigured, repairMissingPolicies, boot apply) cannot run the
+// inner setup in parallel and produce duplicate UDAPI zone-create attempts.
+// BUG-M6.
+func TestSetupTailscaleFirewall_ConcurrencyGuard(t *testing.T) {
+	s := &Server{}
+
+	var concurrent atomic.Int64
+	var maxConcurrent atomic.Int64
+
+	stress.Run(t, 8, 50, func(int) {
+		s.guardedSetup(func() {
+			cur := concurrent.Add(1)
+			for {
+				old := maxConcurrent.Load()
+				if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
+					break
+				}
+			}
+			time.Sleep(50 * time.Microsecond)
+			concurrent.Add(-1)
+		})
+	})
+
+	if got := maxConcurrent.Load(); got != 1 {
+		t.Fatalf("expected guard to serialize callers (max concurrency 1); got %d", got)
+	}
+	if s.restoring.Load() {
+		t.Fatal("restoring flag leaked: still true after all goroutines completed")
+	}
+}
+
+// TestGuardedSetup_RejectsWhileHeld verifies a second caller arriving while
+// the guard is held bails out with ran=false instead of waiting or running.
+func TestGuardedSetup_RejectsWhileHeld(t *testing.T) {
+	s := &Server{}
+
+	enter := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		s.guardedSetup(func() {
+			close(enter)
+			<-release
+		})
+		close(done)
+	}()
+
+	<-enter
+	if s.guardedSetup(func() {}) {
+		t.Fatal("expected guardedSetup to return false while the CAS is held")
+	}
+	close(release)
+	<-done
 }

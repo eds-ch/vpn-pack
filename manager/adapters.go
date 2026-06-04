@@ -236,12 +236,13 @@ func (a *settingsNotifierAdapter) OnDNSChanged(enabled bool) {
 }
 
 type integrationNotifierAdapter struct {
-	fw          FirewallService
-	fwOrch      *service.FirewallOrchestrator
-	health      *HealthTracker
-	state       *TailscaleState
-	broadcast   func()
-	openWanPort func(context.Context)
+	fw           FirewallService
+	fwOrch       *service.FirewallOrchestrator
+	guardedSetup func(ctx context.Context) (*service.SetupResult, bool)
+	health       *HealthTracker
+	state        *TailscaleState
+	broadcast    func()
+	openWanPort  func(context.Context)
 }
 
 func (a *integrationNotifierAdapter) OnBeforeKeyDelete(ctx context.Context) {
@@ -254,7 +255,11 @@ func (a *integrationNotifierAdapter) OnBeforeKeyDelete(ctx context.Context) {
 
 func (a *integrationNotifierAdapter) OnKeyConfigured(ctx context.Context, st *service.IntegrationStatus) {
 	if a.fwOrch != nil && st.SiteID != "" {
-		if result := a.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
+		result, ran := a.guardedSetup(ctx)
+		switch {
+		case !ran:
+			slog.Info("firewall setup after key save skipped: another reconcile in flight")
+		case result.Err() != nil:
 			slog.Warn("firewall setup after key save failed", "err", result.Err())
 		}
 		a.openWanPort(ctx)

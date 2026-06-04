@@ -52,7 +52,11 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 
 		case <-sighup:
 			slog.Info("SIGHUP received, forcing reapply")
-			if result := s.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
+			result, ran := s.guardedSetupTailscaleFirewall(ctx)
+			switch {
+			case !ran:
+				slog.Info("SIGHUP reapply skipped: another reconcile in flight")
+			case result.Err() != nil:
 				slog.Warn("SIGHUP reapply failed", "err", result.Err())
 			}
 		}

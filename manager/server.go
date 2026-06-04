@@ -105,12 +105,13 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	s.integration = service.NewIntegrationService(
 		integrationICAdapter{opts.Integration}, opts.Manifest,
 		&integrationNotifierAdapter{
-			fw:          opts.Firewall,
-			fwOrch:      s.fwOrch,
-			health:      s.health,
-			state:       s.state,
-			broadcast:   s.broadcastState,
-			openWanPort: s.openTailscaleWanPort,
+			fw:           opts.Firewall,
+			fwOrch:       s.fwOrch,
+			guardedSetup: s.guardedSetupTailscaleFirewall,
+			health:       s.health,
+			state:        s.state,
+			broadcast:    s.broadcastState,
+			openWanPort:  s.openTailscaleWanPort,
 		},
 		fileKeyStore{},
 	)
@@ -215,7 +216,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	if s.deviceInfo.HasUDAPISocket {
 		if s.integrationReady() {
-			if result := s.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
+			if result, ran := s.guardedSetupTailscaleFirewall(ctx); ran && result.Err() != nil {
 				slog.Warn("initial firewall apply failed", "err", result.Err())
 			}
 		}
@@ -328,6 +329,33 @@ func (s *Server) activeS2sTunnels(ctx context.Context) []service.S2sTunnelInfo {
 
 func (s *Server) integrationReady() bool {
 	return s.fw != nil && s.fw.IntegrationReady()
+}
+
+// guardedSetup runs fn under the restoring CAS so that two concurrent callers
+// cannot enter the inner setup path simultaneously. Returns true if fn ran,
+// false if another caller was already in flight. The CAS is always released
+// before returning.
+func (s *Server) guardedSetup(fn func()) bool {
+	if !s.restoring.CompareAndSwap(false, true) {
+		return false
+	}
+	defer s.restoring.Store(false)
+	fn()
+	return true
+}
+
+// guardedSetupTailscaleFirewall runs SetupTailscaleFirewall under the restoring
+// CAS so concurrent callers (SIGHUP reapply, OnKeyConfigured, repairMissing-
+// Policies, boot apply) cannot trigger duplicate UDAPI zone-create attempts
+// (BUG-M6). Returns the SetupResult plus a flag indicating whether the inner
+// setup actually ran; a false flag means another caller held the guard and
+// the call was skipped.
+func (s *Server) guardedSetupTailscaleFirewall(ctx context.Context) (*service.SetupResult, bool) {
+	var result *service.SetupResult
+	ran := s.guardedSetup(func() {
+		result = s.fwOrch.SetupTailscaleFirewall(ctx)
+	})
+	return result, ran
 }
 
 func (s *Server) openTailscaleWanPort(ctx context.Context) {
