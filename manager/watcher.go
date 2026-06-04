@@ -186,6 +186,10 @@ func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
 		}
 		if n.State != nil {
 			d.BackendState = n.State.String()
+			switch *n.State {
+			case ipn.NeedsLogin, ipn.Stopped, ipn.NoState:
+				d.AuthURL = ""
+			}
 		}
 		if n.BrowseToURL != nil {
 			d.AuthURL = *n.BrowseToURL

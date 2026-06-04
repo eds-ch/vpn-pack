@@ -18,6 +18,57 @@ import (
 	"tailscale.com/types/key"
 )
 
+// BUG-M15: tailscale logout / backend transition to NeedsLogin should
+// invalidate any previously-cached AuthURL. Without this, the UI keeps
+// offering the now-defunct login link from a prior session until the
+// next BrowseToURL/LoginFinished notification.
+func TestUpdateStateFromNotify_ClearsAuthURLOnLogout(t *testing.T) {
+	s := newTestServer()
+
+	loginURL := "https://login.tailscale.com/admin/?key=tskey-auth-stale"
+	s.updateStateFromNotify(&ipn.Notify{BrowseToURL: &loginURL})
+	require.Equal(t, loginURL, s.state.Snapshot().AuthURL, "precondition: AuthURL must be set after BrowseToURL")
+
+	needsLogin := ipn.NeedsLogin
+	s.updateStateFromNotify(&ipn.Notify{State: &needsLogin})
+
+	if got := s.state.Snapshot().AuthURL; got != "" {
+		t.Fatalf("AuthURL must be cleared on logout/NeedsLogin transition; got %q", got)
+	}
+}
+
+// Logout via Stopped state (e.g. tailscale down) should also drop the
+// stale AuthURL.
+func TestUpdateStateFromNotify_ClearsAuthURLOnStopped(t *testing.T) {
+	s := newTestServer()
+
+	loginURL := "https://login.tailscale.com/admin/?key=tskey-auth-stale"
+	s.updateStateFromNotify(&ipn.Notify{BrowseToURL: &loginURL})
+
+	stopped := ipn.Stopped
+	s.updateStateFromNotify(&ipn.Notify{State: &stopped})
+
+	if got := s.state.Snapshot().AuthURL; got != "" {
+		t.Fatalf("AuthURL must be cleared on Stopped transition; got %q", got)
+	}
+}
+
+// Sanity: the Running transition (mid-login) must not eat the AuthURL
+// before the user has had a chance to follow it.
+func TestUpdateStateFromNotify_PreservesAuthURLWhileRunning(t *testing.T) {
+	s := newTestServer()
+
+	loginURL := "https://login.tailscale.com/admin/?key=tskey-auth-live"
+	s.updateStateFromNotify(&ipn.Notify{BrowseToURL: &loginURL})
+
+	running := ipn.Running
+	s.updateStateFromNotify(&ipn.Notify{State: &running})
+
+	if got := s.state.Snapshot().AuthURL; got != loginURL {
+		t.Fatalf("AuthURL must survive Running state; got %q want %q", got, loginURL)
+	}
+}
+
 func TestExtractPeers_IncludesExitNodeFields(t *testing.T) {
 	k1 := key.NewNode().Public()
 	k2 := key.NewNode().Public()
