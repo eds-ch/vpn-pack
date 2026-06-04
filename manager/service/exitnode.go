@@ -159,10 +159,29 @@ func (s *ExitNodeService) buildApplyOps(policy domain.ExitNodePolicy) ([]ops.Op,
 		return nil, validationError(fmt.Sprintf("unknown exit node mode: %s", policy.Mode))
 	}
 
+	// MASQUERADE is split into per-family ops so a non-tolerated IPv6 failure
+	// triggers proper rollback of the already-installed IPv4 rule. The v6 op
+	// internally tolerates "ip6tables unavailable" — those install zero rules
+	// so the Undo is a no-op.
 	out = append(out, ops.Op{
-		Name: "add masquerade",
-		Do:   func(ctx context.Context) error { return s.addMasquerade(ctx) },
-		Undo: func(ctx context.Context) error { s.delMasquerade(ctx); return nil },
+		Name: "add v4 masquerade",
+		Do:   func(ctx context.Context) error { return s.addV4Masquerade(ctx) },
+		Undo: func(ctx context.Context) error { s.delV4Masquerade(ctx); return nil },
+	})
+	v6Installed := false
+	out = append(out, ops.Op{
+		Name: "add v6 masquerade (best-effort)",
+		Do: func(ctx context.Context) error {
+			installed, err := s.addV6Masquerade(ctx)
+			v6Installed = installed
+			return err
+		},
+		Undo: func(ctx context.Context) error {
+			if v6Installed {
+				s.delV6Masquerade(ctx)
+			}
+			return nil
+		},
 	})
 	out = append(out, ops.Noop("persist manifest", func(_ context.Context) error {
 		return s.manifest.SetExitNodePolicy(policy)
@@ -263,35 +282,64 @@ func (s *ExitNodeService) masqArgs(action string) [][]string {
 	}
 }
 
-func (s *ExitNodeService) addMasquerade(ctx context.Context) error {
-	all := s.masqArgs("-A")
-	args4 := all[0]
-	if out, err := s.run(ctx, "iptables", args4...); err != nil {
+// addV4Masquerade installs the IPv4 MASQUERADE rule. Failure is always fatal.
+func (s *ExitNodeService) addV4Masquerade(ctx context.Context) error {
+	args := s.masqArgs("-A")[0]
+	if out, err := s.run(ctx, "iptables", args...); err != nil {
 		return fmt.Errorf("iptables masquerade add: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	args6 := all[1]
-	if out, err := s.run(ctx, "ip6tables", args6...); err != nil {
-		if !isIP6Unavailable(err, out) {
-			return fmt.Errorf("ip6tables masquerade add: %w (%s)", err, strings.TrimSpace(string(out)))
-		}
-		slog.Warn("ip6tables masquerade add (IPv6 unavailable, tolerated)",
-			"err", err, "out", strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
+// delV4Masquerade removes the IPv4 MASQUERADE rule, ignoring "rule absent" errors.
+func (s *ExitNodeService) delV4Masquerade(ctx context.Context) {
+	args := s.masqArgs("-D")[0]
+	_, _ = s.run(ctx, "iptables", args...)
+}
+
+// addV6Masquerade attempts the IPv6 MASQUERADE install. Returns (installed,
+// err): installed=true means a rule actually landed and the caller must
+// delete it on rollback; installed=false means the system reported IPv6 as
+// unavailable (tolerated — no rule landed, nothing to roll back).
+// A non-tolerated error returns (false, err) so the saga can abort.
+func (s *ExitNodeService) addV6Masquerade(ctx context.Context) (bool, error) {
+	args := s.masqArgs("-A")[1]
+	out, err := s.run(ctx, "ip6tables", args...)
+	if err == nil {
+		return true, nil
+	}
+	if isIP6Unavailable(err, out) {
+		slog.Warn("ip6tables masquerade add (IPv6 unavailable, tolerated)",
+			"err", err, "out", strings.TrimSpace(string(out)))
+		return false, nil
+	}
+	return false, fmt.Errorf("ip6tables masquerade add: %w (%s)", err, strings.TrimSpace(string(out)))
+}
+
+// delV6Masquerade removes the IPv6 MASQUERADE rule, ignoring errors.
+func (s *ExitNodeService) delV6Masquerade(ctx context.Context) {
+	args := s.masqArgs("-D")[1]
+	_, _ = s.run(ctx, "ip6tables", args...)
+}
+
 // isIP6Unavailable returns true when the ip6tables error indicates the
 // binary is missing or the IPv6 stack is disabled — situations the plan
-// requires us to tolerate. All other errors propagate so a real IPv6
-// firewall failure is not silently swallowed.
+// requires us to tolerate. All other errors (including "rule not present",
+// which ip6tables reports as "No chain/target/match by that name.")
+// propagate so a real IPv6 firewall failure is not silently swallowed.
+//
+// Markers are narrow on purpose: the bare token "not found" would also
+// match exec.LookPath failures, which is desirable, but must not bleed
+// into rule-presence checks. The full Go exec error contains
+// "executable file not found in $PATH" which both markers below cover.
 func isIP6Unavailable(err error, out []byte) bool {
 	msg := strings.ToLower(err.Error() + " " + string(out))
 	for _, marker := range []string{
-		"not found",
-		"no such file or directory",
 		"executable file not found",
+		"no such file or directory",
 		"address family not supported",
 		"protocol not supported",
+		"module is not loaded",
 	} {
 		if strings.Contains(msg, marker) {
 			return true
@@ -307,12 +355,20 @@ func (s *ExitNodeService) delMasquerade(ctx context.Context) {
 	}
 }
 
+// hasMasquerade reports whether the masquerade install we expect is
+// currently present. v4 is mandatory; a v6 check failure caused by the
+// IPv6 stack being absent / disabled is tolerated and treated as "no
+// drift" — otherwise Reconcile would churn forever on IPv6-disabled
+// systems. A v6 failure on a healthy stack (e.g. "no chain by that
+// name") is real drift and must trigger reapply.
 func (s *ExitNodeService) hasMasquerade(ctx context.Context) bool {
-	cmds := []string{"iptables", "ip6tables"}
-	for i, args := range s.masqArgs("-C") {
-		if _, err := s.run(ctx, cmds[i], args...); err != nil {
-			return false
-		}
+	all := s.masqArgs("-C")
+	if _, err := s.run(ctx, "iptables", all[0]...); err != nil {
+		return false
+	}
+	out, err := s.run(ctx, "ip6tables", all[1]...)
+	if err != nil {
+		return isIP6Unavailable(err, out)
 	}
 	return true
 }

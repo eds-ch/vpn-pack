@@ -164,7 +164,8 @@ func (f *fakeIPRuleState) handleIptablesLocked(cmd string, args []string) ([]byt
 	switch action {
 	case "-A":
 		if cmd == "ip6tables" && f.failIP6Add {
-			return nil, fmt.Errorf("ip6tables: command not found")
+			// Matches the Go exec.LookPath error when the binary is missing.
+			return nil, fmt.Errorf("exec: \"ip6tables\": executable file not found in $PATH")
 		}
 		f.addCount++
 		if f.failOnNthAdd > 0 && f.addCount == f.failOnNthAdd {
@@ -675,6 +676,92 @@ func TestApply_PartialFailureRollsBackRulesAndMasq(t *testing.T) {
 	assert.Equal(t, 0, state.ruleCount(), "rules must be rolled back")
 	assert.Equal(t, 0, state.masqCount(), "masquerade must not be set")
 	assert.NotEqual(t, domain.ExitNodeAll, manifest.policy.Mode, "manifest must not be updated on failure")
+}
+
+// TestApply_RollsBackV4MasqueradeOnV6Failure covers SEC-C10/BUG-M1 follow-up:
+// if IPv4 MASQUERADE installs but ip6tables returns a non-tolerated error,
+// the IPv4 MASQUERADE must be rolled back. Previously the saga wrapped both
+// families in a single op and would only undo prior steps, leaving v4 stuck.
+func TestApply_RollsBackV4MasqueradeOnV6Failure(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: make(map[string]bool),
+	}
+	base := state.runner()
+	// Wrap so ip6tables -A returns a non-tolerated error AFTER v4 succeeded.
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-A" {
+					return []byte("ip6tables: kernel module overflow"), fmt.Errorf("rule rejected")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, runner)
+	stubBridges(svc, "br0")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.Error(t, err, "non-tolerated ip6tables failure must surface")
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.masqRules["iptables"] {
+		t.Fatal("IPv4 MASQUERADE must be rolled back when v6 unexpectedly fails")
+	}
+}
+
+// TestHasMasquerade_TolerantOnIP6Unavailable: on IPv6-disabled systems
+// where ip6tables returns family-unsupported error, hasMasquerade should
+// still report "present" if v4 is installed. Otherwise Reconcile would
+// see drift forever and re-apply continuously.
+func TestHasMasquerade_TolerantOnIP6Unavailable(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: map[string]bool{"iptables": true}, // only v4 installed
+	}
+	base := state.runner()
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-C" {
+					return nil, fmt.Errorf("ip6tables: executable file not found in $PATH")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	svc := NewExitNodeService(&mockExitManifest{}, runner)
+	if !svc.hasMasquerade(context.Background()) {
+		t.Fatal("hasMasquerade must report true when v4 present and ip6tables unavailable")
+	}
+}
+
+// TestHasMasquerade_DetectsRealDrift covers the inverse: a healthy
+// ip6tables that responds "no such rule" must be reported as drift so
+// Reconcile re-applies. The narrowed isIP6Unavailable must NOT match the
+// real UDM-SE error string "ip6tables: No chain/target/match by that name."
+func TestHasMasquerade_DetectsRealDrift(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: map[string]bool{"iptables": true}, // v4 installed, v6 missing
+	}
+	base := state.runner()
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-C" {
+					return []byte("ip6tables: No chain/target/match by that name."), fmt.Errorf("exit status 1")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	svc := NewExitNodeService(&mockExitManifest{}, runner)
+	if svc.hasMasquerade(context.Background()) {
+		t.Fatal("hasMasquerade must report false when v6 rule is genuinely missing on a healthy IPv6 stack")
+	}
 }
 
 // TestAddMasquerade_PropagatesUnexpectedIP6Error verifies that ip6tables
