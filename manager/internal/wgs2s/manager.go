@@ -1,6 +1,7 @@
 package wgs2s
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,8 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"unifi-tailscale/manager/ops"
 )
 
 const (
@@ -52,6 +55,11 @@ type TunnelManager struct {
 	// bringUpForTest, when set, replaces the production bringUp pipeline so
 	// tests can drive RestoreAll without touching real netlink/wireguard.
 	bringUpForTest func(cfg TunnelConfig) error
+
+	// saveOverride, when set, replaces the disk persistence step so tests can
+	// observe save invocations (state snapshots, call ordering) or inject
+	// failures without touching a real filesystem.
+	saveOverride func() error
 }
 
 type ifaceEntry struct {
@@ -180,19 +188,59 @@ func (m *TunnelManager) DeleteTunnel(id string) error {
 
 	cfg := m.config.Tunnels[idx]
 
-	m.config.Tunnels = append(m.config.Tunnels[:idx], m.config.Tunnels[idx+1:]...)
-	if err := m.save(); err != nil {
-		m.config.Tunnels = slices.Insert(m.config.Tunnels, idx, cfg)
+	err := ops.Run(context.Background(), []ops.Op{
+		{
+			Name: "tear down kernel interface",
+			Do: func(_ context.Context) error {
+				if cfg.Enabled {
+					m.tearDown(cfg)
+				}
+				return nil
+			},
+			Undo: func(_ context.Context) error {
+				if !cfg.Enabled {
+					return nil
+				}
+				return m.bringUpTunnel(cfg)
+			},
+		},
+		{
+			Name: "remove tunnel from disk config",
+			Do: func(_ context.Context) error {
+				m.config.Tunnels = append(m.config.Tunnels[:idx], m.config.Tunnels[idx+1:]...)
+				return m.save()
+			},
+			Undo: func(_ context.Context) error {
+				m.config.Tunnels = slices.Insert(m.config.Tunnels, idx, cfg)
+				_ = m.save()
+				return nil
+			},
+		},
+		ops.Noop("delete key files", func(_ context.Context) error {
+			deleteKeyFiles(m.configDir, cfg.ID)
+			return nil
+		}),
+	})
+	if err != nil {
 		return err
 	}
 
-	if cfg.Enabled {
-		m.tearDown(cfg)
-	}
-	deleteKeyFiles(m.configDir, cfg.ID)
-
 	m.log.Info("tunnel deleted", "id", id, "name", cfg.Name)
 	return nil
+}
+
+// bringUpTunnel runs the production bring-up unless a test seam is installed.
+// The test seam is used by RestoreAll and the Enable/Disable sagas so unit
+// tests don't have to touch real netlink / wireguard.
+func (m *TunnelManager) bringUpTunnel(cfg TunnelConfig) error {
+	if m.bringUpForTest != nil {
+		return m.bringUpForTest(cfg)
+	}
+	privKey, err := loadPrivateKey(m.configDir, cfg.ID)
+	if err != nil {
+		return fmt.Errorf("load key: %w", err)
+	}
+	return m.bringUp(cfg, privKey)
 }
 
 func (m *TunnelManager) EnableTunnel(id string) error {
@@ -203,24 +251,29 @@ func (m *TunnelManager) EnableTunnel(id string) error {
 	if idx < 0 {
 		return fmt.Errorf(errFmtTunnelNotFound, id)
 	}
-
-	cfg := &m.config.Tunnels[idx]
-	if cfg.Enabled {
+	if m.config.Tunnels[idx].Enabled {
 		return nil
 	}
+	cfgVal := m.config.Tunnels[idx]
 
-	cfg.Enabled = true
-	if err := m.save(); err != nil {
-		cfg.Enabled = false
-		return err
-	}
-
-	if err := m.recreateTunnel(cfg, false); err != nil {
-		cfg.Enabled = false
-		_ = m.save()
-		return err
-	}
-	return nil
+	return ops.Run(context.Background(), []ops.Op{
+		{
+			Name: "bring up kernel interface",
+			Do:   func(_ context.Context) error { return m.bringUpTunnel(cfgVal) },
+			Undo: func(_ context.Context) error {
+				ifIdx, ok := m.lookupIface(cfgVal.InterfaceName)
+				if !ok {
+					return nil
+				}
+				m.releaseRoutes(cfgVal.ID, ifIdx, cfgVal.AllowedIPs, effectiveMetric(cfgVal.RouteMetric))
+				return m.deleteLink(ifIdx)
+			},
+		},
+		ops.Noop("persist enabled=true to disk", func(_ context.Context) error {
+			m.config.Tunnels[idx].Enabled = true
+			return m.save()
+		}),
+	})
 }
 
 func (m *TunnelManager) DisableTunnel(id string) error {
@@ -231,20 +284,25 @@ func (m *TunnelManager) DisableTunnel(id string) error {
 	if idx < 0 {
 		return fmt.Errorf(errFmtTunnelNotFound, id)
 	}
-
-	cfg := &m.config.Tunnels[idx]
-	if !cfg.Enabled {
+	if !m.config.Tunnels[idx].Enabled {
 		return nil
 	}
+	cfgVal := m.config.Tunnels[idx]
 
-	cfg.Enabled = false
-	if err := m.save(); err != nil {
-		cfg.Enabled = true
-		return err
-	}
-
-	m.tearDown(*cfg)
-	return nil
+	return ops.Run(context.Background(), []ops.Op{
+		{
+			Name: "tear down kernel interface",
+			Do: func(_ context.Context) error {
+				m.tearDown(cfgVal)
+				return nil
+			},
+			Undo: func(_ context.Context) error { return m.bringUpTunnel(cfgVal) },
+		},
+		ops.Noop("persist enabled=false to disk", func(_ context.Context) error {
+			m.config.Tunnels[idx].Enabled = false
+			return m.save()
+		}),
+	})
 }
 
 func applyUpdates(base, updates TunnelConfig) TunnelConfig {
@@ -668,6 +726,9 @@ func (m *TunnelManager) findTunnel(id string) int {
 }
 
 func (m *TunnelManager) save() error {
+	if m.saveOverride != nil {
+		return m.saveOverride()
+	}
 	return saveConfig(filepath.Join(m.configDir, configFileName), m.config)
 }
 
