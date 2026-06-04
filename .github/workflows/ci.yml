@@ -66,6 +66,9 @@ jobs:
       - name: Phase 8 — WG private-key persistence guard
         run: ./scripts/check-no-key-leak.sh
 
+      - name: Phase 9 — subprocess context guard
+        run: ./scripts/check-no-background-exec.sh
+
       - name: Build (cross-compile ARM64)
         run: make build
 

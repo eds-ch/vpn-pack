@@ -141,7 +141,7 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *service.Inte
 
 func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *service.IntegrationStatus) {
 	fwHealth := s.firewallHealthSnapshot(ctx)
-	routingHealth := s.routingHealth.Check()
+	routingHealth := s.routingHealth.Check(ctx)
 	acceptDNS := s.isDNSForwardingEnabled()
 	udpPort := service.ReadTailscaledPort()
 	var tunnels []wgs2s.WgS2sStatus

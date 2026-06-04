@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,7 +26,7 @@ const (
 type RoutingHealthChecker struct {
 	readRPFilter  func(iface string) (int, error)
 	listFwRules   func() ([]PBRInfo, error)
-	checkIP6Chain func(chain string) bool
+	checkIP6Chain func(ctx context.Context, chain string) bool
 	ifaceExists   func(name string) bool
 
 	mu       sync.Mutex
@@ -43,7 +44,7 @@ func NewRoutingHealthChecker() *RoutingHealthChecker {
 	}
 }
 
-func (c *RoutingHealthChecker) Check() *domain.RoutingHealth {
+func (c *RoutingHealthChecker) Check(ctx context.Context) *domain.RoutingHealth {
 	if c == nil {
 		return nil
 	}
@@ -75,7 +76,7 @@ func (c *RoutingHealthChecker) Check() *domain.RoutingHealth {
 		slog.Warn("routing health: "+w.Message, "check", w.Check, "value", w.Value)
 		warnings = append(warnings, *w)
 	}
-	if w := c.checkIPv6TsForward(); w != nil {
+	if w := c.checkIPv6TsForward(ctx); w != nil {
 		slog.Warn("routing health: "+w.Message, "check", w.Check)
 		warnings = append(warnings, *w)
 	}
@@ -134,8 +135,8 @@ func (c *RoutingHealthChecker) checkBypassMarkConflict() *domain.RoutingWarning 
 	return nil
 }
 
-func (c *RoutingHealthChecker) checkIPv6TsForward() *domain.RoutingWarning {
-	if !c.checkIP6Chain("ts-forward") {
+func (c *RoutingHealthChecker) checkIPv6TsForward(ctx context.Context) *domain.RoutingWarning {
+	if !c.checkIP6Chain(ctx, "ts-forward") {
 		return &domain.RoutingWarning{
 			Check:    "ipv6_ts_forward",
 			Severity: "warning",
@@ -184,8 +185,10 @@ func defaultListFwRules() ([]PBRInfo, error) {
 	return result, nil
 }
 
-func defaultCheckIP6Chain(chain string) bool {
-	return exec.Command("ip6tables", "-w", "2", "-L", chain, "-n").Run() == nil
+func defaultCheckIP6Chain(ctx context.Context, chain string) bool {
+	cctx, cancel := config.WithTimeout(ctx, config.SubprocessTimeout)
+	defer cancel()
+	return exec.CommandContext(cctx, "ip6tables", "-w", "2", "-L", chain, "-n").Run() == nil
 }
 
 func defaultIfaceExists(name string) bool {
