@@ -28,10 +28,18 @@ function mockFetch(overrides = {}) {
     return vi.fn().mockResolvedValue(res);
 }
 
+function clearCookies() {
+    for (const c of document.cookie.split(';')) {
+        const name = c.split('=')[0].trim();
+        if (name) document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+    }
+}
+
 describe('api', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         global.fetch = mockFetch();
+        clearCookies();
     });
 
     it('calls correct URL for GET request', async () => {
@@ -154,6 +162,40 @@ describe('api', () => {
             }),
         );
         expect(result).toEqual(mockResp);
+    });
+
+    it('sends X-Csrf-Token header from vp_csrf cookie on POST', async () => {
+        document.cookie = 'vp_csrf=tok-abc123; path=/';
+        await tailscaleUp();
+        const call = global.fetch.mock.calls[0];
+        const headers = call[1]?.headers;
+        expect(headers).toBeDefined();
+        expect(headers['X-Csrf-Token']).toBe('tok-abc123');
+    });
+
+    it('does NOT send X-Csrf-Token on GET', async () => {
+        document.cookie = 'vp_csrf=tok-zzz; path=/';
+        await getStatusOnce();
+        const call = global.fetch.mock.calls[0];
+        const headers = call[1]?.headers;
+        expect(headers).toBeDefined();
+        expect(headers['X-Csrf-Token']).toBeUndefined();
+    });
+
+    it('sends X-Csrf-Token on DELETE', async () => {
+        document.cookie = 'vp_csrf=del-tok; path=/';
+        await disableRemoteExitNode();
+        const call = global.fetch.mock.calls[0];
+        const headers = call[1]?.headers;
+        expect(headers['X-Csrf-Token']).toBe('del-tok');
+    });
+
+    it('does not set X-Csrf-Token if cookie missing', async () => {
+        clearCookies();
+        await tailscaleUp();
+        const call = global.fetch.mock.calls[0];
+        const headers = call[1]?.headers;
+        expect(headers['X-Csrf-Token']).toBeUndefined();
     });
 
     it('disableRemoteExitNode sends DELETE /exit-node', async () => {
