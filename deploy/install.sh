@@ -31,6 +31,25 @@ warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
 error() { echo -e "${RED}[x]${NC} $*"; }
 die()   { error "$*"; exit 1; }
 
+# safe_install writes $src to $dst at $mode atomically. If $dst exists
+# and is a symlink, the install aborts — this prevents an attacker who
+# can pre-create a symlink at a known config path from steering writes
+# to an arbitrary file. Staging happens in the same directory as $dst
+# so the final mv is an atomic rename on the same filesystem.
+safe_install() {
+    local src=$1 dst=$2 mode=$3
+    if [[ -L "$dst" ]]; then
+        echo "FATAL: refusing to write through symlink at $dst" >&2
+        exit 1
+    fi
+    local dir tmp
+    dir=$(dirname "$dst")
+    tmp=$(mktemp "${dir}/.install.XXXXXX")
+    chmod "$mode" "$tmp"
+    cp -f --no-dereference "$src" "$tmp"
+    mv -f "$tmp" "$dst"
+}
+
 check_network_version() {
     local raw major minor rest pkg
     raw=$(dpkg-query -W -f='${Version}' unifi 2>/dev/null) || true
@@ -163,14 +182,19 @@ else
 fi
 
 info "Installing nginx config for /vpn-pack/ path..."
-cp -f "${SCRIPT_DIR}/nginx-vpnpack.conf" "${NGINX_SRC}"
+safe_install "${SCRIPT_DIR}/nginx-vpnpack.conf" "${NGINX_SRC}" 0644
 mkdir -p "$(dirname "${NGINX_DEST}")"
-cp -f "${NGINX_SRC}" "${NGINX_DEST}"
+safe_install "${NGINX_SRC}" "${NGINX_DEST}" 0644
+if ! nginx_test_output=$(nginx -t 2>&1); then
+    error "nginx config test failed; refusing to reload"
+    echo "$nginx_test_output" >&2
+    exit 1
+fi
 nginx -s reload 2>/dev/null || warn "nginx reload failed (will be picked up on next restart)"
 
 info "Installing systemd services..."
-cp -f "${SCRIPT_DIR}/systemd/tailscaled.service" "${SYSTEMD_UNIT}"
-cp -f "${SCRIPT_DIR}/systemd/vpn-pack-manager.service" "${MANAGER_UNIT}"
+safe_install "${SCRIPT_DIR}/systemd/tailscaled.service" "${SYSTEMD_UNIT}" 0644
+safe_install "${SCRIPT_DIR}/systemd/vpn-pack-manager.service" "${MANAGER_UNIT}" 0644
 
 systemctl daemon-reload
 systemctl enable tailscaled
