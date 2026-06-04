@@ -45,8 +45,18 @@ type TunnelManager struct {
 	routes      routeOps
 	routeRefs   *routeRefCounter
 	lookupIface func(name string) (uint32, bool)
+	listIfaces  func(prefix string) []ifaceEntry
 	deleteLink  func(idx uint32) error
 	log         *slog.Logger
+
+	// bringUpForTest, when set, replaces the production bringUp pipeline so
+	// tests can drive RestoreAll without touching real netlink/wireguard.
+	bringUpForTest func(cfg TunnelConfig) error
+}
+
+type ifaceEntry struct {
+	name string
+	idx  uint32
 }
 
 func NewTunnelManager(configDir string, log *slog.Logger) (*TunnelManager, error) {
@@ -81,6 +91,7 @@ func NewTunnelManager(configDir string, log *slog.Logger) (*TunnelManager, error
 		routes:      &rtnetlinkRoutes{conn: rtConn},
 		routeRefs:   newRouteRefCounter(),
 		lookupIface: getInterfaceIndex,
+		listIfaces:  listInterfacesByPrefix,
 		deleteLink:  func(idx uint32) error { return deleteInterface(rtConn, idx) },
 		log:         log,
 	}, nil
@@ -371,9 +382,21 @@ func (m *TunnelManager) RestoreAll() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.removeOrphanInterfaces()
+
 	var errs []error
 	for _, cfg := range m.config.Tunnels {
 		if !cfg.Enabled {
+			continue
+		}
+
+		if m.bringUpForTest != nil {
+			if err := m.bringUpForTest(cfg); err != nil {
+				m.log.Warn("restore: failed to bring up tunnel", "id", cfg.ID, "err", err)
+				errs = append(errs, err)
+				continue
+			}
+			m.log.Info("tunnel restored", "id", cfg.ID, "name", cfg.Name, "iface", cfg.InterfaceName)
 			continue
 		}
 
@@ -393,6 +416,31 @@ func (m *TunnelManager) RestoreAll() error {
 		m.log.Info("tunnel restored", "id", cfg.ID, "name", cfg.Name, "iface", cfg.InterfaceName)
 	}
 	return errors.Join(errs...)
+}
+
+// removeOrphanInterfaces sweeps the kernel for wg-s2s* interfaces that are not
+// referenced by the current config and deletes them. This protects the next
+// bring-up from inheriting stale state left behind by a crash, a config
+// rewrite, or a tunnel that was removed while the manager was offline (BUG-L12).
+func (m *TunnelManager) removeOrphanInterfaces() {
+	if m.listIfaces == nil {
+		return
+	}
+	configured := make(map[string]bool, len(m.config.Tunnels))
+	for _, cfg := range m.config.Tunnels {
+		configured[cfg.InterfaceName] = true
+	}
+	for _, ifc := range m.listIfaces("wg-s2s") {
+		if configured[ifc.name] {
+			continue
+		}
+		if err := m.deleteLink(ifc.idx); err != nil {
+			m.log.Warn("RestoreAll: failed to remove orphan interface",
+				"iface", ifc.name, "err", err)
+			continue
+		}
+		m.log.Info("RestoreAll: removed orphan interface", "iface", ifc.name)
+	}
 }
 
 func (m *TunnelManager) GetTunnels() []TunnelConfig {

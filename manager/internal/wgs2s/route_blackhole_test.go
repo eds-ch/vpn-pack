@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 
@@ -122,6 +123,18 @@ func (f *fakeKernel) lookupIface(name string) (uint32, bool) {
 	return idx, ok
 }
 
+func (f *fakeKernel) listIfaces(prefix string) []ifaceEntry {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []ifaceEntry
+	for name, idx := range f.ifaces {
+		if strings.HasPrefix(name, prefix) {
+			out = append(out, ifaceEntry{name: name, idx: idx})
+		}
+	}
+	return out
+}
+
 func (f *fakeKernel) deleteLink(idx uint32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -146,6 +159,7 @@ func newTestManager(t *testing.T) (*TunnelManager, *fakeKernel) {
 		routes:      fk,
 		routeRefs:   newRouteRefCounter(),
 		lookupIface: fk.lookupIface,
+		listIfaces:  fk.listIfaces,
 		deleteLink:  fk.deleteLink,
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
