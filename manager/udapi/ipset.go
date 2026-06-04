@@ -1,6 +1,7 @@
 package udapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -13,8 +14,8 @@ type ipsetEntry struct {
 	Entries []string `json:"entries"`
 }
 
-func findIPSet(c *UDAPIClient, ipsetName string) (*ipsetEntry, []ipsetEntry, error) {
-	resp, err := c.Request("GET", "/firewall/sets", nil)
+func findIPSet(ctx context.Context, c *UDAPIClient, ipsetName string) (*ipsetEntry, []ipsetEntry, error) {
+	resp, err := c.RequestCtx(ctx, "GET", "/firewall/sets", nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get firewall sets: %w", err)
 	}
@@ -32,8 +33,8 @@ func findIPSet(c *UDAPIClient, ipsetName string) (*ipsetEntry, []ipsetEntry, err
 	return nil, sets, nil
 }
 
-func EnsureZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
-	target, _, err := findIPSet(c, ipsetName)
+func EnsureZoneSubnet(ctx context.Context, c *UDAPIClient, ipsetName, cidr string) error {
+	target, _, err := findIPSet(ctx, c, ipsetName)
 	if err != nil {
 		return err
 	}
@@ -49,18 +50,18 @@ func EnsureZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
 
 	target.Entries = append(target.Entries, cidr)
 
-	_, err = c.Request("PUT", "/firewall/sets/set", target)
+	_, err = c.RequestCtx(ctx, "PUT", "/firewall/sets/set", target)
 	if err != nil {
 		return fmt.Errorf("update %s: %w", ipsetName, err)
 	}
 	return nil
 }
 
-func EnsureZoneSubnets(c *UDAPIClient, ipsetName string, cidrs []string) error {
+func EnsureZoneSubnets(ctx context.Context, c *UDAPIClient, ipsetName string, cidrs []string) error {
 	if len(cidrs) == 0 {
 		return nil
 	}
-	target, _, err := findIPSet(c, ipsetName)
+	target, _, err := findIPSet(ctx, c, ipsetName)
 	if err != nil {
 		return err
 	}
@@ -84,19 +85,19 @@ func EnsureZoneSubnets(c *UDAPIClient, ipsetName string, cidrs []string) error {
 		return nil
 	}
 
-	_, err = c.Request("PUT", "/firewall/sets/set", target)
+	_, err = c.RequestCtx(ctx, "PUT", "/firewall/sets/set", target)
 	if err != nil {
 		return fmt.Errorf("update %s: %w", ipsetName, err)
 	}
 	return nil
 }
 
-func EnsureVPNSubnet(c *UDAPIClient, cidr string) error {
-	return EnsureZoneSubnet(c, "VPN_subnets", cidr)
+func EnsureVPNSubnet(ctx context.Context, c *UDAPIClient, cidr string) error {
+	return EnsureZoneSubnet(ctx, c, "VPN_subnets", cidr)
 }
 
-func RemoveZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
-	target, _, err := findIPSet(c, ipsetName)
+func RemoveZoneSubnet(ctx context.Context, c *UDAPIClient, ipsetName, cidr string) error {
+	target, _, err := findIPSet(ctx, c, ipsetName)
 	if err != nil {
 		return err
 	}
@@ -115,13 +116,13 @@ func RemoveZoneSubnet(c *UDAPIClient, ipsetName, cidr string) error {
 	}
 
 	target.Entries = filtered
-	_, err = c.Request("PUT", "/firewall/sets/set", target)
+	_, err = c.RequestCtx(ctx, "PUT", "/firewall/sets/set", target)
 	if err != nil {
 		return fmt.Errorf("update %s: %w", ipsetName, err)
 	}
 	return nil
 }
 
-func RemoveVPNSubnet(c *UDAPIClient, cidr string) error {
-	return RemoveZoneSubnet(c, "VPN_subnets", cidr)
+func RemoveVPNSubnet(ctx context.Context, c *UDAPIClient, cidr string) error {
+	return RemoveZoneSubnet(ctx, c, "VPN_subnets", cidr)
 }

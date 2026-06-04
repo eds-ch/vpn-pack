@@ -99,8 +99,8 @@ func (m *mockFWManifest) RemoveWgS2sTunnel(tunnelID string) error {
 
 type mockFWOps struct {
 	discoverChainPrefix       func(ctx context.Context, zoneID string) string
-	ensureTailscaleRules      func(chainPrefix string) error
-	removeTailscaleIfaceRules func() error
+	ensureTailscaleRules      func(ctx context.Context, chainPrefix string) error
+	removeTailscaleIfaceRules func(ctx context.Context) error
 }
 
 func (m *mockFWOps) DiscoverChainPrefix(ctx context.Context, zoneID string) string {
@@ -109,15 +109,15 @@ func (m *mockFWOps) DiscoverChainPrefix(ctx context.Context, zoneID string) stri
 	}
 	return ""
 }
-func (m *mockFWOps) EnsureTailscaleRules(chainPrefix string) error {
+func (m *mockFWOps) EnsureTailscaleRules(ctx context.Context, chainPrefix string) error {
 	if m.ensureTailscaleRules != nil {
-		return m.ensureTailscaleRules(chainPrefix)
+		return m.ensureTailscaleRules(ctx, chainPrefix)
 	}
 	return nil
 }
-func (m *mockFWOps) RemoveTailscaleInterfaceRules() error {
+func (m *mockFWOps) RemoveTailscaleInterfaceRules(ctx context.Context) error {
 	if m.removeTailscaleIfaceRules != nil {
-		return m.removeTailscaleIfaceRules()
+		return m.removeTailscaleIfaceRules(ctx)
 	}
 	return nil
 }
@@ -232,7 +232,7 @@ func TestSetupTailscaleFirewall_RestoresChainPrefixOnUDAPIFailure(t *testing.T) 
 	}
 	ops := &mockFWOps{
 		discoverChainPrefix: func(_ context.Context, _ string) string { return "NEW" },
-		ensureTailscaleRules: func(_ string) error {
+		ensureTailscaleRules: func(_ context.Context, _ string) error {
 			return errors.New("udapi down")
 		},
 	}
@@ -259,7 +259,7 @@ func TestSetupTailscaleFirewall_UDAPIFail(t *testing.T) {
 	}
 	mf := &mockFWManifest{siteID: "site-1"}
 	ops := &mockFWOps{
-		ensureTailscaleRules: func(chainPrefix string) error {
+		ensureTailscaleRules: func(_ context.Context, chainPrefix string) error {
 			return errors.New("udapi error")
 		},
 	}

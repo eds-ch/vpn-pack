@@ -108,8 +108,8 @@ type FirewallService interface {
 	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
 	CheckWgS2sRulesPresent(ctx context.Context, specs []WgS2sCheckSpec) map[string]bool
 	DiscoverChainPrefix(ctx context.Context, zoneID string) string
-	EnsureTailscaleRules(chainPrefix string) error
-	RemoveTailscaleInterfaceRules() error
+	EnsureTailscaleRules(ctx context.Context, chainPrefix string) error
+	RemoveTailscaleInterfaceRules(ctx context.Context) error
 	IntegrationReady() bool
 }
 

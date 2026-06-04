@@ -22,10 +22,13 @@ func runCleanup() {
 
 	uc := udapi.NewClient(config.UDAPISocketPath)
 
-	removeTailscaleUDAPIRules(uc)
-	removeWgS2sUDAPIRules(uc)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	removeTailscaleUDAPIRules(ctx, uc)
+	removeWgS2sUDAPIRules(ctx, uc)
 	removeWgS2sInterfaces()
-	removeSubnetsEntries(uc)
+	removeSubnetsEntries(ctx, uc)
 	removeExitNodeRules()
 
 	removeIntegrationResources()
@@ -39,16 +42,16 @@ func runCleanup() {
 	slog.Info("cleanup: done")
 }
 
-func removeTailscaleUDAPIRules(uc *udapi.UDAPIClient) {
+func removeTailscaleUDAPIRules(ctx context.Context, uc *udapi.UDAPIClient) {
 	marker := config.FirewallMarker
-	if err := udapi.RemoveInterfaceRules(uc, config.TailscaleInterface, marker); err != nil {
+	if err := udapi.RemoveInterfaceRules(ctx, uc, config.TailscaleInterface, marker); err != nil {
 		slog.Warn("cleanup: tailscale UDAPI rules removal failed", "err", err)
 	} else {
 		slog.Info("cleanup: tailscale UDAPI rules removed")
 	}
 }
 
-func removeWgS2sUDAPIRules(uc *udapi.UDAPIClient) {
+func removeWgS2sUDAPIRules(ctx context.Context, uc *udapi.UDAPIClient) {
 	ifaces, err := listWgS2sInterfaces()
 	if err != nil {
 		slog.Warn("cleanup: could not list wg-s2s interfaces", "err", err)
@@ -56,7 +59,7 @@ func removeWgS2sUDAPIRules(uc *udapi.UDAPIClient) {
 	}
 	for _, iface := range ifaces {
 		marker := wgS2sMarkerPrefix + iface
-		if err := udapi.RemoveInterfaceRules(uc, iface, marker); err != nil {
+		if err := udapi.RemoveInterfaceRules(ctx, uc, iface, marker); err != nil {
 			slog.Warn("cleanup: wg-s2s UDAPI rules removal failed", "iface", iface, "err", err)
 		} else {
 			slog.Info("cleanup: wg-s2s UDAPI rules removed", "iface", iface)
@@ -78,18 +81,18 @@ func removeWgS2sInterfaces() {
 	}
 }
 
-func removeSubnetsEntries(uc *udapi.UDAPIClient) {
+func removeSubnetsEntries(ctx context.Context, uc *udapi.UDAPIClient) {
 	manifest, err := LoadManifest(config.ManifestPath)
 	if err == nil && manifest.Tailscale.ChainPrefix != "" && manifest.Tailscale.ChainPrefix != config.DefaultChainPrefix {
 		ipsetName := zoneIPSetName(manifest.Tailscale.ChainPrefix)
-		if err := udapi.RemoveZoneSubnet(uc, ipsetName, config.TailscaleCGNAT); err != nil {
+		if err := udapi.RemoveZoneSubnet(ctx, uc, ipsetName, config.TailscaleCGNAT); err != nil {
 			slog.Warn("cleanup: zone ipset entry removal failed", "ipset", ipsetName, "err", err)
 		} else {
 			slog.Info("cleanup: zone ipset entry removed", "ipset", ipsetName, "cidr", config.TailscaleCGNAT)
 		}
 	}
 
-	if err := udapi.RemoveVPNSubnet(uc, config.TailscaleCGNAT); err != nil {
+	if err := udapi.RemoveVPNSubnet(ctx, uc, config.TailscaleCGNAT); err != nil {
 		slog.Warn("cleanup: VPN_subnets entry removal failed", "err", err)
 	} else {
 		slog.Info("cleanup: VPN_subnets entry removed", "cidr", config.TailscaleCGNAT)

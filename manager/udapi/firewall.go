@@ -1,6 +1,7 @@
 package udapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,8 +27,8 @@ type FirewallRule struct {
 	Desc      string
 }
 
-func AddRule(c *UDAPIClient, r FirewallRule) error {
-	exists, err := HasMarkerRule(c, r.Chain, r.Marker)
+func AddRule(ctx context.Context, c *UDAPIClient, r FirewallRule) error {
+	exists, err := HasMarkerRule(ctx, c, r.Chain, r.Marker)
 	if err != nil {
 		return fmt.Errorf("check %s: %w", r.Chain, err)
 	}
@@ -44,17 +45,17 @@ func AddRule(c *UDAPIClient, r FirewallRule) error {
 		"connectionState": []string{},
 	}
 
-	_, err = c.Request("POST", firewallFilterPath(r.Chain, "rule"), rule)
+	_, err = c.RequestCtx(ctx, "POST", firewallFilterPath(r.Chain, "rule"), rule)
 	if err != nil {
 		return fmt.Errorf("add %s rule: %w", r.Chain, err)
 	}
 	return nil
 }
 
-func AddInterfaceRulesForZone(c *UDAPIClient, iface, marker, chainPrefix string) error {
+func AddInterfaceRulesForZone(ctx context.Context, c *UDAPIClient, iface, marker, chainPrefix string) error {
 	var errs []error
 	for _, r := range zoneRules(iface, marker, chainPrefix) {
-		if err := AddRule(c, r); err != nil {
+		if err := AddRule(ctx, c, r); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -73,19 +74,19 @@ func zoneRules(iface, marker, chainPrefix string) []FirewallRule {
 	}
 }
 
-func RemoveInterfaceRules(c *UDAPIClient, iface, marker string) error {
+func RemoveInterfaceRules(ctx context.Context, c *UDAPIClient, iface, marker string) error {
 	chains := []string{"FORWARD_IN", "INPUT", "OUTPUT"}
 	var errs []error
 	for _, chain := range chains {
-		if err := removeMarkerRules(c, chain, marker); err != nil {
+		if err := removeMarkerRules(ctx, c, chain, marker); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func removeMarkerRules(c *UDAPIClient, chain, marker string) error {
-	resp, err := c.Request("GET", firewallFilterPath(chain), nil)
+func removeMarkerRules(ctx context.Context, c *UDAPIClient, chain, marker string) error {
+	resp, err := c.RequestCtx(ctx, "GET", firewallFilterPath(chain), nil)
 	if err != nil {
 		return fmt.Errorf("list %s rules: %w", chain, err)
 	}
@@ -102,7 +103,7 @@ func removeMarkerRules(c *UDAPIClient, chain, marker string) error {
 
 	for _, r := range cr.Rules {
 		if strings.Contains(r.Description, marker) {
-			if _, err := c.Request("DELETE", firewallFilterPath(chain, "rule"), map[string]any{"id": r.ID}); err != nil {
+			if _, err := c.RequestCtx(ctx, "DELETE", firewallFilterPath(chain, "rule"), map[string]any{"id": r.ID}); err != nil {
 				return fmt.Errorf("delete %s rule %d: %w", chain, r.ID, err)
 			}
 		}
@@ -110,8 +111,8 @@ func removeMarkerRules(c *UDAPIClient, chain, marker string) error {
 	return nil
 }
 
-func HasMarkerRule(c *UDAPIClient, chain, marker string) (bool, error) {
-	resp, err := c.Request("GET", firewallFilterPath(chain), nil)
+func HasMarkerRule(ctx context.Context, c *UDAPIClient, chain, marker string) (bool, error) {
+	resp, err := c.RequestCtx(ctx, "GET", firewallFilterPath(chain), nil)
 	if err != nil {
 		return false, err
 	}

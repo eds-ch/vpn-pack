@@ -114,11 +114,11 @@ type firewallOpsAdapter struct {
 func (a *firewallOpsAdapter) DiscoverChainPrefix(ctx context.Context, zoneID string) string {
 	return a.fw.DiscoverChainPrefix(ctx, zoneID)
 }
-func (a *firewallOpsAdapter) EnsureTailscaleRules(chainPrefix string) error {
-	return a.fw.EnsureTailscaleRules(chainPrefix)
+func (a *firewallOpsAdapter) EnsureTailscaleRules(ctx context.Context, chainPrefix string) error {
+	return a.fw.EnsureTailscaleRules(ctx, chainPrefix)
 }
-func (a *firewallOpsAdapter) RemoveTailscaleInterfaceRules() error {
-	return a.fw.RemoveTailscaleInterfaceRules()
+func (a *firewallOpsAdapter) RemoveTailscaleInterfaceRules(ctx context.Context) error {
+	return a.fw.RemoveTailscaleInterfaceRules(ctx)
 }
 
 // --- Adapter for WgS2sService ---

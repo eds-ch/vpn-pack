@@ -146,22 +146,22 @@ type fakeUDAPIOps struct {
 }
 
 func (f *fakeUDAPIOps) install(fm *FirewallManager) {
-	fm.addInterfaceRules = func(iface, marker, chainPrefix string) error {
+	fm.addInterfaceRules = func(_ context.Context, iface, marker, chainPrefix string) error {
 		f.addCalls = append(f.addCalls, iface+"/"+marker+"/"+chainPrefix)
 		return nil
 	}
-	fm.removeInterfaceRules = func(iface, marker string) error {
+	fm.removeInterfaceRules = func(_ context.Context, iface, marker string) error {
 		f.removeCalls = append(f.removeCalls, iface+"/"+marker)
 		return nil
 	}
-	fm.ensureZoneSubnets = func(setName string, cidrs []string) error {
+	fm.ensureZoneSubnets = func(_ context.Context, setName string, cidrs []string) error {
 		f.ensureCalls = append(f.ensureCalls, setName+":"+strings.Join(cidrs, ","))
 		if f.failIpsetFill {
 			return fmt.Errorf("simulated ipset fill failure")
 		}
 		return nil
 	}
-	fm.removeZoneSubnet = func(setName, cidr string) error {
+	fm.removeZoneSubnet = func(_ context.Context, setName, cidr string) error {
 		f.removeSubnet = append(f.removeSubnet, setName+":"+cidr)
 		return nil
 	}

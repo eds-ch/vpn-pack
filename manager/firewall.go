@@ -52,10 +52,10 @@ type FirewallManager struct {
 
 	// UDAPI write-side seams. Tests substitute fakes; production wires them
 	// to the real udapi.* helpers in NewFirewallManager.
-	addInterfaceRules    func(iface, marker, chainPrefix string) error
-	removeInterfaceRules func(iface, marker string) error
-	ensureZoneSubnets    func(setName string, cidrs []string) error
-	removeZoneSubnet     func(setName, cidr string) error
+	addInterfaceRules    func(ctx context.Context, iface, marker, chainPrefix string) error
+	removeInterfaceRules func(ctx context.Context, iface, marker string) error
+	ensureZoneSubnets    func(ctx context.Context, setName string, cidrs []string) error
+	removeZoneSubnet     func(ctx context.Context, setName, cidr string) error
 }
 
 func (fm *FirewallManager) IntegrationReady() bool {
@@ -70,17 +70,17 @@ func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest Manif
 	}
 	fm.chainProbe = fm.hasChainRule
 	fm.ipsetProbe = fm.hasIPSetEntry
-	fm.addInterfaceRules = func(iface, marker, chainPrefix string) error {
-		return udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix)
+	fm.addInterfaceRules = func(ctx context.Context, iface, marker, chainPrefix string) error {
+		return udapi.AddInterfaceRulesForZone(ctx, fm.udapi, iface, marker, chainPrefix)
 	}
-	fm.removeInterfaceRules = func(iface, marker string) error {
-		return udapi.RemoveInterfaceRules(fm.udapi, iface, marker)
+	fm.removeInterfaceRules = func(ctx context.Context, iface, marker string) error {
+		return udapi.RemoveInterfaceRules(ctx, fm.udapi, iface, marker)
 	}
-	fm.ensureZoneSubnets = func(setName string, cidrs []string) error {
-		return udapi.EnsureZoneSubnets(fm.udapi, setName, cidrs)
+	fm.ensureZoneSubnets = func(ctx context.Context, setName string, cidrs []string) error {
+		return udapi.EnsureZoneSubnets(ctx, fm.udapi, setName, cidrs)
 	}
-	fm.removeZoneSubnet = func(setName, cidr string) error {
-		return udapi.RemoveZoneSubnet(fm.udapi, setName, cidr)
+	fm.removeZoneSubnet = func(ctx context.Context, setName, cidr string) error {
+		return udapi.RemoveZoneSubnet(ctx, fm.udapi, setName, cidr)
 	}
 	return fm
 }
@@ -102,17 +102,17 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 	steps := []ops.Op{
 		{
 			Name: "install wg-s2s chain rules",
-			Do:   func(_ context.Context) error { return fm.addInterfaceRules(iface, marker, chainPrefix) },
-			Undo: func(_ context.Context) error { return fm.removeInterfaceRules(iface, marker) },
+			Do:   func(ctx context.Context) error { return fm.addInterfaceRules(ctx, iface, marker, chainPrefix) },
+			Undo: func(ctx context.Context) error { return fm.removeInterfaceRules(ctx, iface, marker) },
 		},
 	}
 	if len(filtered) > 0 {
 		steps = append(steps, ops.Op{
 			Name: "fill wg-s2s ipset",
-			Do:   func(_ context.Context) error { return fm.ensureZoneSubnets(ipsetName, filtered) },
-			Undo: func(_ context.Context) error {
+			Do:   func(ctx context.Context) error { return fm.ensureZoneSubnets(ctx, ipsetName, filtered) },
+			Undo: func(ctx context.Context) error {
 				for _, cidr := range filtered {
-					_ = fm.removeZoneSubnet(ipsetName, cidr)
+					_ = fm.removeZoneSubnet(ctx, ipsetName, cidr)
 				}
 				return nil
 			},
@@ -155,7 +155,7 @@ func (fm *FirewallManager) rediscoverAndSaveWgS2s(ctx context.Context, tunnelID 
 
 func (fm *FirewallManager) RemoveWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) {
 	marker := wgS2sMarkerPrefix + iface
-	if err := udapi.RemoveInterfaceRules(fm.udapi, iface, marker); err != nil {
+	if err := udapi.RemoveInterfaceRules(ctx, fm.udapi, iface, marker); err != nil {
 		slog.Warn("wg-s2s firewall rule removal failed", "iface", iface, "err", err)
 	}
 	fm.RemoveWgS2sIPSetEntries(ctx, tunnelID, allowedIPs)
@@ -168,7 +168,7 @@ func (fm *FirewallManager) RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID
 	}
 	ipsetName := zoneIPSetName(chainPrefix)
 	for _, cidr := range cidrs {
-		if err := udapi.RemoveZoneSubnet(fm.udapi, ipsetName, cidr); err != nil {
+		if err := udapi.RemoveZoneSubnet(ctx, fm.udapi, ipsetName, cidr); err != nil {
 			slog.Warn("wg-s2s ipset entry removal failed", "ipset", ipsetName, "cidr", cidr, "err", err)
 		}
 	}
@@ -340,7 +340,7 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 	ts := fm.manifest.GetTailscaleZone()
 	if chainPrefix == config.DefaultChainPrefix && ts.ZoneID != "" {
 		if rediscovered := fm.DiscoverChainPrefix(ctx, ts.ZoneID); rediscovered != "" {
-			_ = udapi.RemoveInterfaceRules(fm.udapi, config.TailscaleInterface, marker)
+			_ = udapi.RemoveInterfaceRules(ctx, fm.udapi, config.TailscaleInterface, marker)
 			chainPrefix = rediscovered
 			if err := fm.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, ts.PolicyIDs, rediscovered); err != nil {
 				slog.Warn("manifest save failed", "err", err)
@@ -349,14 +349,14 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 		}
 	}
 
-	return fm.EnsureTailscaleRules(chainPrefix)
+	return fm.EnsureTailscaleRules(ctx, chainPrefix)
 }
 
-func (fm *FirewallManager) RemoveTailscaleInterfaceRules() error {
-	return udapi.RemoveInterfaceRules(fm.udapi, config.TailscaleInterface, config.FirewallMarker)
+func (fm *FirewallManager) RemoveTailscaleInterfaceRules(ctx context.Context) error {
+	return udapi.RemoveInterfaceRules(ctx, fm.udapi, config.TailscaleInterface, config.FirewallMarker)
 }
 
-func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
+func (fm *FirewallManager) EnsureTailscaleRules(ctx context.Context, chainPrefix string) error {
 	if chainPrefix != config.DefaultChainPrefix {
 		fwd := fm.hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface)
 		inp := fm.hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface)
@@ -368,12 +368,12 @@ func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
 	}
 
 	marker := config.FirewallMarker
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, config.TailscaleInterface, marker, chainPrefix); err != nil {
+	if err := udapi.AddInterfaceRulesForZone(ctx, fm.udapi, config.TailscaleInterface, marker, chainPrefix); err != nil {
 		return err
 	}
 
 	ipsetName := zoneIPSetName(chainPrefix)
-	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, config.TailscaleCGNAT); err != nil {
+	if err := udapi.EnsureZoneSubnet(ctx, fm.udapi, ipsetName, config.TailscaleCGNAT); err != nil {
 		return fmt.Errorf("zone ipset %s: %w", ipsetName, err)
 	}
 	return nil

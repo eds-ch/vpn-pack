@@ -2,6 +2,7 @@ package udapi
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -54,6 +55,14 @@ func NewClient(socketPath string) *UDAPIClient {
 }
 
 func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, error) {
+	return c.RequestCtx(context.Background(), method, entity, payload)
+}
+
+func (c *UDAPIClient) RequestCtx(ctx context.Context, method, entity string, payload any) (*Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	conn, bindPath, err := c.connect()
 	if err != nil {
 		return nil, err
@@ -64,9 +73,22 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 	}
 
 	deadline := time.Now().Add(requestTimeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, fmt.Errorf("udapi: set deadline: %w", err)
 	}
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
 
 	env := envelope{
 		ID:      "manager-" + randomID(),
@@ -85,6 +107,9 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 
 	frame := fmt.Sprintf("%d\n%s", len(body), body)
 	if _, err := conn.Write([]byte(frame)); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		if isTimeout(err) {
 			return nil, errTimeout
 		}
@@ -94,6 +119,9 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 	reader := bufio.NewReader(conn)
 	sizeLine, err := reader.ReadString('\n')
 	if err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		if isTimeout(err) {
 			return nil, errTimeout
 		}
@@ -107,6 +135,9 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 
 	respBody := make([]byte, size)
 	if _, err := io.ReadFull(reader, respBody); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		if isTimeout(err) {
 			return nil, errTimeout
 		}
