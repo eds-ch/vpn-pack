@@ -1,5 +1,5 @@
 <script>
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { SvelteSet } from 'svelte/reactivity';
     import { wgS2sGenerateKeypair, wgS2sGetLocalSubnets, wgS2sCreateTunnel, wgS2sListZones } from '../api.js';
     import { isValidCIDR, validateTunnelFields } from '../utils.js';
@@ -32,6 +32,15 @@
 
     let fieldErrors = $state({});
 
+    // SEC-C6 Pp5: scrub the WG private key on unmount and gate the
+    // late async resolve so a slow wgS2sGenerateKeypair() reply can
+    // never rehydrate the key into a detached component instance.
+    let alive = true;
+    onDestroy(() => {
+        alive = false;
+        keypair = null;
+    });
+
     onMount(async () => {
         const promises = [
             wgS2sGenerateKeypair(),
@@ -40,6 +49,7 @@
         if (integrationConfigured) promises.push(wgS2sListZones());
 
         const results = await Promise.all(promises);
+        if (!alive) return;
         if (results[0]) keypair = results[0];
         if (Array.isArray(results[1])) localSubnets = results[1];
         if (results[2] && Array.isArray(results[2])) zones = results[2];

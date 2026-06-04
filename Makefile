@@ -47,11 +47,11 @@ MANAGER_LDFLAGS   := -s -w -X unifi-tailscale/manager/config.Version=$(VPNPACK_V
                      -X unifi-tailscale/manager/config.BuildDate=$(BUILD_DATE) \
                      -X unifi-tailscale/manager/config.GithubRepo=$(GITHUB_REPO)
 
-.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning hardening-smoke
+.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning check-no-key-leak hardening-smoke
 
 # ── Checks (lint + test) ──────────────────────────────────────────
 
-check: check-go check-ui check-nginx-symmetry check-tls-pinning
+check: check-go check-ui check-nginx-symmetry check-tls-pinning check-no-key-leak
 
 check-nginx-symmetry:
 	@echo "==> Verifying nginx location include symmetry..."
@@ -60,6 +60,10 @@ check-nginx-symmetry:
 check-tls-pinning:
 	@echo "==> Verifying SPKI pin TLS guard..."
 	./scripts/check-tls-pinning.sh
+
+check-no-key-leak:
+	@echo "==> Verifying no WG private-key persistence in Svelte components..."
+	./scripts/check-no-key-leak.sh
 
 # Device-side smoke for the systemd hardening (SEC-B2). Requires SSH
 # access to a UDM-SE-like device. Restarts unifi-core and the manager

@@ -63,6 +63,9 @@ jobs:
       - name: Phase 8 — TLS pinning guard
         run: ./scripts/check-tls-pinning.sh
 
+      - name: Phase 8 — WG private-key persistence guard
+        run: ./scripts/check-no-key-leak.sh
+
       - name: Build (cross-compile ARM64)
         run: make build
 

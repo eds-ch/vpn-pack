@@ -52,4 +52,5 @@ scripts/*
 !scripts/check-tls-pinning.sh
 !scripts/hardening-smoke.sh
 !scripts/test-release-roundtrip.sh
+!scripts/check-no-key-leak.sh
 
