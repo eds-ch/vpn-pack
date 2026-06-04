@@ -95,7 +95,7 @@ func (c *UDAPIClient) RequestCtx(ctx context.Context, method, entity string, pay
 		return nil, err
 	}
 
-	conn, bindPath, err := c.connect()
+	conn, bindPath, err := c.connect(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -188,8 +188,9 @@ func (c *UDAPIClient) RequestCtx(ctx context.Context, method, entity string, pay
 	return &resp, nil
 }
 
-func (c *UDAPIClient) connect() (net.Conn, string, error) {
-	conn, err := net.Dial("unix", c.socketPath)
+func (c *UDAPIClient) connect(ctx context.Context) (net.Conn, string, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", c.socketPath)
 	if err == nil {
 		return conn, "", nil
 	}
@@ -198,9 +199,9 @@ func (c *UDAPIClient) connect() (net.Conn, string, error) {
 	_ = os.Remove(bindPath)
 
 	local := &net.UnixAddr{Name: bindPath, Net: "unix"}
-	remote := &net.UnixAddr{Name: c.socketPath, Net: "unix"}
+	dLocal := net.Dialer{LocalAddr: local}
 
-	uconn, err2 := net.DialUnix("unix", local, remote)
+	uconn, err2 := dLocal.DialContext(ctx, "unix", c.socketPath)
 	if err2 != nil {
 		_ = os.Remove(bindPath)
 		if isConnectionRefused(err) || isConnectionRefused(err2) {
