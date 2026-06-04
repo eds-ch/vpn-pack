@@ -629,6 +629,43 @@ func TestEnable_ContextCancelled_NoRollback(t *testing.T) {
 		"an error on cancelled ctx via ops.Run.")
 }
 
+// TestDisable_SurfacesCleanupError covers SEC-C13 / BUG-L15.
+// If exitSvc.Cleanup fails AFTER EditPrefs already succeeded, Disable must
+// report the cleanup error via ErrPartialDisable instead of swallowing it.
+func TestDisable_SurfacesCleanupError(t *testing.T) {
+	state := newFakeIPRuleState()
+	exit := NewExitNodeService(&mockExitManifest{}, state.runner())
+	stubBridges(exit, "br0")
+	require.NoError(t, exit.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll}))
+
+	state.mu.Lock()
+	state.failOnDel = true
+	state.mu.Unlock()
+
+	ts := &mockRoutingTailscale{}
+	manifest := &mockRemoteExitManifest{}
+	svc := NewRemoteExitService(ts, exit, manifest)
+
+	err := svc.Disable(context.Background())
+	require.Error(t, err, "Disable must surface Cleanup failures")
+	assert.ErrorIs(t, err, ErrPartialDisable, "error must wrap ErrPartialDisable")
+}
+
+// TestDisable_SurfacesManifestError covers SEC-C13 / BUG-L15 (manifest leg).
+// If manifest clear fails AFTER EditPrefs already succeeded, Disable must
+// report the manifest error via ErrPartialDisable.
+func TestDisable_SurfacesManifestError(t *testing.T) {
+	state := newFakeIPRuleState()
+	exit := NewExitNodeService(&mockExitManifest{}, state.runner())
+	ts := &mockRoutingTailscale{}
+	manifest := &mockRemoteExitManifest{setRemoteErr: fmt.Errorf("manifest write failed")}
+	svc := NewRemoteExitService(ts, exit, manifest)
+
+	err := svc.Disable(context.Background())
+	require.Error(t, err, "Disable must surface manifest failures")
+	assert.ErrorIs(t, err, ErrPartialDisable, "error must wrap ErrPartialDisable")
+}
+
 // TestEnable_CancelledEditPrefsIsFailure covers SEC-C12 / BUG-M3.
 // If EditPrefs gets cancelled, Enable must report a failure — never OK.
 // The prior bug: ctx.Err() != nil after EditPrefs returned OK=true to caller.

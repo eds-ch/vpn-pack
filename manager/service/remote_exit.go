@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -14,6 +15,11 @@ import (
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/ops"
 )
+
+// ErrPartialDisable indicates EditPrefs succeeded but a subsequent step
+// (local rules cleanup or manifest clear) failed. Callers must surface
+// this to the operator — exit-node is off, but local state may be stale.
+var ErrPartialDisable = errors.New("exit-node disabled with cleanup errors")
 
 type RemoteExitManifest interface {
 	GetRemoteExitNode() *domain.RemoteExitNode
@@ -226,16 +232,21 @@ func (svc *RemoteExitService) Disable(ctx context.Context) error {
 		return upstreamError(humanizeLocalAPIError(err), err)
 	}
 
+	var partial []error
 	if svc.exitSvc != nil {
 		if err := svc.exitSvc.Cleanup(ctx); err != nil {
 			slog.Warn("exit node rules cleanup failed", "err", err)
+			partial = append(partial, fmt.Errorf("cleanup local rules: %w", err))
 		}
 	}
-
 	if err := svc.manifest.SetRemoteExitNode(nil); err != nil {
 		slog.Warn("failed to clear remote exit node from manifest", "err", err)
+		partial = append(partial, fmt.Errorf("clear manifest: %w", err))
 	}
 
+	if len(partial) > 0 {
+		return errors.Join(append([]error{ErrPartialDisable}, partial...)...)
+	}
 	return nil
 }
 

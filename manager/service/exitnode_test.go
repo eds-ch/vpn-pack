@@ -42,6 +42,7 @@ type fakeIPRuleState struct {
 	failOnNthAdd int
 	addCount     int
 	failIP6Add   bool // when true, ip6tables -A always returns ENOENT-style error
+	failOnDel    bool // when true, every "ip rule del" returns an error
 }
 
 func newFakeIPRuleState() *fakeIPRuleState {
@@ -87,6 +88,9 @@ func (f *fakeIPRuleState) runner() CmdRunner {
 			return nil, nil
 
 		case "del":
+			if f.failOnDel {
+				return nil, fmt.Errorf("simulated ip rule del failure")
+			}
 			prio := extractPrio(args[3:])
 			var kept []string
 			for _, l := range f.rules[family] {
