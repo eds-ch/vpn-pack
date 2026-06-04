@@ -14,6 +14,7 @@ import (
 
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/ops"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
 )
@@ -48,6 +49,13 @@ type FirewallManager struct {
 	// the rule-presence checks without shelling out to iptables/ipset.
 	chainProbe func(chain, match string) bool
 	ipsetProbe func(setName, match string) bool
+
+	// UDAPI write-side seams. Tests substitute fakes; production wires them
+	// to the real udapi.* helpers in NewFirewallManager.
+	addInterfaceRules    func(iface, marker, chainPrefix string) error
+	removeInterfaceRules func(iface, marker string) error
+	ensureZoneSubnets    func(setName string, cidrs []string) error
+	removeZoneSubnet     func(setName, cidr string) error
 }
 
 func (fm *FirewallManager) IntegrationReady() bool {
@@ -62,6 +70,18 @@ func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest Manif
 	}
 	fm.chainProbe = fm.hasChainRule
 	fm.ipsetProbe = fm.hasIPSetEntry
+	fm.addInterfaceRules = func(iface, marker, chainPrefix string) error {
+		return udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix)
+	}
+	fm.removeInterfaceRules = func(iface, marker string) error {
+		return udapi.RemoveInterfaceRules(fm.udapi, iface, marker)
+	}
+	fm.ensureZoneSubnets = func(setName string, cidrs []string) error {
+		return udapi.EnsureZoneSubnets(fm.udapi, setName, cidrs)
+	}
+	fm.removeZoneSubnet = func(setName, cidr string) error {
+		return udapi.RemoveZoneSubnet(fm.udapi, setName, cidr)
+	}
 	return fm
 }
 
@@ -75,36 +95,51 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 	}
 
 	marker := wgS2sMarkerPrefix + iface
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix); err != nil {
-		return err
-	}
+	ipsetName := zoneIPSetName(chainPrefix)
 
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
+	filtered := fm.filterBlockedAllowedIPs(iface, allowedIPs)
 
-	if len(allowedIPs) > 0 {
-		ipsetName := zoneIPSetName(chainPrefix)
-		blocked := make(map[string]bool)
-		if sys, err := service.CollectSystemSubnets(iface); err == nil {
-			result := service.ValidateAllowedIPs(allowedIPs, sys)
-			for _, b := range result.Blocked {
-				slog.Warn("skipping conflicting ipset entry", "cidr", b.CIDR, "conflictsWith", b.ConflictsWith, "iface", b.Interface)
-				blocked[b.CIDR] = true
-			}
-		}
-		filtered := make([]string, 0, len(allowedIPs))
-		for _, cidr := range allowedIPs {
-			if !blocked[cidr] {
-				filtered = append(filtered, cidr)
-			}
-		}
-		if err := udapi.EnsureZoneSubnets(fm.udapi, ipsetName, filtered); err != nil {
-			slog.Warn("wg-s2s zone ipset failed", "ipset", ipsetName, "err", err)
+	steps := []ops.Op{
+		{
+			Name: "install wg-s2s chain rules",
+			Do:   func(_ context.Context) error { return fm.addInterfaceRules(iface, marker, chainPrefix) },
+			Undo: func(_ context.Context) error { return fm.removeInterfaceRules(iface, marker) },
+		},
+	}
+	if len(filtered) > 0 {
+		steps = append(steps, ops.Op{
+			Name: "fill wg-s2s ipset",
+			Do:   func(_ context.Context) error { return fm.ensureZoneSubnets(ipsetName, filtered) },
+			Undo: func(_ context.Context) error {
+				for _, cidr := range filtered {
+					_ = fm.removeZoneSubnet(ipsetName, cidr)
+				}
+				return nil
+			},
+		})
+	}
+	return ops.Run(ctx, steps)
+}
+
+func (fm *FirewallManager) filterBlockedAllowedIPs(iface string, allowedIPs []string) []string {
+	if len(allowedIPs) == 0 {
+		return nil
+	}
+	blocked := make(map[string]bool)
+	if sys, err := service.CollectSystemSubnets(iface); err == nil {
+		result := service.ValidateAllowedIPs(allowedIPs, sys)
+		for _, b := range result.Blocked {
+			slog.Warn("skipping conflicting ipset entry", "cidr", b.CIDR, "conflictsWith", b.ConflictsWith, "iface", b.Interface)
+			blocked[b.CIDR] = true
 		}
 	}
-
-	return nil
+	filtered := make([]string, 0, len(allowedIPs))
+	for _, cidr := range allowedIPs {
+		if !blocked[cidr] {
+			filtered = append(filtered, cidr)
+		}
+	}
+	return filtered
 }
 
 func (fm *FirewallManager) rediscoverAndSaveWgS2s(ctx context.Context, tunnelID string, zm ZoneManifest, current string) string {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -132,5 +133,71 @@ func TestCheckWgS2sRulesPresent_DetectsMissingChainRule(t *testing.T) {
 	}})
 	if got["wg-s2s0"] {
 		t.Fatal("expected false: forward chain rule missing")
+	}
+}
+
+// fakeUDAPIOps records calls and optionally fails the ipset fill step.
+type fakeUDAPIOps struct {
+	addCalls      []string
+	removeCalls   []string
+	ensureCalls   []string
+	removeSubnet  []string
+	failIpsetFill bool
+}
+
+func (f *fakeUDAPIOps) install(fm *FirewallManager) {
+	fm.addInterfaceRules = func(iface, marker, chainPrefix string) error {
+		f.addCalls = append(f.addCalls, iface+"/"+marker+"/"+chainPrefix)
+		return nil
+	}
+	fm.removeInterfaceRules = func(iface, marker string) error {
+		f.removeCalls = append(f.removeCalls, iface+"/"+marker)
+		return nil
+	}
+	fm.ensureZoneSubnets = func(setName string, cidrs []string) error {
+		f.ensureCalls = append(f.ensureCalls, setName+":"+strings.Join(cidrs, ","))
+		if f.failIpsetFill {
+			return fmt.Errorf("simulated ipset fill failure")
+		}
+		return nil
+	}
+	fm.removeZoneSubnet = func(setName, cidr string) error {
+		f.removeSubnet = append(f.removeSubnet, setName+":"+cidr)
+		return nil
+	}
+}
+
+// stubManifest is the minimum ManifestStore the wg-s2s firewall path needs:
+// chain prefix lookup + zone lookup. Other methods panic if accidentally called.
+type stubManifest struct {
+	ManifestStore
+	chainPrefix string
+	zone        ZoneManifest
+	zoneOK      bool
+}
+
+func (s *stubManifest) GetWgS2sChainPrefix(string) string { return s.chainPrefix }
+func (s *stubManifest) GetWgS2sZone(string) (ZoneManifest, bool) {
+	return s.zone, s.zoneOK
+}
+
+// TestSetupWgS2sFirewall_ReportsIpsetFailure covers BUG-M4. When the ipset
+// fill step fails after the chain rules were already installed, the saga
+// must roll back the chain rules and report the error to the caller.
+func TestSetupWgS2sFirewall_ReportsIpsetFailure(t *testing.T) {
+	fm, _ := newFakeFirewallManager(t)
+	fm.manifest = &stubManifest{chainPrefix: "VPN_S2S_A"}
+	ops := &fakeUDAPIOps{failIpsetFill: true}
+	ops.install(fm)
+
+	err := fm.SetupWgS2sFirewall(context.Background(), "tunnel-A", "wg-s2s0", []string{"10.20.0.0/24"})
+	if err == nil {
+		t.Fatal("expected error when ipset fill fails")
+	}
+	if len(ops.addCalls) == 0 {
+		t.Fatal("chain rules should have been installed before ipset fill")
+	}
+	if len(ops.removeCalls) == 0 {
+		t.Fatal("chain rules must be rolled back on ipset failure")
 	}
 }

@@ -629,6 +629,36 @@ func TestEnable_ContextCancelled_NoRollback(t *testing.T) {
 		"an error on cancelled ctx via ops.Run.")
 }
 
+// TestEnable_RollsBackAdvertiseExitNodeOnLaterFailure covers BUG-L14.
+// If a later saga step fails (EditPrefs), the SetAdvertiseExitNode(false)
+// step's Undo must restore the original advertising state.
+func TestEnable_RollsBackAdvertiseExitNodeOnLaterFailure(t *testing.T) {
+	ts := &mockRoutingTailscale{
+		statusFn: func(_ context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		getPrefsFn: func(_ context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{AdvertiseRoutes: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}}, nil
+		},
+		editPrefsFn: func(_ context.Context, _ *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			return nil, fmt.Errorf("upstream down")
+		},
+	}
+	manifest := &mockRemoteExitManifest{advertiseEnabled: true}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	_, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: true,
+	})
+	require.Error(t, err)
+	assert.True(t, manifest.advertiseEnabled,
+		"AdvertiseExitNode flag must be restored to true after rollback")
+}
+
 // TestDisable_SurfacesCleanupError covers SEC-C13 / BUG-L15.
 // If exitSvc.Cleanup fails AFTER EditPrefs already succeeded, Disable must
 // report the cleanup error via ErrPartialDisable instead of swallowing it.
