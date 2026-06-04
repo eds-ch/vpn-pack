@@ -46,5 +46,6 @@ scripts/*
 !scripts/cosign-sign.sh
 !scripts/test-installers.sh
 !scripts/test-deploy-symlink.sh
+!scripts/test-uninstall-integrity.sh
 !scripts/check-tls-pinning.sh
 

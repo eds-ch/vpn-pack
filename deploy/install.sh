@@ -170,6 +170,11 @@ cp -f "${SCRIPT_DIR}/bin/tailscaled" "${BIN_DIR}/tailscaled"
 cp -f "${SCRIPT_DIR}/bin/vpn-pack-manager" "${BIN_DIR}/vpn-pack-manager"
 chmod 755 "${BIN_DIR}/tailscale" "${BIN_DIR}/tailscaled" "${BIN_DIR}/vpn-pack-manager"
 
+# Record manager binary sha256 so uninstall.sh can refuse to run --cleanup
+# against a tampered binary (SEC-C4).
+sha256sum "${BIN_DIR}/vpn-pack-manager" | awk '{print $1}' > "${BIN_DIR}/.expected-sha256"
+chmod 0644 "${BIN_DIR}/.expected-sha256"
+
 ln -sf "${BIN_DIR}/tailscale" /usr/local/bin/tailscale
 ln -sf "${BIN_DIR}/tailscaled" /usr/local/bin/tailscaled
 
