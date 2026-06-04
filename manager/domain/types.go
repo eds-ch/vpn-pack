@@ -279,6 +279,10 @@ func (ts *TailscaleState) Snapshot() StateData {
 		rh.Warnings = slices.Clone(rh.Warnings)
 		s.RoutingHealth = &rh
 	}
+	if s.Self != nil {
+		self := *s.Self
+		s.Self = &self
+	}
 	return s
 }
 
