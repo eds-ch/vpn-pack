@@ -24,7 +24,7 @@ import (
 var uiFS embed.FS
 
 type ServerOptions struct {
-	ListenAddr  string
+	Listener    net.Listener
 	SocketPath  string
 	DeviceInfo  DeviceInfo
 	Tailscale   TailscaleControl
@@ -42,6 +42,7 @@ type Server struct {
 	hub            SSEHub
 	deviceInfo     DeviceInfo
 	httpServer     *http.Server
+	listener       net.Listener
 	state          *TailscaleState
 	fw             FirewallService
 	ic             IntegrationAPI
@@ -72,6 +73,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		ts:         opts.Tailscale,
 		hub:        opts.Hub,
 		deviceInfo: opts.DeviceInfo,
+		listener:   opts.Listener,
 		state:      domain.NewTailscaleState(),
 		fw:         opts.Firewall,
 		ic:         opts.Integration,
@@ -141,7 +143,6 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 
 	// WriteTimeout omitted: SSE endpoint requires long-lived writes
 	s.httpServer = &http.Server{
-		Addr:              opts.ListenAddr,
 		Handler:           mux,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		ReadTimeout:       config.ReadTimeout,
@@ -254,10 +255,13 @@ func (s *Server) Run(ctx context.Context) error {
 	go runLogCollector(ctx, s.ts, s.logBuf)
 	go s.runUpdateChecker(ctx)
 
+	if s.listener == nil {
+		return errors.New("server has no listener (unix socket required)")
+	}
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "addr", s.httpServer.Addr)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slog.Info("listening", "addr", s.listener.Addr().String())
+		if err := s.httpServer.Serve(s.listener); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 		close(errCh)

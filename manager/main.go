@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	listen := flag.String("listen", "127.0.0.1:9090", "listen address (for development/testing override)")
+	listenSocket := flag.String("listen-socket", "/run/vpn-pack/manager.sock", "manager API unix-socket listener path")
 	socket := flag.String("socket", "/run/tailscale/tailscaled.sock", "tailscaled socket path")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	cleanup := flag.Bool("cleanup", false, "remove UDAPI rules, WG S2S interfaces, and Integration API zones/policies, then exit")
@@ -80,8 +80,14 @@ func main() {
 			"path", config.ManifestPath)
 	}
 
+	ln, err := openManagerSocket(*listenSocket)
+	if err != nil {
+		slog.Error("listener open failed", "err", err, "path", *listenSocket)
+		os.Exit(1)
+	}
+
 	srv := NewServer(ctx, ServerOptions{
-		ListenAddr:  *listen,
+		Listener:    ln,
 		SocketPath:  *socket,
 		DeviceInfo:  info,
 		Tailscale:   NewTailscaleControl(*socket),
