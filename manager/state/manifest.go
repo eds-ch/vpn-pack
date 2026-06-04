@@ -116,13 +116,8 @@ func (m *Manifest) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(m.path), config.DirPerm); err != nil {
 		return fmt.Errorf("manifest dir create: %w", err)
 	}
-	tmpPath := m.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, config.SecretPerm); err != nil {
-		return fmt.Errorf("manifest write tmp: %w", err)
-	}
-	if err := os.Rename(tmpPath, m.path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("manifest rename: %w", err)
+	if err := WriteFile(m.path, data, config.SecretPerm); err != nil {
+		return fmt.Errorf("manifest save: %w", err)
 	}
 	return nil
 }
