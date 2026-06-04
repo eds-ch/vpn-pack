@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -423,13 +422,10 @@ func (s *Server) broadcastState() {
 	snap := s.state.Snapshot()
 	data, err := json.Marshal(snap)
 	if err != nil {
+		slog.Warn("broadcast marshal", "err", err)
 		return
 	}
-	if bytes.Equal(data, s.lastBroadcast) {
-		return
-	}
-	s.lastBroadcast = data
-	s.hub.Broadcast(data)
+	s.hub.BroadcastIfChanged(data)
 }
 
 func (s *Server) setUnavailable() {

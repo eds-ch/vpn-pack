@@ -13,6 +13,7 @@ import (
 type SSEHub interface {
 	Subscribe() (chan SSEMessage, func(), error)
 	Broadcast(data []byte)
+	BroadcastIfChanged(data []byte)
 	BroadcastNamed(event string, data []byte)
 	CurrentState() []byte
 }

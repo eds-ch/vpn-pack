@@ -1,16 +1,26 @@
 package sse_test
 
 import (
+	"bytes"
 	"sync"
 	"testing"
 	"time"
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/internal/stress"
 	"unifi-tailscale/manager/sse"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBroadcastIfChangedRaceFree(t *testing.T) {
+	h := sse.NewHub()
+	stress.Run(t, 8, 10000, func(g int) {
+		h.BroadcastIfChanged([]byte{byte(g)})
+	})
+	_ = bytes.Equal(h.CurrentState(), h.CurrentState())
+}
 
 func TestHub(t *testing.T) {
 	t.Run("CurrentState returns nil initially", func(t *testing.T) {

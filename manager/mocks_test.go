@@ -17,10 +17,11 @@ import (
 
 // mockSSEHub implements SSEHub for testing.
 type mockSSEHub struct {
-	subscribeFn      func() (chan sseMessage, func(), error)
-	broadcastFn      func(data []byte)
-	broadcastNamedFn func(event string, data []byte)
-	currentStateFn   func() []byte
+	subscribeFn          func() (chan sseMessage, func(), error)
+	broadcastFn          func(data []byte)
+	broadcastIfChangedFn func(data []byte)
+	broadcastNamedFn     func(event string, data []byte)
+	currentStateFn       func() []byte
 }
 
 func (m *mockSSEHub) Subscribe() (chan sseMessage, func(), error) {
@@ -34,6 +35,13 @@ func (m *mockSSEHub) Broadcast(data []byte) {
 	if m.broadcastFn != nil {
 		m.broadcastFn(data)
 	}
+}
+func (m *mockSSEHub) BroadcastIfChanged(data []byte) {
+	if m.broadcastIfChangedFn != nil {
+		m.broadcastIfChangedFn(data)
+		return
+	}
+	m.Broadcast(data)
 }
 func (m *mockSSEHub) BroadcastNamed(event string, data []byte) {
 	if m.broadcastNamedFn != nil {
