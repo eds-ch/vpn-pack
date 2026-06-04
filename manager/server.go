@@ -91,6 +91,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		s.activeS2sTunnels,
 	)
 	s.diagnostics = service.NewDiagnosticsService(opts.Tailscale, opts.Firewall, nil)
+	s.diagnostics.SetZoneLookup(opts.Manifest)
 	s.routingHealth = service.NewRoutingHealthChecker()
 
 	if opts.Firewall != nil {

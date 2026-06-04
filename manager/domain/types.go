@@ -32,6 +32,15 @@ type WgS2sZoneInfo struct {
 	TunnelCount int    `json:"tunnelCount"`
 }
 
+// WgS2sCheckSpec describes what to verify for one wg-s2s interface in
+// CheckWgS2sRulesPresent. The chain-rule check uses InterfaceName; the
+// ipset-membership check uses ChainPrefix and Subnets.
+type WgS2sCheckSpec struct {
+	InterfaceName string
+	ChainPrefix   string
+	Subnets       []string
+}
+
 type Zone struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`

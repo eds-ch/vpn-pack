@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/service"
 )
 
@@ -175,8 +176,8 @@ func (a *wgS2sFirewallAdapter) CloseWanPort(ctx context.Context, port int, iface
 	}
 }
 
-func (a *wgS2sFirewallAdapter) CheckRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
-	return a.fw.CheckWgS2sRulesPresent(ctx, ifaces)
+func (a *wgS2sFirewallAdapter) CheckRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
+	return a.fw.CheckWgS2sRulesPresent(ctx, specs)
 }
 
 func (a *wgS2sFirewallAdapter) IntegrationReady() bool {
@@ -192,7 +193,7 @@ func (a *wgS2sManifestAdapter) GetZone(tunnelID string) (service.ZoneInfo, bool)
 	if !ok {
 		return service.ZoneInfo{}, false
 	}
-	return service.ZoneInfo{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName}, true
+	return service.ZoneInfo{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, ChainPrefix: zm.ChainPrefix}, true
 }
 
 func (a *wgS2sManifestAdapter) GetZones() []service.WgS2sZoneEntry {

@@ -39,7 +39,7 @@ type WgS2sFirewall interface {
 	TeardownZone(ctx context.Context, tunnelID string)
 	OpenWanPort(ctx context.Context, port int, iface string)
 	CloseWanPort(ctx context.Context, port int, iface string)
-	CheckRulesPresent(ctx context.Context, ifaces []string) map[string]bool
+	CheckRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool
 	IntegrationReady() bool
 }
 
@@ -61,8 +61,9 @@ type LocalSubnetsProvider func() []SubnetEntry
 // --- Types ---
 
 type ZoneInfo struct {
-	ZoneID   string
-	ZoneName string
+	ZoneID      string
+	ZoneName    string
+	ChainPrefix string
 }
 
 type ZoneSetupResult struct {
@@ -469,13 +470,28 @@ func (svc *WgS2sService) EnrichForwardINOk(ctx context.Context, statuses []wgs2s
 	if svc.fw == nil {
 		return
 	}
-	var ifaces []string
-	for _, st := range statuses {
-		if st.Enabled {
-			ifaces = append(ifaces, st.InterfaceName)
+	tunnelByIface := make(map[string]*wgs2s.TunnelConfig)
+	if wg := svc.loadWG(); wg != nil {
+		tunnels := wg.GetTunnels()
+		for i := range tunnels {
+			tunnelByIface[tunnels[i].InterfaceName] = &tunnels[i]
 		}
 	}
-	fwPresent := svc.fw.CheckRulesPresent(ctx, ifaces)
+	var specs []domain.WgS2sCheckSpec
+	for _, st := range statuses {
+		if !st.Enabled {
+			continue
+		}
+		spec := domain.WgS2sCheckSpec{InterfaceName: st.InterfaceName}
+		if t, ok := tunnelByIface[st.InterfaceName]; ok {
+			spec.Subnets = t.AllowedIPs
+			if zm, found := svc.manifest.GetZone(t.ID); found {
+				spec.ChainPrefix = zm.ChainPrefix
+			}
+		}
+		specs = append(specs, spec)
+	}
+	fwPresent := svc.fw.CheckRulesPresent(ctx, specs)
 	for i := range statuses {
 		statuses[i].ForwardINOk = fwPresent[statuses[i].InterfaceName]
 	}

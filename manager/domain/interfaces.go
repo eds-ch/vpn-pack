@@ -106,7 +106,7 @@ type FirewallService interface {
 	RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration)
 	WaitBackground()
 	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
-	CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool
+	CheckWgS2sRulesPresent(ctx context.Context, specs []WgS2sCheckSpec) map[string]bool
 	DiscoverChainPrefix(ctx context.Context, zoneID string) string
 	EnsureTailscaleRules(chainPrefix string) error
 	RemoveTailscaleInterfaceRules() error

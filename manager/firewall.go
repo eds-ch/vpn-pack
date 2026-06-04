@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
 )
@@ -42,6 +43,11 @@ type FirewallManager struct {
 	mongoMu    sync.Mutex
 	mongoCache map[string]string
 	mongoTime  time.Time
+
+	// chainProbe / ipsetProbe are overridable seams so unit tests can drive
+	// the rule-presence checks without shelling out to iptables/ipset.
+	chainProbe func(chain, match string) bool
+	ipsetProbe func(setName, match string) bool
 }
 
 func (fm *FirewallManager) IntegrationReady() bool {
@@ -49,11 +55,14 @@ func (fm *FirewallManager) IntegrationReady() bool {
 }
 
 func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest ManifestStore) *FirewallManager {
-	return &FirewallManager{
+	fm := &FirewallManager{
 		udapi:    udapi.NewClient(socketPath),
 		ic:       ic,
 		manifest: manifest,
 	}
+	fm.chainProbe = fm.hasChainRule
+	fm.ipsetProbe = fm.hasIPSetEntry
+	return fm
 }
 
 func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error {
@@ -348,13 +357,24 @@ func (fm *FirewallManager) CheckTailscaleRulesPresent(ctx context.Context) (forw
 	return
 }
 
-func (fm *FirewallManager) CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
-	result := make(map[string]bool, len(ifaces))
-	for _, iface := range ifaces {
-		forward := fm.hasChainRule(config.ChainForwardInUser, "-i "+iface)
-		input := fm.hasChainRule(config.ChainInputUserHook, "-i "+iface)
-		output := fm.hasChainRule(config.ChainOutputUserHook, "-o "+iface)
-		result[iface] = forward && input && output
+func (fm *FirewallManager) CheckWgS2sRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
+	result := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		forward := fm.chainProbe(config.ChainForwardInUser, "-i "+spec.InterfaceName)
+		input := fm.chainProbe(config.ChainInputUserHook, "-i "+spec.InterfaceName)
+		output := fm.chainProbe(config.ChainOutputUserHook, "-o "+spec.InterfaceName)
+
+		ipsetOK := true
+		if spec.ChainPrefix != "" && len(spec.Subnets) > 0 {
+			setName := fmt.Sprintf("UBIOS4%s_subnets", spec.ChainPrefix)
+			for _, cidr := range spec.Subnets {
+				if !fm.ipsetProbe(setName, cidr) {
+					ipsetOK = false
+					break
+				}
+			}
+		}
+		result[spec.InterfaceName] = forward && input && output && ipsetOK
 	}
 	return result
 }

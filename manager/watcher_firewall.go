@@ -249,17 +249,22 @@ func (s *Server) restoreWgS2sRules(ctx context.Context) {
 	s.wgS2sSvc.ReconcileZones(ctx)
 
 	tunnels := s.wgManager.GetTunnels()
-	var ifaces []string
+	var specs []domain.WgS2sCheckSpec
 	for _, t := range tunnels {
-		if t.Enabled {
-			ifaces = append(ifaces, t.InterfaceName)
+		if !t.Enabled {
+			continue
 		}
+		specs = append(specs, domain.WgS2sCheckSpec{
+			InterfaceName: t.InterfaceName,
+			ChainPrefix:   s.manifest.GetWgS2sChainPrefix(t.ID),
+			Subnets:       t.AllowedIPs,
+		})
 	}
-	if len(ifaces) == 0 {
+	if len(specs) == 0 {
 		return
 	}
 
-	present := s.fw.CheckWgS2sRulesPresent(ctx, ifaces)
+	present := s.fw.CheckWgS2sRulesPresent(ctx, specs)
 	for _, t := range tunnels {
 		if !t.Enabled {
 			continue

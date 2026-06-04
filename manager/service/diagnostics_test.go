@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 
 	"github.com/stretchr/testify/assert"
@@ -42,12 +43,12 @@ func (m *mockDiagnosticsTailscale) BugReport(ctx context.Context, note string) (
 }
 
 type mockDiagnosticsFirewall struct {
-	checkWgS2sRulesPresentFn func(ctx context.Context, ifaces []string) map[string]bool
+	checkWgS2sRulesPresentFn func(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool
 }
 
-func (m *mockDiagnosticsFirewall) CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
+func (m *mockDiagnosticsFirewall) CheckWgS2sRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
 	if m.checkWgS2sRulesPresentFn != nil {
-		return m.checkWgS2sRulesPresentFn(ctx, ifaces)
+		return m.checkWgS2sRulesPresentFn(ctx, specs)
 	}
 	return nil
 }
@@ -145,7 +146,7 @@ func TestGetDiagnostics_WithWgManager(t *testing.T) {
 			},
 		}
 		s.fw = &mockDiagnosticsFirewall{
-			checkWgS2sRulesPresentFn: func(ctx context.Context, ifaces []string) map[string]bool {
+			checkWgS2sRulesPresentFn: func(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
 				return map[string]bool{"wg0": true}
 			},
 		}

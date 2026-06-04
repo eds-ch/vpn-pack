@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 )
 
@@ -221,7 +222,7 @@ type mockWgS2sFirewall struct {
 	teardownZoneFn     func(context.Context, string)
 	openWanPortFn      func(context.Context, int, string)
 	closeWanPortFn     func(context.Context, int, string)
-	checkRulesFn       func(context.Context, []string) map[string]bool
+	checkRulesFn       func(context.Context, []domain.WgS2sCheckSpec) map[string]bool
 	integrationReadyFn func() bool
 }
 
@@ -262,9 +263,9 @@ func (m *mockWgS2sFirewall) CloseWanPort(ctx context.Context, port int, iface st
 		m.closeWanPortFn(ctx, port, iface)
 	}
 }
-func (m *mockWgS2sFirewall) CheckRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
+func (m *mockWgS2sFirewall) CheckRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
 	if m.checkRulesFn != nil {
-		return m.checkRulesFn(ctx, ifaces)
+		return m.checkRulesFn(ctx, specs)
 	}
 	return nil
 }
