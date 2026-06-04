@@ -23,9 +23,22 @@ import (
 // daemon and the cleanup binary can both issue concurrent GET-modify-PUT
 // cycles against UDAPI ipsets and lose updates (UDAPI exposes no
 // versioning, so the intra-process RMW lock cannot extend cross-process).
+//
+// Fail-closed: only an *exec.ExitError (systemctl ran, said "not active")
+// is treated as not-active. Any other error (binary missing, dbus
+// unreachable, permission denied) is treated as could-not-verify, and
+// the guard returns true so cleanup refuses rather than racing blind.
 var cleanupManagerActiveCheck = func() bool {
 	err := exec.Command("systemctl", "is-active", "--quiet", "vpn-pack-manager.service").Run()
-	return err == nil
+	if err == nil {
+		return true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return false
+	}
+	slog.Warn("cleanup: cannot determine manager service state; assuming active for safety", "err", err)
+	return true
 }
 
 // errCleanupRefused is returned by runCleanup when it refuses to run

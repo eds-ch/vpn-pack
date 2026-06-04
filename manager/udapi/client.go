@@ -204,6 +204,9 @@ func (c *UDAPIClient) connect(ctx context.Context) (net.Conn, string, error) {
 	uconn, err2 := dLocal.DialContext(ctx, "unix", c.socketPath)
 	if err2 != nil {
 		_ = os.Remove(bindPath)
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, "", cerr
+		}
 		if isConnectionRefused(err) || isConnectionRefused(err2) {
 			return nil, "", errConnectionRefused
 		}
