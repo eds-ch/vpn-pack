@@ -12,14 +12,26 @@ RuntimeDirectoryMode=0755
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=78
+
+# ── Hardening (SEC-B2) ──────────────────────────────────────────────
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/persistent/vpn-pack /run/vpn-pack /proc/nf_dpi
 ProtectHome=yes
 PrivateTmp=yes
+PrivateDevices=no
 ProtectKernelTunables=yes
-ReadWritePaths=/proc/nf_dpi/ /run/vpn-pack/
+ProtectKernelModules=yes
 ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
 RestrictSUIDSGID=yes
+LockPersonality=yes
 MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
