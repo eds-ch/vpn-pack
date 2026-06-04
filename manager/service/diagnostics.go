@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 
@@ -267,7 +268,7 @@ func (svc *DiagnosticsService) gatherWgS2sDiagnostics(ctx context.Context, wgSvc
 		_, ifErr := net.InterfaceByName(t.InterfaceName)
 		d.InterfaceUp = ifErr == nil
 		d.ForwardINOk = fwPresent[t.InterfaceName]
-		d.RoutesOk = CheckRoutesInstalled(t.InterfaceName, t.AllowedIPs)
+		d.RoutesOk = CheckRoutesInstalled(ctx, t.InterfaceName, t.AllowedIPs)
 
 		if idx, ok := statusMap[t.ID]; ok {
 			d.Connected = statuses[idx].Connected
@@ -326,12 +327,15 @@ func BuildDERPRegions(derpMap *tailcfg.DERPMap, derpErr error, regionLatencyNs m
 	return regions
 }
 
-func CheckRoutesInstalled(iface string, expectedCIDRs []string) bool {
+func CheckRoutesInstalled(ctx context.Context, iface string, expectedCIDRs []string) bool {
 	if len(expectedCIDRs) == 0 {
 		return true
 	}
 
-	out, err := exec.Command("ip", "-j", "route", "show", "dev", iface).Output()
+	cctx, cancel := config.WithTimeout(ctx, config.SubprocessTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(cctx, "ip", "-j", "route", "show", "dev", iface).Output()
 	if err != nil {
 		return false
 	}

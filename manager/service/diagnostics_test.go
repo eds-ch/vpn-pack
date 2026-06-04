@@ -241,6 +241,22 @@ func TestBuildDERPRegions_Error(t *testing.T) {
 	assert.Empty(t, regions)
 }
 
+func TestCheckRoutesInstalled_AcceptsContextAndPreservesEmptyFastPath(t *testing.T) {
+	// BUG-L2: subprocess must be ctx-bounded so a hung `ip route show` cannot
+	// hang the caller. The empty-CIDR fast path is preserved.
+	require.True(t, CheckRoutesInstalled(context.Background(), "any-iface", nil))
+	require.True(t, CheckRoutesInstalled(context.Background(), "any-iface", []string{}))
+}
+
+func TestCheckRoutesInstalled_CancelledContextReturnsFalse(t *testing.T) {
+	// BUG-L2: a cancelled context must short-circuit the subprocess (via
+	// exec.CommandContext returning ctx.Err() before fork), so the call
+	// returns false rather than ignoring the cancellation.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.False(t, CheckRoutesInstalled(ctx, "lo", []string{"127.0.0.0/8"}))
+}
+
 func TestGetDiagnostics_WgNilFirewall(t *testing.T) {
 	svc := newTestDiagnosticsService(func(s *DiagnosticsService) {
 		s.wg = &mockDiagnosticsWgS2s{
