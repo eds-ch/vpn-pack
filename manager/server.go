@@ -17,6 +17,7 @@ import (
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/httpmw"
 	"unifi-tailscale/manager/internal/wgs2s"
+	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/service"
 )
 
@@ -295,7 +296,7 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) initWgS2s(ctx context.Context) {
-	wgs2sLog := slog.New(newBufferHandler(s.logBuf, "wgs2s", slog.NewJSONHandler(os.Stderr, nil)))
+	wgs2sLog := slog.New(logredact.Wrap(newBufferHandler(s.logBuf, "wgs2s", slog.NewJSONHandler(os.Stderr, nil))))
 	wgMgr, err := wgs2s.NewTunnelManager(config.WgS2sConfigDir, wgs2sLog)
 	if err != nil {
 		slog.Warn("wg-s2s manager init failed", "err", err)

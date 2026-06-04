@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/sse"
 	"unifi-tailscale/manager/state"
@@ -28,7 +29,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	slog.SetDefault(slog.New(logredact.Wrap(slog.NewJSONHandler(os.Stderr, nil))))
 
 	if *cleanup {
 		if err := runCleanup(); err != nil {
