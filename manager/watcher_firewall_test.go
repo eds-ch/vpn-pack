@@ -10,7 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/stress"
+	"unifi-tailscale/manager/service"
 )
 
 func TestCheckAndRestoreRulesDeduplication(t *testing.T) {
@@ -125,6 +127,33 @@ func TestSetupTailscaleFirewall_ConcurrencyGuard(t *testing.T) {
 	}
 	if s.restoring.Load() {
 		t.Fatal("restoring flag leaked: still true after all goroutines completed")
+	}
+}
+
+// TestIntegrationNotifier_OnKeyConfiguredUsesGuard verifies the adapter routes
+// SetupTailscaleFirewall through the injected guard rather than calling
+// FirewallOrchestrator directly. Regression guard for BUG-M6: if a refactor
+// reintroduces the raw call, this test fires.
+func TestIntegrationNotifier_OnKeyConfiguredUsesGuard(t *testing.T) {
+	var guardCalls atomic.Int64
+	guard := func(context.Context) (*service.SetupResult, bool) {
+		guardCalls.Add(1)
+		return &service.SetupResult{}, true
+	}
+
+	adapter := &integrationNotifierAdapter{
+		fwOrch:       &service.FirewallOrchestrator{}, // any non-nil pointer
+		guardedSetup: guard,
+		health:       NewHealthTracker(&mockSSEHub{}),
+		state:        domain.NewTailscaleState(),
+		broadcast:    func() {},
+		openWanPort:  func(context.Context) {},
+	}
+
+	adapter.OnKeyConfigured(context.Background(), &service.IntegrationStatus{SiteID: "site-1"})
+
+	if got := guardCalls.Load(); got != 1 {
+		t.Fatalf("expected OnKeyConfigured to call guardedSetup exactly once; got %d", got)
 	}
 }
 
