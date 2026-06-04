@@ -221,6 +221,22 @@ func TestDeactivate_Error(t *testing.T) {
 	assert.Equal(t, ErrUpstream, se.Kind)
 }
 
+func TestDeactivate_AppliesPerCallTimeout(t *testing.T) {
+	var hadDeadline bool
+	svc := newTestTailscaleService(func(s *TailscaleService) {
+		s.ts = &mockTailscaleClient{
+			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+				_, hadDeadline = ctx.Deadline()
+				return &ipn.Prefs{}, nil
+			},
+		}
+	})
+
+	err := svc.Deactivate(context.Background())
+	require.NoError(t, err)
+	assert.True(t, hadDeadline, "EditPrefs must receive a context with a per-call deadline even when parent is Background")
+}
+
 // --- Login tests ---
 
 func TestLogin_IntegrationNotReady(t *testing.T) {

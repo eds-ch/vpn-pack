@@ -6,6 +6,8 @@ import (
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+
+	"unifi-tailscale/manager/config"
 )
 
 type TailscaleClient interface {
@@ -48,7 +50,9 @@ func (svc *TailscaleService) Activate(ctx context.Context) error {
 		return nil
 	}
 
-	_, err = svc.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
+	ectx, ecancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+	defer ecancel()
+	_, err = svc.ts.EditPrefs(ectx, &ipn.MaskedPrefs{
 		Prefs:          ipn.Prefs{WantRunning: true},
 		WantRunningSet: true,
 	})
@@ -59,7 +63,9 @@ func (svc *TailscaleService) Activate(ctx context.Context) error {
 }
 
 func (svc *TailscaleService) Deactivate(ctx context.Context) error {
-	_, err := svc.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
+	cctx, cancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+	defer cancel()
+	_, err := svc.ts.EditPrefs(cctx, &ipn.MaskedPrefs{
 		Prefs:          ipn.Prefs{WantRunning: false},
 		WantRunningSet: true,
 	})
@@ -95,7 +101,9 @@ func (svc *TailscaleService) integrationReady() bool {
 }
 
 func (svc *TailscaleService) disableCorpDNS(ctx context.Context) error {
-	_, err := svc.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
+	cctx, cancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+	defer cancel()
+	_, err := svc.ts.EditPrefs(cctx, &ipn.MaskedPrefs{
 		Prefs:      ipn.Prefs{CorpDNS: false},
 		CorpDNSSet: true,
 	})

@@ -12,6 +12,7 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/ops"
 )
@@ -200,11 +201,15 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 	steps = append(steps, ops.Op{
 		Name: "set Tailscale prefs",
 		Do: func(ctx context.Context) error {
-			_, err := svc.ts.EditPrefs(ctx, mp)
+			cctx, cancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+			defer cancel()
+			_, err := svc.ts.EditPrefs(cctx, mp)
 			return err
 		},
 		Undo: func(ctx context.Context) error {
-			_, err := svc.ts.EditPrefs(ctx, restorePrefs)
+			cctx, cancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+			defer cancel()
+			_, err := svc.ts.EditPrefs(cctx, restorePrefs)
 			return err
 		},
 	})
@@ -220,7 +225,8 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 }
 
 func (svc *RemoteExitService) Disable(ctx context.Context) error {
-	_, err := svc.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
+	ectx, ecancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+	_, err := svc.ts.EditPrefs(ectx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			ExitNodeID:             "",
 			ExitNodeAllowLANAccess: false,
@@ -228,6 +234,7 @@ func (svc *RemoteExitService) Disable(ctx context.Context) error {
 		ExitNodeIDSet:             true,
 		ExitNodeAllowLANAccessSet: true,
 	})
+	ecancel()
 	if err != nil {
 		return upstreamError(humanizeLocalAPIError(err), err)
 	}
