@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/internal/wgs2s"
 	"unifi-tailscale/manager/service"
 
 	"tailscale.com/ipn"
@@ -139,16 +140,24 @@ func (s *Server) repairMissingPolicies(ctx context.Context, status *service.Inte
 }
 
 func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrichment, integrationStatus *service.IntegrationStatus) {
+	fwHealth := s.firewallHealthSnapshot(ctx)
+	routingHealth := s.routingHealth.Check()
+	acceptDNS := s.isDNSForwardingEnabled()
+	udpPort := service.ReadTailscaledPort()
+	var tunnels []wgs2s.WgS2sStatus
+	if s.wgManager != nil {
+		tunnels = s.wgManager.GetStatuses()
+		s.wgS2sSvc.EnrichForwardINOk(ctx, tunnels)
+	}
+
 	s.state.Update(func(d *stateData) {
 		s.applyEnrichment(d, enrichment)
-		d.FirewallHealth = s.firewallHealthSnapshot(ctx)
-		d.RoutingHealth = s.routingHealth.Check()
+		d.FirewallHealth = fwHealth
+		d.RoutingHealth = routingHealth
 		d.IntegrationStatus = integrationStatus
-		d.AcceptDNS = s.isDNSForwardingEnabled()
-		d.UDPPort = service.ReadTailscaledPort()
+		d.AcceptDNS = acceptDNS
+		d.UDPPort = udpPort
 		if s.wgManager != nil {
-			tunnels := s.wgManager.GetStatuses()
-			s.wgS2sSvc.EnrichForwardINOk(ctx, tunnels)
 			d.WgS2sTunnels = tunnels
 		}
 	})

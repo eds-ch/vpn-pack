@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/internal/wgs2s"
 	"unifi-tailscale/manager/service"
 
 	"github.com/stretchr/testify/assert"
@@ -17,6 +19,48 @@ import (
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 )
+
+// BUG-M7: applyRefreshState must compute I/O-bound enrichment (wgManager
+// status, firewall health, routing health) OUTSIDE the state mutex so a
+// concurrent Snapshot() is not blocked behind subprocess / interface I/O.
+func TestApplyRefreshState_DoesNotHoldMutexOverWgStatusIO(t *testing.T) {
+	block := make(chan struct{})
+	started := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+
+	wgMock := &mockWgS2sControl{
+		getStatusesFn: func() []wgs2s.WgS2sStatus {
+			close(started)
+			<-block
+			return nil
+		},
+	}
+
+	s := newTestServer(func(s *Server) {
+		s.wgManager = wgMock
+	})
+
+	go s.applyRefreshState(context.Background(), nil, nil)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wgManager.GetStatuses was not invoked from applyRefreshState")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = s.state.Snapshot()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Snapshot returned promptly — state mutex was free.
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("state.Snapshot blocked while applyRefreshState held the state mutex over wgManager.GetStatuses I/O (BUG-M7)")
+	}
+}
 
 // BUG-M15: tailscale logout / backend transition to NeedsLogin should
 // invalidate any previously-cached AuthURL. Without this, the UI keeps
