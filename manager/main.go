@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"unifi-tailscale/manager/config"
@@ -58,6 +59,11 @@ func main() {
 
 	apiKey := service.LoadAPIKey()
 	ic := NewIntegrationClient(apiKey)
+
+	sweepStartupOrphanTmps([]string{
+		filepath.Dir(config.ManifestPath),
+		config.WgS2sConfigDir,
+	})
 
 	manifest, err := LoadManifest(config.ManifestPath)
 	if err != nil {
