@@ -25,7 +25,39 @@ const (
 	defaultSocketPath = "/run/ubnt-udapi-server.sock"
 	requestTimeout    = 10 * time.Second
 	bindPathTemplate  = "/tmp/vpn-pack-manager-udapi-%d"
+	// maxUDAPIBodyBytes caps the size of a single UDAPI response we are
+	// willing to allocate. UDAPI replies are config snapshots; 8 MiB is
+	// well above any observed maximum and bounds a single malicious or
+	// corrupt size-line from forcing an unbounded allocation.
+	maxUDAPIBodyBytes = 8 << 20
 )
+
+type udapiMeta struct {
+	RC  string `json:"rc"`
+	Msg string `json:"msg"`
+}
+
+type udapiEnvelope struct {
+	Meta udapiMeta `json:"meta"`
+}
+
+// enforceEnvelope inspects the response of a mutating call and surfaces
+// any server-side error reported via the standard UDAPI envelope
+// ({"meta":{"rc":"error","msg":"..."}}). GET responses are not required
+// to carry this envelope and are skipped.
+func enforceEnvelope(method string, raw json.RawMessage) error {
+	if method == "GET" || method == "" || len(raw) == 0 {
+		return nil
+	}
+	var env udapiEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil
+	}
+	if env.Meta.RC == "error" {
+		return fmt.Errorf("udapi: %s: %s", env.Meta.RC, env.Meta.Msg)
+	}
+	return nil
+}
 
 type UDAPIClient struct {
 	socketPath string
@@ -129,8 +161,8 @@ func (c *UDAPIClient) RequestCtx(ctx context.Context, method, entity string, pay
 	}
 
 	size, err := strconv.Atoi(strings.TrimSpace(sizeLine))
-	if err != nil || size <= 0 {
-		return nil, fmt.Errorf("%w: invalid size %q", errBadResponse, sizeLine)
+	if err != nil || size <= 0 || size > maxUDAPIBodyBytes {
+		return nil, fmt.Errorf("%w: invalid size %q (max %d)", errBadResponse, sizeLine, maxUDAPIBodyBytes)
 	}
 
 	respBody := make([]byte, size)
@@ -147,6 +179,10 @@ func (c *UDAPIClient) RequestCtx(ctx context.Context, method, entity string, pay
 	var resp Response
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, fmt.Errorf("%w: %v", errBadResponse, err)
+	}
+
+	if err := enforceEnvelope(method, resp.Response); err != nil {
+		return nil, err
 	}
 
 	return &resp, nil

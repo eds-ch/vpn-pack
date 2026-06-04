@@ -210,6 +210,45 @@ func TestRequestCtx_CancelInterrupts(t *testing.T) {
 	}
 }
 
+func TestRequestCtx_RejectsOversizedSize(t *testing.T) {
+	fake := newFakeUDAPISocket(t, withSizeLine("99999999"))
+	cli := NewClient(fake.path)
+	_, err := cli.RequestCtx(context.Background(), "GET", "/x", nil)
+	if err == nil {
+		t.Fatal("expected size-too-large error")
+	}
+	if !errors.Is(err, errBadResponse) {
+		t.Fatalf("err=%v, want errBadResponse", err)
+	}
+}
+
+func TestRequestCtx_DecodesMutationEnvelopeError(t *testing.T) {
+	body := `{"id":"1","version":"v1.0","method":"POST","entity":"firewall/sets/set",` +
+		`"response":{"meta":{"rc":"error","msg":"already-exists"}}}`
+	fake := newFakeUDAPISocket(t, withResponseBody(body))
+	cli := NewClient(fake.path)
+	_, err := cli.RequestCtx(context.Background(), "POST", "/firewall/sets/set", nil)
+	if err == nil {
+		t.Fatal("expected app-level error from envelope")
+	}
+	if !strings.Contains(err.Error(), "already-exists") {
+		t.Fatalf("err does not surface server msg: %v", err)
+	}
+}
+
+func TestRequestCtx_GetSkipsEnvelopeCheck(t *testing.T) {
+	// GET responses are not required to carry the standard envelope; an
+	// envelope-shaped error inside a GET response must not be re-surfaced.
+	body := `{"id":"1","version":"v1.0","method":"GET","entity":"/firewall/sets",` +
+		`"response":{"meta":{"rc":"error","msg":"this-is-data-not-an-error"}}}`
+	fake := newFakeUDAPISocket(t, withResponseBody(body))
+	cli := NewClient(fake.path)
+	_, err := cli.RequestCtx(context.Background(), "GET", "/firewall/sets", nil)
+	if err != nil {
+		t.Fatalf("GET should not enforce envelope, got err=%v", err)
+	}
+}
+
 func TestNewClient(t *testing.T) {
 	tests := []struct {
 		name       string
