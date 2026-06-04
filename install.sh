@@ -13,6 +13,30 @@ REPO="eds-ch/vpn-pack"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 INSTALL_TMP="/tmp/vpn-pack-install"
 
+# Pinned per release line; rotate together with the signing identity
+# in CHANGELOG.md. No override flag — verification either succeeds
+# against this identity or the install aborts.
+COSIGN_IDENTITY="eduard.chesnokov@gmail.com"
+COSIGN_ISSUER="https://github.com/login/oauth"
+
+verify_signature() {
+    file=$1
+    bundle=$2
+    if ! command -v cosign >/dev/null 2>&1; then
+        printf 'FATAL: cosign required to verify the release signature.\n' >&2
+        printf 'Install: https://docs.sigstore.dev/cosign/installation\n' >&2
+        exit 1
+    fi
+    if ! cosign verify-blob \
+        --certificate-identity "$COSIGN_IDENTITY" \
+        --certificate-oidc-issuer "$COSIGN_ISSUER" \
+        --bundle "$bundle" \
+        "$file" >/dev/null 2>&1; then
+        printf 'FATAL: signature verification failed for %s\n' "$file" >&2
+        exit 1
+    fi
+}
+
 # Colors (if terminal supports them)
 if [ -t 1 ]; then
     RED='\033[0;31m'
@@ -134,6 +158,10 @@ fi
 # Find checksums URL
 CHECKSUMS_URL=$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep 'checksums\.txt"' | head -1 | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')
 
+# Find cosign bundle URLs (SEC-C1: signed verification, no silent skip)
+ARCHIVE_BUNDLE_URL=$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep 'vpn-pack-.*\.tar\.gz\.cosign\.bundle"' | head -1 | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')
+CHECKSUMS_BUNDLE_URL=$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep 'checksums\.txt\.cosign\.bundle"' | head -1 | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')
+
 # Show upgrade info if already installed
 if [ -f /persistent/vpn-pack/VERSION ]; then
     CURRENT_VERSION=$(head -1 /persistent/vpn-pack/VERSION 2>/dev/null || echo "")
@@ -161,22 +189,47 @@ curl -fsSL -o "${INSTALL_TMP}/${ARCHIVE_FILE}" "$ASSET_URL" || {
     die "Download failed"
 }
 
-# Verify checksum if possible
-if [ -n "$CHECKSUMS_URL" ] && command -v sha256sum >/dev/null 2>&1; then
-    info "Verifying checksum..."
-    if curl -fsSL -o "${INSTALL_TMP}/checksums.txt" "$CHECKSUMS_URL" 2>/dev/null; then
-        if (cd "$INSTALL_TMP" && sha256sum -c checksums.txt >/dev/null 2>&1); then
-            info "Checksum verified"
-        else
-            rm -rf "$INSTALL_TMP"
-            die "Checksum verification FAILED — download may be corrupted"
-        fi
-    else
-        warn "Could not download checksums, skipping verification"
-    fi
-else
-    warn "Skipping checksum verification"
+# Verify cosign signature + SHA256 checksum (SEC-C1: no silent skip).
+if [ -z "$CHECKSUMS_URL" ]; then
+    rm -rf "$INSTALL_TMP"
+    die "Release has no checksums.txt asset — refusing to install"
 fi
+if [ -z "$ARCHIVE_BUNDLE_URL" ] || [ -z "$CHECKSUMS_BUNDLE_URL" ]; then
+    rm -rf "$INSTALL_TMP"
+    die "Release has no cosign bundles — refusing to install unsigned release"
+fi
+if ! command -v sha256sum >/dev/null 2>&1; then
+    rm -rf "$INSTALL_TMP"
+    die "sha256sum required for checksum verification"
+fi
+
+info "Downloading cosign bundles..."
+curl -fsSL -o "${INSTALL_TMP}/${ARCHIVE_FILE}.cosign.bundle" "$ARCHIVE_BUNDLE_URL" || {
+    rm -rf "$INSTALL_TMP"
+    die "cosign bundle for archive download failed"
+}
+curl -fsSL -o "${INSTALL_TMP}/checksums.txt.cosign.bundle" "$CHECKSUMS_BUNDLE_URL" || {
+    rm -rf "$INSTALL_TMP"
+    die "cosign bundle for checksums download failed"
+}
+
+info "Downloading checksums..."
+curl -fsSL -o "${INSTALL_TMP}/checksums.txt" "$CHECKSUMS_URL" || {
+    rm -rf "$INSTALL_TMP"
+    die "Checksums download failed"
+}
+
+info "Verifying cosign signature on archive..."
+verify_signature "${INSTALL_TMP}/${ARCHIVE_FILE}" "${INSTALL_TMP}/${ARCHIVE_FILE}.cosign.bundle"
+info "Verifying cosign signature on checksums..."
+verify_signature "${INSTALL_TMP}/checksums.txt" "${INSTALL_TMP}/checksums.txt.cosign.bundle"
+
+info "Verifying SHA256 checksum..."
+if ! (cd "$INSTALL_TMP" && sha256sum -c checksums.txt >/dev/null 2>&1); then
+    rm -rf "$INSTALL_TMP"
+    die "Checksum verification FAILED — download may be corrupted"
+fi
+info "Signatures and checksum verified"
 
 info "Extracting..."
 tar xzf "${INSTALL_TMP}/${ARCHIVE_FILE}" -C "$INSTALL_TMP"

@@ -12,6 +12,31 @@
 set -euo pipefail
 
 REPO="eds-ch/vpn-pack"
+# Pinned per release line; rotate together with the signing identity
+# in CHANGELOG.md. No override flag — verification either succeeds
+# against this identity or the install aborts.
+COSIGN_IDENTITY="eduard.chesnokov@gmail.com"
+COSIGN_ISSUER="https://github.com/login/oauth"
+
+verify_signature() {
+    local file=$1
+    local bundle=$2
+    if ! command -v cosign >/dev/null 2>&1; then
+        echo "FATAL: cosign required to verify the release signature." >&2
+        echo "Install: https://docs.sigstore.dev/cosign/installation" >&2
+        exit 1
+    fi
+    if ! cosign verify-blob \
+        --certificate-identity "$COSIGN_IDENTITY" \
+        --certificate-oidc-issuer "$COSIGN_ISSUER" \
+        --bundle "$bundle" \
+        "$file" >/dev/null 2>&1; then
+        echo "FATAL: signature verification failed for $file" >&2
+        exit 1
+    fi
+}
+
+
 if [ -n "${VERSION_PIN:-}" ]; then
     PIN_TAG="${VERSION_PIN#v}"
     API_URL="https://api.github.com/repos/${REPO}/releases/tags/v${PIN_TAG}"
@@ -110,6 +135,17 @@ curl -fSL --progress-bar -o "${TMPDIR}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" || d
 
 info "Downloading checksums..."
 curl -fsSL -o "${TMPDIR}/checksums.txt" "${BASE_URL}/checksums.txt" || die "Checksums download failed"
+
+info "Downloading cosign bundles..."
+curl -fsSL -o "${TMPDIR}/${ARCHIVE}.cosign.bundle" "${BASE_URL}/${ARCHIVE}.cosign.bundle" \
+    || die "cosign bundle for archive missing — refusing to install unsigned release"
+curl -fsSL -o "${TMPDIR}/checksums.txt.cosign.bundle" "${BASE_URL}/checksums.txt.cosign.bundle" \
+    || die "cosign bundle for checksums missing — refusing to install unsigned release"
+
+info "Verifying cosign signature on archive..."
+verify_signature "${TMPDIR}/${ARCHIVE}" "${TMPDIR}/${ARCHIVE}.cosign.bundle"
+info "Verifying cosign signature on checksums..."
+verify_signature "${TMPDIR}/checksums.txt" "${TMPDIR}/checksums.txt.cosign.bundle"
 
 info "Verifying SHA256 checksum..."
 (cd "$TMPDIR" && sha256sum -c checksums.txt) || die "Checksum verification failed! Archive may be corrupted."
