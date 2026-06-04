@@ -624,30 +624,9 @@ func TestEnable_EditPrefsFails_RollsBack(t *testing.T) {
 }
 
 func TestEnable_ContextCancelled_NoRollback(t *testing.T) {
-	ts := &mockRoutingTailscale{
-		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
-			return testStatusWithPeers(
-				testPeerStatus("stable-1", "exit-server", true, true, false),
-			), nil
-		},
-		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-			return nil, context.Canceled
-		},
-	}
-	manifest := &mockRemoteExitManifest{}
-	svc := newTestRemoteExitService(ts, manifest)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	result, err := svc.Enable(ctx, &EnableRemoteExitRequest{
-		PeerID:  "stable-1",
-		Mode:    domain.ExitNodeAll,
-		Confirm: true,
-	})
-	require.NoError(t, err)
-	assert.True(t, result.OK)
-	assert.NotNil(t, manifest.remoteExitNode, "manifest should NOT be rolled back on context cancellation")
+	t.Skip("Replaced in Task 5.4 by TestEnable_CancelledEditPrefsIsFailure: " +
+		"cancelled context is now a failure (SEC-C12/BUG-M3); ExitNodeService.Apply " +
+		"correctly returns an error on cancelled ctx via ops.Run.")
 }
 
 // --- Mutual exclusion tests ---

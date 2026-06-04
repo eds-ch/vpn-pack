@@ -36,6 +36,12 @@ type fakeIPRuleState struct {
 	rules     map[string][]string // family -> list of rule lines
 	cmds      []string
 	masqRules map[string]bool // "iptables" / "ip6tables" -> exists
+
+	// failOnNthAdd: if > 0, the Nth "add" call (ip rule add or iptables -A)
+	// returns an error. The state mutation is NOT applied for the failing call.
+	failOnNthAdd int
+	addCount     int
+	failIP6Add   bool // when true, ip6tables -A always returns ENOENT-style error
 }
 
 func newFakeIPRuleState() *fakeIPRuleState {
@@ -72,6 +78,10 @@ func (f *fakeIPRuleState) runner() CmdRunner {
 			return []byte(strings.Join(lines, "\n") + "\n"), nil
 
 		case "add":
+			f.addCount++
+			if f.failOnNthAdd > 0 && f.addCount == f.failOnNthAdd {
+				return nil, fmt.Errorf("simulated ip rule add failure")
+			}
 			line := buildFakeRuleLine(args[3:])
 			f.rules[family] = append(f.rules[family], line)
 			return nil, nil
@@ -149,6 +159,13 @@ func (f *fakeIPRuleState) handleIptablesLocked(cmd string, args []string) ([]byt
 	}
 	switch action {
 	case "-A":
+		if cmd == "ip6tables" && f.failIP6Add {
+			return nil, fmt.Errorf("ip6tables: command not found")
+		}
+		f.addCount++
+		if f.failOnNthAdd > 0 && f.addCount == f.failOnNthAdd {
+			return nil, fmt.Errorf("simulated iptables -A failure")
+		}
 		f.masqRules[cmd] = true
 		return nil, nil
 	case "-D":
@@ -636,4 +653,44 @@ func TestReconcileOffNoopWhenClean(t *testing.T) {
 	err := svc.Reconcile(context.Background(), domain.ExitNodePolicy{})
 	require.NoError(t, err)
 	assert.Equal(t, flushBefore, state.conntrackFlushCount(), "should not flush conntrack when already clean")
+}
+
+// TestApply_PartialFailureRollsBackRulesAndMasq covers SEC-C10 / BUG-M1.
+// If a Do step fails mid-sequence, every prior step must be rolled back so
+// no leftover ip rule / MASQUERADE entries remain.
+func TestApply_PartialFailureRollsBackRulesAndMasq(t *testing.T) {
+	state := newFakeIPRuleState()
+	// Fail on the 3rd "add" (after first bridge's -4/-6 rules: 4th would be br1 -4).
+	state.failOnNthAdd = 3
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0", "br1")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.Error(t, err, "expected Apply to fail")
+	assert.Equal(t, 0, state.ruleCount(), "rules must be rolled back")
+	assert.Equal(t, 0, state.masqCount(), "masquerade must not be set")
+	assert.NotEqual(t, domain.ExitNodeAll, manifest.policy.Mode, "manifest must not be updated on failure")
+}
+
+// TestApplySelectiveRejectsCatchAllPrefix covers SEC-C19 inline (apply-side).
+// A selective policy containing a 0.0.0.0/0 or ::/0 client must be refused
+// — the operator must explicitly opt into mode=all.
+func TestApplySelectiveRejectsCatchAllPrefix(t *testing.T) {
+	for _, cidr := range []string{"0.0.0.0/0", "::/0"} {
+		t.Run(cidr, func(t *testing.T) {
+			state := newFakeIPRuleState()
+			manifest := &mockExitManifest{}
+			svc := NewExitNodeService(manifest, state.runner())
+			policy := domain.ExitNodePolicy{
+				Mode:    domain.ExitNodeSelective,
+				Clients: []domain.ExitNodeClient{{IP: cidr}},
+			}
+			err := svc.Apply(context.Background(), policy)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "catch-all")
+			assert.Equal(t, 0, state.ruleCount(), "no rule must be installed")
+			assert.Equal(t, 0, state.masqCount(), "no masquerade must be installed")
+		})
+	}
 }

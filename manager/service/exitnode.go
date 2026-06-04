@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/ops"
 )
 
 const (
@@ -73,27 +74,49 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 	if err := s.cleanupLocked(ctx); err != nil {
 		slog.Warn("exit node cleanup before apply", "err", err)
 	}
-
 	defer s.flushConntrack(ctx)
 
-	switch policy.Mode {
-	case domain.ExitNodeOff, "":
+	if policy.Mode == domain.ExitNodeOff || policy.Mode == "" {
 		return s.manifest.SetExitNodePolicy(domain.ExitNodePolicy{Mode: domain.ExitNodeOff})
+	}
 
+	steps, err := s.buildApplyOps(policy)
+	if err != nil {
+		return err
+	}
+	return ops.Run(ctx, steps)
+}
+
+// isCatchAllPrefix returns true for 0.0.0.0/0, ::/0, or any prefix with
+// Bits()==0. Used to enforce SEC-C19: selective mode must never accept a
+// catch-all client (that bypasses the explicit "all clients" confirmation).
+func isCatchAllPrefix(s string) bool {
+	if p, err := netip.ParsePrefix(s); err == nil {
+		return p.Bits() == 0
+	}
+	return false
+}
+
+func (s *ExitNodeService) buildApplyOps(policy domain.ExitNodePolicy) ([]ops.Op, error) {
+	var out []ops.Op
+	switch policy.Mode {
 	case domain.ExitNodeAll:
 		bridges, err := s.discoverBridges()
 		if err != nil {
-			return fmt.Errorf("discover LAN bridges: %w", err)
+			return nil, fmt.Errorf("discover LAN bridges: %w", err)
 		}
 		if len(bridges) == 0 {
-			return fmt.Errorf("no LAN bridge interfaces found")
+			return nil, fmt.Errorf("no LAN bridge interfaces found")
 		}
 		prio := ExitRuleBasePrio
 		for _, br := range bridges {
 			for _, fam := range []string{"-4", "-6"} {
-				if err := s.addRule(ctx, fam, "", prio, br); err != nil {
-					return fmt.Errorf("add %s iif %s exit rule: %w", fam, br, err)
-				}
+				fam, br, prio := fam, br, prio
+				out = append(out, ops.Op{
+					Name: fmt.Sprintf("add rule %s iif %s prio %d", fam, br, prio),
+					Do:   func(ctx context.Context) error { return s.addRule(ctx, fam, "", prio, br) },
+					Undo: func(ctx context.Context) error { return s.delRule(ctx, fam, prio) },
+				})
 			}
 			prio++
 			if prio > ExitRuleMaxPrio {
@@ -104,18 +127,27 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 
 	case domain.ExitNodeSelective:
 		if len(policy.Clients) == 0 {
-			return s.manifest.SetExitNodePolicy(policy)
+			return []ops.Op{ops.Noop("persist empty selective", func(_ context.Context) error {
+				return s.manifest.SetExitNodePolicy(policy)
+			})}, nil
 		}
 		prio := ExitRuleBasePrio + 1
 		for _, c := range policy.Clients {
+			if isCatchAllPrefix(c.IP) {
+				return nil, validationError(fmt.Sprintf(
+					"selective client %q is a catch-all prefix; use mode=all explicitly", c.IP))
+			}
 			fam := familyForAddr(c.IP)
 			if fam == "" {
 				slog.Warn("skip invalid exit client address", "ip", c.IP)
 				continue
 			}
-			if err := s.addRule(ctx, fam, c.IP, prio, ""); err != nil {
-				return fmt.Errorf("add exit rule for %s: %w", c.IP, err)
-			}
+			famCap, srcCap, prioCap := fam, c.IP, prio
+			out = append(out, ops.Op{
+				Name: fmt.Sprintf("add rule %s from %s prio %d", famCap, srcCap, prioCap),
+				Do:   func(ctx context.Context) error { return s.addRule(ctx, famCap, srcCap, prioCap, "") },
+				Undo: func(ctx context.Context) error { return s.delRule(ctx, famCap, prioCap) },
+			})
 			prio++
 			if prio > ExitRuleMaxPrio {
 				slog.Warn("exit node client limit reached", "max", maxExitClients)
@@ -124,13 +156,18 @@ func (s *ExitNodeService) applyLocked(ctx context.Context, policy domain.ExitNod
 		}
 
 	default:
-		return validationError(fmt.Sprintf("unknown exit node mode: %s", policy.Mode))
+		return nil, validationError(fmt.Sprintf("unknown exit node mode: %s", policy.Mode))
 	}
 
-	if err := s.addMasquerade(ctx); err != nil {
-		return err
-	}
-	return s.manifest.SetExitNodePolicy(policy)
+	out = append(out, ops.Op{
+		Name: "add masquerade",
+		Do:   func(ctx context.Context) error { return s.addMasquerade(ctx) },
+		Undo: func(ctx context.Context) error { s.delMasquerade(ctx); return nil },
+	})
+	out = append(out, ops.Noop("persist manifest", func(_ context.Context) error {
+		return s.manifest.SetExitNodePolicy(policy)
+	}))
+	return out, nil
 }
 
 func (s *ExitNodeService) Cleanup(ctx context.Context) error {
