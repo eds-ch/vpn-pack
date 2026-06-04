@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Release artifacts (`vpn-pack-<ver>.tar.gz`, `checksums.txt`) are now
+  signed with cosign keyless OIDC. Verifiers must pin the identity
+  `eduard.chesnokov@gmail.com` and issuer
+  `https://github.com/login/oauth` — both `get.sh` and the standalone
+  `install.sh` enforce this and refuse silent fallback. See README
+  "Verifying release signatures" for the manual `cosign verify-blob`
+  invocation. This identity is the documented signer for the upcoming
+  v1.6.0 release line; rotation will be noted here and bumped in the
+  installer constants together.
+
 ## [1.5.1] - 2026-04-30
 
 ### Changed

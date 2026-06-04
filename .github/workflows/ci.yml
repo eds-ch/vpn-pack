@@ -53,6 +53,16 @@ jobs:
       - name: go test
         run: cd manager && go test -race -shuffle=on -count=1 ./...
 
+      - name: Phase 8 — installer + deploy regression tests
+        run: |
+          bash scripts/test-installers.sh
+          bash scripts/test-deploy-symlink.sh
+          bash scripts/test-uninstall-integrity.sh
+          bash scripts/test-systemd-hardening.sh
+
+      - name: Phase 8 — TLS pinning guard
+        run: ./scripts/check-tls-pinning.sh
+
       - name: Build (cross-compile ARM64)
         run: make build
 

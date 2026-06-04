@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -109,6 +110,75 @@ func TestIntegrationClient_RejectsWrongPinLength(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Nil(t, cli)
+}
+
+// TestLoadSPKIPin_MissingFile asserts the fail-closed boot path:
+// a missing /data/unifi-core/config/unifi-core.crt returns an error
+// (callers fall through to NoopIntegrationAPI rather than constructing
+// a real client without a pin — SEC-C5).
+func TestLoadSPKIPin_MissingFile(t *testing.T) {
+	pin, err := LoadSPKIPin("/nonexistent/unifi-core.crt")
+	require.Error(t, err)
+	assert.Nil(t, pin)
+}
+
+// TestLoadSPKIPin_InvalidPEM asserts that a non-PEM file fails closed.
+func TestLoadSPKIPin_InvalidPEM(t *testing.T) {
+	tmp := t.TempDir()
+	bad := tmp + "/bad.crt"
+	if err := os.WriteFile(bad, []byte("not a PEM cert"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	pin, err := LoadSPKIPin(bad)
+	require.Error(t, err)
+	assert.Nil(t, pin)
+}
+
+// TestNoopIntegrationAPI_FailsClosed asserts the no-op surface used at
+// boot when the SPKI pin is unavailable: HasAPIKey() is permanently
+// false (so FirewallManager.IntegrationReady() short-circuits) and
+// every other method returns ErrIntegrationDisabled. Closes SEC-C5
+// boot-path coverage and the "no panic when pin missing" assertion
+// from Task 8.8 Step 5a.
+func TestNoopIntegrationAPI_FailsClosed(t *testing.T) {
+	api := NoopIntegrationAPI()
+	require.NotNil(t, api)
+
+	assert.False(t, api.HasAPIKey(), "no-op must never report a configured API key")
+
+	// SetAPIKey is intentionally a no-op (mid-flight rotation calls
+	// through this path); calling it must not panic.
+	api.SetAPIKey("anything")
+	assert.False(t, api.HasAPIKey(), "SetAPIKey on noop must not alter HasAPIKey")
+
+	ctx := context.Background()
+	checks := []struct {
+		name string
+		fn   func() error
+	}{
+		{"Validate", func() error { _, err := api.Validate(ctx); return err }},
+		{"DiscoverSiteID", func() error { _, err := api.DiscoverSiteID(ctx); return err }},
+		{"CreateZone", func() error { _, err := api.CreateZone(ctx, "s", "n"); return err }},
+		{"EnsureZone", func() error { _, err := api.EnsureZone(ctx, "s", "n"); return err }},
+		{"EnsurePolicies", func() error { _, err := api.EnsurePolicies(ctx, "s", "n", "z"); return err }},
+		{"ListPolicies", func() error { _, err := api.ListPolicies(ctx, "s"); return err }},
+		{"DeletePolicy", func() error { return api.DeletePolicy(ctx, "s", "p") }},
+		{"DeleteZone", func() error { return api.DeleteZone(ctx, "s", "z") }},
+		{"FindInternalZoneID", func() error { _, err := api.FindInternalZoneID(ctx, "s"); return err }},
+		{"ListZones", func() error { _, err := api.ListZones(ctx, "s"); return err }},
+		{"FindSystemZoneIDs", func() error { _, _, err := api.FindSystemZoneIDs(ctx, "s"); return err }},
+		{"EnsureWanPortPolicy", func() error { _, err := api.EnsureWanPortPolicy(ctx, "s", 1, "n", "e", "g"); return err }},
+		{"EnsureDNSForwardDomain", func() error { _, err := api.EnsureDNSForwardDomain(ctx, "s", "d", "ip"); return err }},
+		{"DeleteDNSPolicy", func() error { return api.DeleteDNSPolicy(ctx, "s", "p") }},
+		{"ListDNSPolicies", func() error { _, err := api.ListDNSPolicies(ctx, "s"); return err }},
+	}
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.fn()
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrIntegrationDisabled, "%s must return ErrIntegrationDisabled", c.name)
+		})
+	}
 }
 
 func TestIntegrationValidate(t *testing.T) {
