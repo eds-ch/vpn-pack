@@ -385,26 +385,31 @@ func (m *TunnelManager) UpdateTunnel(id string, updates TunnelConfig) (*TunnelCo
 	oldMetric := effectiveMetric(cfg.RouteMetric)
 	oldCfg := *cfg
 
-	*cfg = merged
-	if err := m.save(); err != nil {
-		*cfg = oldCfg
-		return nil, err
-	}
-
+	// Kernel-first: drive the kernel ops against a local copy so m.config
+	// stays at the old value. Commit `merged` to m.config and save only after
+	// the kernel side succeeds. If the kernel ops fail, both disk and the
+	// in-memory config keep the prior state (BUG-M11 contract extended).
+	local := merged
 	if wasEnabled && recreate {
-		if err := m.recreateTunnel(cfg, true); err != nil {
+		if err := m.recreateTunnel(&local, true); err != nil {
 			return nil, err
 		}
 	} else if wasEnabled && !recreate {
-		if err := m.hotUpdate(*cfg, oldAllowedIPs, oldMetric); err != nil {
-			m.log.Warn("hot update failed, falling back to recreate", "id", cfg.ID, "err", err)
-			if err := m.recreateTunnel(cfg, true); err != nil {
+		if err := m.hotUpdate(local, oldAllowedIPs, oldMetric); err != nil {
+			m.log.Warn("hot update failed, falling back to recreate", "id", local.ID, "err", err)
+			if err := m.recreateTunnel(&local, true); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	result := *cfg
+	m.config.Tunnels[idx] = local
+	if err := m.save(); err != nil {
+		m.config.Tunnels[idx] = oldCfg
+		return nil, err
+	}
+
+	result := m.config.Tunnels[idx]
 	return &result, nil
 }
 
@@ -695,20 +700,21 @@ func (m *TunnelManager) tearDown(cfg TunnelConfig) {
 }
 
 func (m *TunnelManager) recreateTunnel(cfg *TunnelConfig, teardown bool) error {
-	privKey, err := loadPrivateKey(m.configDir, cfg.ID)
-	if err != nil {
-		return fmt.Errorf("preflight: %w", err)
+	// Preflight: ensure the private key is loadable before we tear down the
+	// kernel interface (otherwise we couldn't bring it back up). Skip when
+	// a test seam supplants the real bring-up.
+	if m.bringUpForTest == nil {
+		if _, err := loadPrivateKey(m.configDir, cfg.ID); err != nil {
+			return fmt.Errorf("preflight: %w", err)
+		}
 	}
 
 	if teardown {
 		m.tearDown(*cfg)
 	}
 
-	if err := m.bringUp(*cfg, privKey); err != nil {
+	if err := m.bringUpTunnel(*cfg); err != nil {
 		cfg.Enabled = false
-		if saveErr := m.save(); saveErr != nil {
-			m.log.Warn("failed to save config after disabling tunnel", "id", cfg.ID, "err", saveErr)
-		}
 		return fmt.Errorf("bringUp failed (tunnel disabled): %w", err)
 	}
 

@@ -390,6 +390,56 @@ func TestDeleteTunnelNotFound(t *testing.T) {
 	assert.Equal(t, ErrNotFound, se.Kind)
 }
 
+// TestDeleteTunnel_FirewallBeforeWgDelete covers the BUG-L10 service-level
+// ordering: firewall teardown must happen BEFORE the low-level wg.DeleteTunnel
+// (which removes the kernel interface + disk entry + keys). Removing firewall
+// rules referencing a still-existing iface is safe; removing rules referencing
+// a gone iface can leak stale UDAPI state.
+func TestDeleteTunnel_FirewallBeforeWgDelete(t *testing.T) {
+	tunnel := wgs2s.TunnelConfig{
+		ID: "t1", InterfaceName: "wg-s2s0",
+		ListenPort: 51820, AllowedIPs: []string{"10.0.0.0/24"},
+	}
+	var order []string
+	wg := &mockWgS2sWireGuard{
+		getTunnelsFn:   func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{tunnel} },
+		deleteTunnelFn: func(string) error { order = append(order, "wg-delete"); return nil },
+	}
+	fw := &mockWgS2sFirewall{
+		removeFirewallFn: func(_ context.Context, _, _ string, _ []string) {
+			order = append(order, "fw-remove")
+		},
+		closeWanPortFn: func(_ context.Context, _ int, _ string) {
+			order = append(order, "fw-close-wan")
+		},
+		teardownZoneFn: func(_ context.Context, _ string) {
+			order = append(order, "fw-teardown-zone")
+		},
+	}
+	svc := newTestWgS2sService(wg, func(s *WgS2sService) { s.fw = fw })
+	require.NoError(t, svc.DeleteTunnel(context.Background(), "t1"))
+
+	// Firewall removal (rules + WAN port + zone) must precede wg-delete.
+	wgIdx := -1
+	for i, c := range order {
+		if c == "wg-delete" {
+			wgIdx = i
+			break
+		}
+	}
+	if wgIdx < 0 {
+		t.Fatalf("wg-delete missing from %v", order)
+	}
+	for i, c := range order {
+		if i < wgIdx {
+			continue
+		}
+		if c == "fw-remove" || c == "fw-close-wan" || c == "fw-teardown-zone" {
+			t.Fatalf("firewall step %q came after wg-delete; order=%v", c, order)
+		}
+	}
+}
+
 func TestDeleteTunnelSuccess(t *testing.T) {
 	tunnel := wgs2s.TunnelConfig{
 		ID: "t1", InterfaceName: "wg-s2s0",
@@ -454,7 +504,11 @@ func TestDeleteTunnelWgError(t *testing.T) {
 	var se *Error
 	require.True(t, errors.As(err, &se))
 	assert.Equal(t, ErrUpstream, se.Kind)
-	assert.False(t, fwCalled, "firewall should NOT be called when wg.DeleteTunnel fails")
+	// New contract (BUG-L10): firewall teardown runs BEFORE wg.DeleteTunnel
+	// so UDAPI rules referencing the iface are removed while it still exists.
+	// On wg-delete failure the firewall is already gone — operator must
+	// reconcile by retrying delete or recreating the tunnel.
+	assert.True(t, fwCalled, "firewall teardown must precede wg.DeleteTunnel")
 }
 
 func TestEnableTunnelFirewallPartial(t *testing.T) {

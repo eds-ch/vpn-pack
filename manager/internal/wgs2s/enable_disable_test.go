@@ -46,6 +46,47 @@ func TestEnable_KernelFailureLeavesDiskDisabled(t *testing.T) {
 	}
 }
 
+// TestUpdate_KernelFailureKeepsOldDiskState covers BUG-M11 for UpdateTunnel:
+// when the kernel recreate step fails, the disk must keep the prior tunnel
+// configuration. Before the kernel-first refactor, UpdateTunnel mutated
+// m.config + saved merged config BEFORE attempting the kernel apply.
+func TestUpdate_KernelFailureKeepsOldDiskState(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	cfg := TunnelConfig{
+		ID: "A", InterfaceName: "wg-s2s0", Enabled: true,
+		ListenPort: 51820, TunnelAddress: "10.0.0.1/24",
+		PeerPublicKey: "test-key",
+	}
+	mgr.config.Tunnels = []TunnelConfig{cfg}
+
+	mgr.bringUpForTest = func(_ TunnelConfig) error {
+		return errors.New("simulated kernel bring-up failure")
+	}
+
+	var saveSnapshots [][]TunnelConfig
+	mgr.saveOverride = func() error {
+		saveSnapshots = append(saveSnapshots, snapshotTunnels(mgr.config.Tunnels))
+		return nil
+	}
+
+	// TunnelAddress change forces the recreate path (needsRecreate returns true).
+	updates := TunnelConfig{TunnelAddress: "10.0.0.2/24"}
+	if _, err := mgr.UpdateTunnel("A", updates); err == nil {
+		t.Fatal("expected error from kernel recreate failure")
+	}
+
+	for i, snap := range saveSnapshots {
+		for _, t2 := range snap {
+			if t2.ID == "A" && t2.TunnelAddress == "10.0.0.2/24" {
+				t.Fatalf("save call %d observed merged TunnelAddress after kernel failure; disk should remain at old config", i)
+			}
+		}
+	}
+	if got := mgr.config.Tunnels[0].TunnelAddress; got != "10.0.0.1/24" {
+		t.Fatalf("in-memory config mutated after kernel failure: got %q, want 10.0.0.1/24", got)
+	}
+}
+
 // TestDisable_KernelTeardownBeforeDiskSave covers BUG-L10: Disable must tear
 // down the kernel interface BEFORE persisting Enabled=false to disk. If the
 // kernel teardown returns nil (success) the saga then persists; if it ever

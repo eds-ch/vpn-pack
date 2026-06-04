@@ -311,13 +311,16 @@ func (svc *WgS2sService) DeleteTunnel(ctx context.Context, id string) error {
 		return notFoundError("tunnel not found")
 	}
 
-	if err := svc.loadWG().DeleteTunnel(id); err != nil {
-		return upstreamError(humanizeWgS2sError(err), err)
-	}
-
+	// Firewall teardown FIRST — UDAPI rules referencing the iface should be
+	// removed while the iface still exists so rule lookups by interface work
+	// reliably and no stale rules survive the wg delete (BUG-L10 service-level).
 	svc.teardownTunnelFirewall(ctx, t)
 	if svc.fw != nil {
 		svc.fw.TeardownZone(ctx, id)
+	}
+
+	if err := svc.loadWG().DeleteTunnel(id); err != nil {
+		return upstreamError(humanizeWgS2sError(err), err)
 	}
 	return nil
 }
