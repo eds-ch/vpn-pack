@@ -160,6 +160,185 @@ assert_verify_before_extract() {
 assert_verify_before_extract get.sh
 assert_verify_before_extract install.sh
 
+# Task 8.12 Step 3: full-flow tamper test. Sources install.sh's vp_*
+# functions (post-refactor) and runs vp_download_and_verify against a
+# real signed-then-tampered release fixture. Asserts both that the
+# function aborts non-zero AND that no archive extraction occurred in
+# the staging dir. Catches a future regression where verify_signature
+# is moved after extract, removed, or where tar is merged into
+# vp_download_and_verify before the verify call. SKIPs without cosign
+# or python3.
+assert_full_flow_tamper_aborts_before_extract() {
+    if ! command -v cosign >/dev/null 2>&1; then
+        printf 'SKIP install.sh: full-flow tamper test needs cosign\n' >&2
+        return
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        printf 'SKIP install.sh: full-flow tamper test needs python3\n' >&2
+        return
+    fi
+
+    local case_dir; case_dir=$(mktemp -d "$SANDBOX/tamper-XXXX")
+    local www="$case_dir/www"
+    local fixed_tmp="$case_dir/install_tmp"
+    local snap="$case_dir/snapshot"
+    local stubs="$case_dir/stubs"
+    local libsh="$case_dir/install.lib.sh"
+    mkdir -p "$www" "$fixed_tmp" "$stubs"
+
+    # Real signed fixture: ephemeral keypair, archive + checksums signed.
+    export COSIGN_PASSWORD=""
+    ( cd "$case_dir" && cosign generate-key-pair >/dev/null 2>&1 ) \
+        || { red "install.sh tamper: cosign key generation failed"; return; }
+
+    # Real tar.gz fixture so a regression that moves tar BEFORE
+    # verify_signature will actually extract content (and trip the
+    # no-extraction assertion). A fake non-tar payload would let tar
+    # exit non-zero, hiding the regression.
+    local build="$case_dir/build/vpn-pack-0.0.0-test"
+    mkdir -p "$build"
+    cat > "$build/install.sh" <<'EOS'
+#!/bin/sh
+exit 0
+EOS
+    chmod +x "$build/install.sh"
+    printf '0.0.0-test\n' > "$build/VERSION"
+    ( cd "$case_dir/build" && tar czf "$www/vpn-pack-0.0.0-test.tar.gz" vpn-pack-0.0.0-test )
+    ( cd "$www" && sha256sum vpn-pack-0.0.0-test.tar.gz > checksums.txt )
+    cosign sign-blob --yes --tlog-upload=false \
+        --key "$case_dir/cosign.key" \
+        --bundle "$www/vpn-pack-0.0.0-test.tar.gz.cosign.bundle" \
+        "$www/vpn-pack-0.0.0-test.tar.gz" >/dev/null 2>&1 \
+        || { red "install.sh tamper: sign-blob archive failed"; return; }
+    cosign sign-blob --yes --tlog-upload=false \
+        --key "$case_dir/cosign.key" \
+        --bundle "$www/checksums.txt.cosign.bundle" \
+        "$www/checksums.txt" >/dev/null 2>&1 \
+        || { red "install.sh tamper: sign-blob checksums failed"; return; }
+
+    # Tamper the archive bundle — last byte flipped.
+    local tail_byte
+    tail_byte=$(tail -c 1 "$www/vpn-pack-0.0.0-test.tar.gz.cosign.bundle")
+    if [[ "$tail_byte" = "x" ]]; then
+        printf 'y' >> "$www/vpn-pack-0.0.0-test.tar.gz.cosign.bundle"
+    else
+        printf 'x' >> "$www/vpn-pack-0.0.0-test.tar.gz.cosign.bundle"
+    fi
+
+    # Mock HTTP server.
+    local server_log="$case_dir/server.log"
+    ( cd "$www" && python3 -u -m http.server 0 >"$server_log" 2>&1 ) &
+    local pid=$!
+    trap "kill $pid 2>/dev/null || true" RETURN
+    local port=""
+    for _ in $(seq 1 100); do
+        if [[ -s "$server_log" ]]; then
+            port=$(grep -oE 'port [0-9]+' "$server_log" | head -1 | awk '{print $2}')
+            [[ -n "$port" ]] && break
+        fi
+        sleep 0.05
+    done
+    if [[ -z "$port" ]]; then
+        red "install.sh tamper: mock server did not start"
+        kill "$pid" 2>/dev/null || true
+        return
+    fi
+    local base="http://127.0.0.1:$port"
+
+    # PATH stubs:
+    #   - cosign: translate keyless verify-blob → --key mode (real crypto).
+    #   - mktemp: return our fixed staging dir so the test can inspect it.
+    #   - rm: no-op so the EXIT trap inside vp_download_and_verify leaves
+    #     the staging dir intact for post-mortem assertions.
+    local pub="$case_dir/cosign.pub"
+    cat > "$stubs/cosign" <<EOSH
+#!/bin/sh
+real=$(command -v cosign)
+verb="\$1"; shift
+bundle=""; file=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --certificate-identity|--certificate-oidc-issuer) shift 2 ;;
+    --bundle) bundle="\$2"; shift 2 ;;
+    *) file="\$1"; shift ;;
+  esac
+done
+exec "\$real" "\$verb" --insecure-ignore-tlog --key "$pub" --bundle "\$bundle" "\$file"
+EOSH
+    cat > "$stubs/mktemp" <<EOSH
+#!/bin/sh
+case "\$*" in
+  *vpn-pack-install*) echo "$fixed_tmp"; exit 0 ;;
+esac
+exec /usr/bin/mktemp "\$@"
+EOSH
+    cat > "$stubs/rm" <<EOSH
+#!/bin/sh
+# Snapshot the staging dir before any cleanup so a regression where tar
+# runs before verify still leaves evidence on disk for the test.
+for arg in "\$@"; do
+  case "\$arg" in
+    "$fixed_tmp")
+      cp -a "$fixed_tmp" "$snap" 2>/dev/null || true
+      ;;
+  esac
+done
+exit 0
+EOSH
+    chmod +x "$stubs"/*
+
+    # Source vp_* functions only — strip the orchestration tail.
+    sed '/^vp_preflight$/,$ d' "$ROOT/install.sh" > "$libsh"
+
+    # Drive vp_download_and_verify in a subshell with the test globals
+    # and PATH stubs.
+    local exit_code=0
+    (
+        export PATH="$stubs:/usr/local/bin:/usr/bin:/bin:/usr/sbin"
+        # shellcheck source=/dev/null
+        . "$libsh"
+        ASSET_URL="$base/vpn-pack-0.0.0-test.tar.gz"
+        ARCHIVE_BUNDLE_URL="$base/vpn-pack-0.0.0-test.tar.gz.cosign.bundle"
+        CHECKSUMS_URL="$base/checksums.txt"
+        CHECKSUMS_BUNDLE_URL="$base/checksums.txt.cosign.bundle"
+        vp_download_and_verify
+    ) >/dev/null 2>&1 || exit_code=$?
+
+    kill "$pid" 2>/dev/null || true
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        red "install.sh tamper: vp_download_and_verify must abort on tampered bundle (got exit 0)"
+        return
+    fi
+
+    # Sanity: ensure the test actually exercised the download phase.
+    # Without this guard, a script that aborts before download would
+    # pass the no-extraction assertion vacuously.
+    if ! ls "$fixed_tmp"/vpn-pack-*.tar.gz >/dev/null 2>&1; then
+        red "install.sh tamper: archive missing from staging — vp_download_and_verify aborted before download"
+        return
+    fi
+
+    # The real assertion: no extracted vpn-pack-*/install.sh inside the
+    # staging dir. If a future refactor moves tar before verify_signature,
+    # this directory will appear and the test fails.
+    if ls "$fixed_tmp"/vpn-pack-*/install.sh >/dev/null 2>&1; then
+        red "install.sh tamper: tar extracted before verify (vpn-pack-*/install.sh found in staging)"
+        return
+    fi
+    # Belt-and-braces: also check the pre-rm snapshot, in case a future
+    # change adds a cleanup step that wipes extracted content before
+    # trap fires.
+    if ls "$snap"/vpn-pack-*/install.sh >/dev/null 2>&1; then
+        red "install.sh tamper: tar extracted before verify (vpn-pack-*/install.sh found in pre-rm snapshot)"
+        return
+    fi
+
+    green "install.sh: tampered bundle aborts vp_download_and_verify before extract"
+}
+
+assert_full_flow_tamper_aborts_before_extract
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 exit "$FAIL"
