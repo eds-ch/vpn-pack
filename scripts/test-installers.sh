@@ -132,6 +132,34 @@ assert_secure_tmp() {
 assert_secure_tmp get.sh
 assert_secure_tmp install.sh
 
+# SEC-C1 (ordering): the installer must call verify_signature BEFORE
+# extracting the archive. Catches a future edit that downloads + extracts
+# first and verifies after — at which point any malicious payload has
+# already been written to disk and any pre-install side-effects run.
+assert_verify_before_extract() {
+    local installer=$1
+    local src="$ROOT/$installer"
+    local verify_line extract_line
+    verify_line=$(grep -n "verify_signature " "$src" | head -1 | cut -d: -f1)
+    extract_line=$(grep -nE "^[^#]*tar (xz|x)f " "$src" | head -1 | cut -d: -f1)
+    if [[ -z "$verify_line" ]]; then
+        red "$installer: verify_signature not invoked"
+        return
+    fi
+    if [[ -z "$extract_line" ]]; then
+        red "$installer: tar extraction not found"
+        return
+    fi
+    if [[ "$verify_line" -ge "$extract_line" ]]; then
+        red "$installer: verify_signature (line $verify_line) must precede tar (line $extract_line)"
+        return
+    fi
+    green "$installer: verify_signature precedes tar extraction"
+}
+
+assert_verify_before_extract get.sh
+assert_verify_before_extract install.sh
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 exit "$FAIL"
