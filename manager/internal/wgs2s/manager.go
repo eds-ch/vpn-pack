@@ -37,13 +37,16 @@ func validTunnelID(id string) bool {
 }
 
 type TunnelManager struct {
-	mu        sync.Mutex
-	config    *TunnelsConfig
-	configDir string
-	wgClient  *wgctrl.Client
-	rtConn    *rtnetlink.Conn
-	routeRefs *routeRefCounter
-	log       *slog.Logger
+	mu          sync.Mutex
+	config      *TunnelsConfig
+	configDir   string
+	wgClient    *wgctrl.Client
+	rtConn      *rtnetlink.Conn
+	routes      routeOps
+	routeRefs   *routeRefCounter
+	lookupIface func(name string) (uint32, bool)
+	deleteLink  func(idx uint32) error
+	log         *slog.Logger
 }
 
 func NewTunnelManager(configDir string, log *slog.Logger) (*TunnelManager, error) {
@@ -71,12 +74,15 @@ func NewTunnelManager(configDir string, log *slog.Logger) (*TunnelManager, error
 	}
 
 	return &TunnelManager{
-		config:    cfg,
-		configDir: configDir,
-		wgClient:  wgClient,
-		rtConn:    rtConn,
-		routeRefs: newRouteRefCounter(),
-		log:       log,
+		config:      cfg,
+		configDir:   configDir,
+		wgClient:    wgClient,
+		rtConn:      rtConn,
+		routes:      &rtnetlinkRoutes{conn: rtConn},
+		routeRefs:   newRouteRefCounter(),
+		lookupIface: getInterfaceIndex,
+		deleteLink:  func(idx uint32) error { return deleteInterface(rtConn, idx) },
+		log:         log,
 	}, nil
 }
 
@@ -344,7 +350,7 @@ func (m *TunnelManager) hotUpdate(cfg TunnelConfig, oldAllowedIPs []string, oldM
 		return err
 	}
 
-	ifIndex, ok := getInterfaceIndex(cfg.InterfaceName)
+	ifIndex, ok := m.lookupIface(cfg.InterfaceName)
 	if !ok {
 		return fmt.Errorf("interface %s not found", cfg.InterfaceName)
 	}
@@ -419,21 +425,19 @@ func (m *TunnelManager) GetPublicKey(id string) (string, error) {
 }
 
 func (m *TunnelManager) cleanupExistingInterface(cfg TunnelConfig) error {
-	idx, ok := getInterfaceIndex(cfg.InterfaceName)
+	idx, ok := m.lookupIface(cfg.InterfaceName)
 	if !ok {
 		return nil
 	}
-	if err := deleteRoutes(m.rtConn, idx, cfg.AllowedIPs, cfg.RouteMetric); err != nil {
-		m.log.Warn("cleanup: deleteRoutes failed", "iface", cfg.InterfaceName, "err", err)
-	}
-	if err := deleteInterface(m.rtConn, idx); err != nil {
+	m.releaseRoutes(cfg.ID, idx, cfg.AllowedIPs, effectiveMetric(cfg.RouteMetric))
+	if err := m.deleteLink(idx); err != nil {
 		m.log.Warn("delete existing interface failed, reconnecting rtnetlink",
 			"iface", cfg.InterfaceName, "err", err)
 		if err := m.reconnectRtnetlink(); err != nil {
 			return fmt.Errorf("reconnect rtnetlink: %w", err)
 		}
-		if idx2, ok2 := getInterfaceIndex(cfg.InterfaceName); ok2 {
-			if err := deleteInterface(m.rtConn, idx2); err != nil {
+		if idx2, ok2 := m.lookupIface(cfg.InterfaceName); ok2 {
+			if err := m.deleteLink(idx2); err != nil {
 				return fmt.Errorf("delete interface %s after reconnect: %w", cfg.InterfaceName, err)
 			}
 		}
@@ -452,7 +456,7 @@ func (m *TunnelManager) bringUp(cfg TunnelConfig, privKey wgtypes.Key) error {
 	}
 
 	cleanup := func() {
-		if delErr := deleteInterface(m.rtConn, ifIndex); delErr != nil {
+		if delErr := m.deleteLink(ifIndex); delErr != nil {
 			m.log.Warn("cleanup: deleteInterface failed", "iface", cfg.InterfaceName, "err", delErr)
 		}
 	}
@@ -502,6 +506,8 @@ func (m *TunnelManager) reconnectRtnetlink() error {
 	}
 	_ = m.rtConn.Close()
 	m.rtConn = newConn
+	m.routes = &rtnetlinkRoutes{conn: newConn}
+	m.deleteLink = func(idx uint32) error { return deleteInterface(newConn, idx) }
 	return nil
 }
 
@@ -521,7 +527,7 @@ func (m *TunnelManager) claimRoutes(tunnelID string, ifIndex uint32, cidrs []str
 			m.unregisterRoutes(tunnelID, registered, metric)
 			return err
 		}
-		if err := m.rtConn.Route.Add(msg); err != nil {
+		if err := m.routes.Add(msg); err != nil {
 			if errors.Is(err, unix.EEXIST) {
 				m.log.Debug("route already exists in kernel, skipping", "cidr", cidr)
 				continue
@@ -542,7 +548,7 @@ func (m *TunnelManager) releaseRoutes(tunnelID string, ifIndex uint32, cidrs []s
 				m.log.Warn("releaseRoutes: invalid CIDR", "cidr", cidr, "err", err)
 				continue
 			}
-			if err := m.rtConn.Route.Delete(msg); err != nil && !errors.Is(err, unix.ESRCH) {
+			if err := m.routes.Delete(msg); err != nil && !errors.Is(err, unix.ESRCH) {
 				m.log.Warn("releaseRoutes: delete failed", "cidr", cidr, "err", err)
 			}
 		} else {
@@ -551,7 +557,7 @@ func (m *TunnelManager) releaseRoutes(tunnelID string, ifIndex uint32, cidrs []s
 				m.log.Warn("releaseRoutes: invalid CIDR for replace", "cidr", cidr, "err", err)
 				continue
 			}
-			if err := m.rtConn.Route.Replace(msg); err != nil {
+			if err := m.routes.Replace(msg); err != nil {
 				m.log.Warn("releaseRoutes: replace to surviving tunnel failed", "cidr", cidr,
 					"survivingTunnel", remaining[0].tunnelID, "err", err)
 			}
@@ -566,12 +572,12 @@ func (m *TunnelManager) unregisterRoutes(tunnelID string, cidrs []string, metric
 }
 
 func (m *TunnelManager) tearDown(cfg TunnelConfig) {
-	idx, ok := getInterfaceIndex(cfg.InterfaceName)
+	idx, ok := m.lookupIface(cfg.InterfaceName)
 	if !ok {
 		return
 	}
 	m.releaseRoutes(cfg.ID, idx, cfg.AllowedIPs, effectiveMetric(cfg.RouteMetric))
-	if err := deleteInterface(m.rtConn, idx); err != nil {
+	if err := m.deleteLink(idx); err != nil {
 		m.log.Warn("tearDown: deleteInterface failed", "iface", cfg.InterfaceName, "err", err)
 	}
 }

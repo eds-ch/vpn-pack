@@ -1,9 +1,7 @@
 package wgs2s
 
 import (
-	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 
 	"github.com/jsimonetti/rtnetlink"
@@ -47,19 +45,4 @@ func buildRouteMessage(cidr string, ifIndex uint32, metric int) (*rtnetlink.Rout
 			Priority: uint32(metric),
 		},
 	}, nil
-}
-
-func deleteRoutes(conn *rtnetlink.Conn, ifIndex uint32, cidrs []string, metric int) error {
-	m := effectiveMetric(metric)
-	for _, cidr := range cidrs {
-		msg, err := buildRouteMessage(cidr, ifIndex, m)
-		if err != nil {
-			slog.Warn("delete route: invalid CIDR", "cidr", cidr, "err", err)
-			continue
-		}
-		if err := conn.Route.Delete(msg); err != nil && !errors.Is(err, unix.ESRCH) {
-			return fmt.Errorf("delete route %s: %w", cidr, err)
-		}
-	}
-	return nil
 }
