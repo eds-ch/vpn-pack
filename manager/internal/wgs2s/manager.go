@@ -517,16 +517,22 @@ func (m *TunnelManager) claimRoutes(tunnelID string, ifIndex uint32, cidrs []str
 		firstOwner := m.routeRefs.add(cidr, tunnelID, ifIndex, metric)
 		registered = append(registered, cidr)
 
-		if !firstOwner {
-			m.log.Debug("route shared with another tunnel, skipping kernel add", "cidr", cidr, "tunnel", tunnelID)
-			continue
-		}
-
 		msg, err := buildRouteMessage(cidr, ifIndex, metric)
 		if err != nil {
 			m.unregisterRoutes(tunnelID, registered, metric)
 			return err
 		}
+
+		if !firstOwner {
+			// Defensive: kernel route may have been removed by a stale cleanup
+			// or an external actor (see BUG-H4). Re-assert; ignore EEXIST.
+			if err := m.routes.Add(msg); err != nil && !errors.Is(err, unix.EEXIST) {
+				m.log.Warn("route re-assert on shared owner failed",
+					"cidr", cidr, "tunnel", tunnelID, "err", err)
+			}
+			continue
+		}
+
 		if err := m.routes.Add(msg); err != nil {
 			if errors.Is(err, unix.EEXIST) {
 				m.log.Debug("route already exists in kernel, skipping", "cidr", cidr)

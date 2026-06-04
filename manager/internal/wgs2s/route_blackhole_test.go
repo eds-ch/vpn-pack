@@ -162,6 +162,32 @@ func mustBringUp(t *testing.T, mgr *TunnelManager, fk *fakeKernel, cfg TunnelCon
 	}
 }
 
+func TestClaimRoutesReassertsOnSharedOwner(t *testing.T) {
+	mgr, fk := newTestManager(t)
+	cfgA := TunnelConfig{ID: "A", InterfaceName: "wg-s2s0", AllowedIPs: []string{"10.10.0.0/24"}}
+	cfgB := TunnelConfig{ID: "B", InterfaceName: "wg-s2s1", AllowedIPs: []string{"10.10.0.0/24"}}
+
+	mustBringUp(t, mgr, fk, cfgA)
+	mustBringUp(t, mgr, fk, cfgB)
+
+	// Simulate external force-delete of the kernel route while both owners
+	// remain in the ref-counter — exactly the BUG-H4 scenario where a stale
+	// cleanup or external actor removes the underlying kernel entry.
+	fk.deleteRoute("10.10.0.0/24")
+	if fk.hasRoute("10.10.0.0/24") {
+		t.Fatal("setup: fake kernel route should be gone after deleteRoute")
+	}
+
+	// Re-claim from B (idempotent path: firstOwner=false because A is still in refs).
+	idxB, _ := fk.lookupIface(cfgB.InterfaceName)
+	if err := mgr.claimRoutes(cfgB.ID, idxB, cfgB.AllowedIPs, effectiveMetric(cfgB.RouteMetric)); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if !fk.hasRoute("10.10.0.0/24") {
+		t.Fatal("claimRoutes did not re-assert kernel route on shared owner")
+	}
+}
+
 func TestSharedRouteSurvivesPeerCleanup(t *testing.T) {
 	mgr, fk := newTestManager(t)
 	cfgA := TunnelConfig{ID: "A", InterfaceName: "wg-s2s0", AllowedIPs: []string{"10.10.0.0/24"}}
