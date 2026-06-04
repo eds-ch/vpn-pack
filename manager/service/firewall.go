@@ -146,7 +146,11 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 		result.ChainPrefix = discovered
 	}
 
-	oldPrefix := o.manifest.GetTailscaleChainPrefix()
+	oldZone := o.manifest.GetTailscaleZone()
+	oldPrefix := oldZone.ChainPrefix
+	if oldPrefix == "" {
+		oldPrefix = o.manifest.GetTailscaleChainPrefix()
+	}
 
 	if err := o.manifest.SetTailscaleZone(zone.ZoneID, zone.ZoneName, policyIDs, result.ChainPrefix); err != nil {
 		result.addError("manifest", err)
@@ -156,8 +160,15 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 		return result
 	}
 
+	restoreManifest := func() {
+		if err := o.manifest.SetTailscaleZone(oldZone.ZoneID, oldZone.ZoneName, oldZone.PolicyIDs, oldPrefix); err != nil {
+			slog.Warn("manifest rollback failed", "err", err)
+		}
+	}
+
 	if ctx.Err() != nil {
 		result.addError("context", ctx.Err())
+		restoreManifest()
 		return result
 	}
 
@@ -170,6 +181,7 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 
 	if err := o.ops.EnsureTailscaleRules(result.ChainPrefix); err != nil {
 		result.addError("udapi", err)
+		restoreManifest()
 		return result
 	}
 	result.UDAPIApplied = true
