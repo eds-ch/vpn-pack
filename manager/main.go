@@ -64,6 +64,10 @@ func main() {
 		slog.Warn("manifest load failed", "err", err)
 		manifest = state.NewManifest(config.ManifestPath)
 	}
+	if manifest.Recovered() {
+		slog.Warn("manifest was corrupted at load; quarantined and reset to empty; integration zones may be orphaned",
+			"path", config.ManifestPath)
+	}
 
 	srv := NewServer(ctx, ServerOptions{
 		ListenAddr:  *listen,
