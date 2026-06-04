@@ -12,6 +12,7 @@ import (
 	"tailscale.com/tailcfg"
 
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/ops"
 )
 
 type RemoteExitManifest interface {
@@ -134,25 +135,11 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 	svc.applying.Store(true)
 	defer svc.applying.Store(false)
 
-	if err := svc.manifest.SetRemoteExitNode(&domain.RemoteExitNode{
+	prevRemote := svc.manifest.GetRemoteExitNode()
+	newRemote := &domain.RemoteExitNode{
 		PeerID:  req.PeerID,
 		Mode:    mode,
 		Clients: req.Clients,
-	}); err != nil {
-		return nil, internalError(fmt.Sprintf("persist remote exit node: %v", err), err)
-	}
-
-	if wasAdvertising {
-		if err := svc.manifest.SetAdvertiseExitNode(false); err != nil {
-			slog.Warn("failed to clear advertise exit node in manifest", "err", err)
-		}
-	}
-
-	if svc.exitSvc != nil {
-		if err := svc.exitSvc.Apply(ctx, policy); err != nil {
-			_ = svc.manifest.SetRemoteExitNode(nil)
-			return nil, internalError(fmt.Sprintf("apply exit node rules: %v", err), err)
-		}
 	}
 
 	mp := &ipn.MaskedPrefs{
@@ -168,20 +155,55 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 		mp.AdvertiseRoutesSet = true
 	}
 
-	_, err = svc.ts.EditPrefs(ctx, mp)
-	if err != nil {
-		if ctx.Err() != nil {
-			slog.Warn("exit node enable: context cancelled after EditPrefs",
-				"peer", req.PeerID, "err", err)
-			return &EnableRemoteExitResult{
-				OK:      true,
-				Message: fmt.Sprintf("Traffic routed through %s.", peer.HostName),
-			}, nil
-		}
-		_ = svc.manifest.SetRemoteExitNode(nil)
-		if svc.exitSvc != nil {
-			_ = svc.exitSvc.Cleanup(ctx)
-		}
+	// Restore-prefs for EditPrefs undo. Captures the pre-Enable state so a
+	// later failure can revert in a single masked-prefs round-trip.
+	restorePrefs := &ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{
+			ExitNodeID:             prefs.ExitNodeID,
+			ExitNodeAllowLANAccess: prefs.ExitNodeAllowLANAccess,
+		},
+		ExitNodeIDSet:             true,
+		ExitNodeAllowLANAccessSet: true,
+	}
+	if wasAdvertising {
+		restorePrefs.AdvertiseRoutes = prefs.AdvertiseRoutes
+		restorePrefs.AdvertiseRoutesSet = true
+	}
+
+	steps := []ops.Op{
+		{
+			Name: "persist manifest with new peer",
+			Do:   func(_ context.Context) error { return svc.manifest.SetRemoteExitNode(newRemote) },
+			Undo: func(_ context.Context) error { return svc.manifest.SetRemoteExitNode(prevRemote) },
+		},
+	}
+	if wasAdvertising {
+		steps = append(steps, ops.Op{
+			Name: "clear advertise-exit-node in manifest",
+			Do:   func(_ context.Context) error { return svc.manifest.SetAdvertiseExitNode(false) },
+			Undo: func(_ context.Context) error { return svc.manifest.SetAdvertiseExitNode(true) },
+		})
+	}
+	if svc.exitSvc != nil {
+		steps = append(steps, ops.Op{
+			Name: "apply local exit-node rules",
+			Do:   func(ctx context.Context) error { return svc.exitSvc.Apply(ctx, policy) },
+			Undo: func(ctx context.Context) error { return svc.exitSvc.Cleanup(ctx) },
+		})
+	}
+	steps = append(steps, ops.Op{
+		Name: "set Tailscale prefs",
+		Do: func(ctx context.Context) error {
+			_, err := svc.ts.EditPrefs(ctx, mp)
+			return err
+		},
+		Undo: func(ctx context.Context) error {
+			_, err := svc.ts.EditPrefs(ctx, restorePrefs)
+			return err
+		},
+	})
+
+	if err := ops.Run(ctx, steps); err != nil {
 		return nil, upstreamError(humanizeLocalAPIError(err), err)
 	}
 
