@@ -271,10 +271,33 @@ func (s *ExitNodeService) addMasquerade(ctx context.Context) error {
 	}
 	args6 := all[1]
 	if out, err := s.run(ctx, "ip6tables", args6...); err != nil {
-		slog.Warn("ip6tables masquerade add (ignored; IPv6 likely disabled)",
+		if !isIP6Unavailable(err, out) {
+			return fmt.Errorf("ip6tables masquerade add: %w (%s)", err, strings.TrimSpace(string(out)))
+		}
+		slog.Warn("ip6tables masquerade add (IPv6 unavailable, tolerated)",
 			"err", err, "out", strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// isIP6Unavailable returns true when the ip6tables error indicates the
+// binary is missing or the IPv6 stack is disabled — situations the plan
+// requires us to tolerate. All other errors propagate so a real IPv6
+// firewall failure is not silently swallowed.
+func isIP6Unavailable(err error, out []byte) bool {
+	msg := strings.ToLower(err.Error() + " " + string(out))
+	for _, marker := range []string{
+		"not found",
+		"no such file or directory",
+		"executable file not found",
+		"address family not supported",
+		"protocol not supported",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ExitNodeService) delMasquerade(ctx context.Context) {

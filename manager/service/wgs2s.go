@@ -14,6 +14,7 @@ import (
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
+	"unifi-tailscale/manager/ops"
 )
 
 const wgMaxPort = 65535
@@ -311,15 +312,46 @@ func (svc *WgS2sService) DeleteTunnel(ctx context.Context, id string) error {
 		return notFoundError("tunnel not found")
 	}
 
-	// Firewall teardown FIRST — UDAPI rules referencing the iface should be
-	// removed while the iface still exists so rule lookups by interface work
-	// reliably and no stale rules survive the wg delete (BUG-L10 service-level).
-	svc.teardownTunnelFirewall(ctx, t)
-	if svc.fw != nil {
-		svc.fw.TeardownZone(ctx, id)
-	}
-
-	if err := svc.loadWG().DeleteTunnel(id); err != nil {
+	// Saga: firewall teardown → zone teardown → low-level wg delete. If the
+	// final step fails, the firewall is re-installed so the operator can
+	// retry safely (BUG-L10 service-level).
+	tunnelCopy := *t
+	err := ops.Run(ctx, []ops.Op{
+		{
+			Name: "tear down tunnel firewall",
+			Do: func(_ context.Context) error {
+				svc.teardownTunnelFirewall(ctx, &tunnelCopy)
+				return nil
+			},
+			Undo: func(_ context.Context) error {
+				if svc.fw == nil {
+					return nil
+				}
+				if err := svc.fw.SetupFirewall(ctx, tunnelCopy.ID, tunnelCopy.InterfaceName, tunnelCopy.AllowedIPs); err != nil {
+					slog.Warn("rollback: restoring firewall failed", "tunnelID", tunnelCopy.ID, "err", err)
+				}
+				svc.fw.OpenWanPort(ctx, tunnelCopy.ListenPort, tunnelCopy.InterfaceName)
+				return nil
+			},
+		},
+		{
+			Name: "teardown firewall zone",
+			Do: func(_ context.Context) error {
+				if svc.fw != nil {
+					svc.fw.TeardownZone(ctx, id)
+				}
+				return nil
+			},
+			Undo: func(_ context.Context) error {
+				slog.Warn("rollback: zone teardown cannot be auto-restored; operator must recreate", "tunnelID", id)
+				return nil
+			},
+		},
+		ops.Noop("low-level wg delete (kernel + disk + keys)", func(_ context.Context) error {
+			return svc.loadWG().DeleteTunnel(id)
+		}),
+	})
+	if err != nil {
 		return upstreamError(humanizeWgS2sError(err), err)
 	}
 	return nil

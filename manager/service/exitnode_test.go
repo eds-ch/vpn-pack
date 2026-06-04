@@ -677,6 +677,35 @@ func TestApply_PartialFailureRollsBackRulesAndMasq(t *testing.T) {
 	assert.NotEqual(t, domain.ExitNodeAll, manifest.policy.Mode, "manifest must not be updated on failure")
 }
 
+// TestAddMasquerade_PropagatesUnexpectedIP6Error verifies that ip6tables
+// failures that are NOT "binary missing / family unsupported" propagate
+// outward instead of being silently swallowed.
+func TestAddMasquerade_PropagatesUnexpectedIP6Error(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: make(map[string]bool),
+	}
+	// Wrap the standard runner so ip6tables -A returns a non-tolerated error.
+	base := state.runner()
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-A" {
+					return []byte("RULE_REPLACE_FAILED"), fmt.Errorf("kernel module overflow")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, runner)
+	stubBridges(svc, "br0")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.Error(t, err, "unexpected ip6tables errors must propagate")
+	assert.Contains(t, err.Error(), "ip6tables masquerade add")
+}
+
 // TestAddMasquerade_TolerantToIP6Disabled covers SEC-C11 / BUG-M2.
 // If ip6tables is missing or disabled (returns "command not found"), the
 // IPv4 masquerade must still install and Apply must succeed.
