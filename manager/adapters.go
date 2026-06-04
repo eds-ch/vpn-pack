@@ -8,6 +8,7 @@ import (
 
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/service"
 )
 
@@ -213,7 +214,7 @@ type wgS2sLogAdapter struct {
 }
 
 func (a *wgS2sLogAdapter) LogWarn(msg string) {
-	a.buf.Add(newLogEntry("warn", msg, "wgs2s"))
+	a.buf.Add(newLogEntry("warn", logredact.RedactString(msg), "wgs2s"))
 }
 
 // --- Notification adapters ---

@@ -5,6 +5,7 @@ package logredact
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"regexp"
 )
@@ -48,20 +49,37 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 }
 
 func redactAttr(a slog.Attr) slog.Attr {
-	switch a.Value.Kind() {
+	v := a.Value.Resolve()
+	switch v.Kind() {
 	case slog.KindString:
-		return slog.String(a.Key, redactString(a.Value.String()))
+		return slog.String(a.Key, redactString(v.String()))
 	case slog.KindGroup:
-		inner := a.Value.Group()
+		inner := v.Group()
 		out := make([]slog.Attr, len(inner))
 		for i, sub := range inner {
 			out[i] = redactAttr(sub)
 		}
 		return slog.Attr{Key: a.Key, Value: slog.GroupValue(out...)}
+	case slog.KindAny:
+		// Non-string values (errors, structs, arbitrary types) can carry
+		// secrets in their %v form. Render through fmt and redact; the
+		// loss of JSON fidelity (errors become strings instead of nested
+		// objects) is worth the safety guarantee.
+		any := v.Any()
+		if s, ok := any.(string); ok {
+			return slog.String(a.Key, redactString(s))
+		}
+		return slog.String(a.Key, redactString(fmt.Sprint(any)))
 	default:
 		return a
 	}
 }
+
+// RedactString applies the same secret-redaction rules used by the slog
+// Handler. Callers that build log strings outside the slog pipeline
+// (e.g. direct LogBuffer writes) can route them through this function
+// to keep parity with slog-routed records.
+func RedactString(s string) string { return redactString(s) }
 
 func redactAttrs(in []slog.Attr) []slog.Attr {
 	out := make([]slog.Attr, len(in))
