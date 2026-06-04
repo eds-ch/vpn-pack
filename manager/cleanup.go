@@ -17,8 +17,28 @@ import (
 	"unifi-tailscale/manager/udapi"
 )
 
-func runCleanup() {
+// cleanupManagerActiveCheck reports whether vpn-pack-manager.service is
+// currently active. Overridable in tests; defaults to systemctl probe.
+// Cleanup must run only with the manager service stopped — otherwise the
+// daemon and the cleanup binary can both issue concurrent GET-modify-PUT
+// cycles against UDAPI ipsets and lose updates (UDAPI exposes no
+// versioning, so the intra-process RMW lock cannot extend cross-process).
+var cleanupManagerActiveCheck = func() bool {
+	err := exec.Command("systemctl", "is-active", "--quiet", "vpn-pack-manager.service").Run()
+	return err == nil
+}
+
+// errCleanupRefused is returned by runCleanup when it refuses to run
+// because the manager service is still active.
+var errCleanupRefused = errors.New("vpn-pack-manager.service is active; stop it first (systemctl stop vpn-pack-manager) before running --cleanup")
+
+func runCleanup() error {
 	slog.Info("cleanup: removing UDAPI firewall rules and WG S2S interfaces")
+
+	if cleanupManagerActiveCheck() {
+		slog.Error("cleanup refused: manager service active", "err", errCleanupRefused)
+		return errCleanupRefused
+	}
 
 	uc := udapi.NewClient(config.UDAPISocketPath)
 
@@ -40,6 +60,7 @@ func runCleanup() {
 	}
 
 	slog.Info("cleanup: done")
+	return nil
 }
 
 func removeTailscaleUDAPIRules(ctx context.Context, uc *udapi.UDAPIClient) {

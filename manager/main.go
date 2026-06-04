@@ -31,7 +31,9 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
 	if *cleanup {
-		runCleanup()
+		if err := runCleanup(); err != nil {
+			os.Exit(1)
+		}
 		return
 	}
 
