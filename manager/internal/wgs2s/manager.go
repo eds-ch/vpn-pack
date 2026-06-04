@@ -168,7 +168,9 @@ func (m *TunnelManager) CreateTunnel(cfg TunnelConfig, privateKey string) (*Tunn
 
 	m.config.Tunnels = append(m.config.Tunnels, cfg)
 	if err := m.save(); err != nil {
-		m.tearDown(cfg)
+		if tdErr := m.tearDown(cfg); tdErr != nil {
+			m.log.Warn("CreateTunnel: rollback tearDown failed", "id", cfg.ID, "err", tdErr)
+		}
 		deleteKeyFiles(m.configDir, cfg.ID)
 		return nil, err
 	}
@@ -192,10 +194,10 @@ func (m *TunnelManager) DeleteTunnel(id string) error {
 		{
 			Name: "tear down kernel interface",
 			Do: func(_ context.Context) error {
-				if cfg.Enabled {
-					m.tearDown(cfg)
+				if !cfg.Enabled {
+					return nil
 				}
-				return nil
+				return m.tearDown(cfg)
 			},
 			Undo: func(_ context.Context) error {
 				if !cfg.Enabled {
@@ -292,10 +294,7 @@ func (m *TunnelManager) DisableTunnel(id string) error {
 	return ops.Run(context.Background(), []ops.Op{
 		{
 			Name: "tear down kernel interface",
-			Do: func(_ context.Context) error {
-				m.tearDown(cfgVal)
-				return nil
-			},
+			Do:   func(_ context.Context) error { return m.tearDown(cfgVal) },
 			Undo: func(_ context.Context) error { return m.bringUpTunnel(cfgVal) },
 		},
 		ops.Noop("persist enabled=false to disk", func(_ context.Context) error {
@@ -688,15 +687,20 @@ func (m *TunnelManager) unregisterRoutes(tunnelID string, cidrs []string, metric
 	}
 }
 
-func (m *TunnelManager) tearDown(cfg TunnelConfig) {
+// tearDown removes the kernel interface and releases its routes. It is
+// idempotent: a missing interface is not an error. A deleteLink failure
+// IS an error — callers (Disable/Delete sagas) must abort before
+// persisting "off" state to disk.
+func (m *TunnelManager) tearDown(cfg TunnelConfig) error {
 	idx, ok := m.lookupIface(cfg.InterfaceName)
 	if !ok {
-		return
+		return nil
 	}
 	m.releaseRoutes(cfg.ID, idx, cfg.AllowedIPs, effectiveMetric(cfg.RouteMetric))
 	if err := m.deleteLink(idx); err != nil {
-		m.log.Warn("tearDown: deleteInterface failed", "iface", cfg.InterfaceName, "err", err)
+		return fmt.Errorf("deleteInterface %s: %w", cfg.InterfaceName, err)
 	}
+	return nil
 }
 
 func (m *TunnelManager) recreateTunnel(cfg *TunnelConfig, teardown bool) error {
@@ -710,7 +714,9 @@ func (m *TunnelManager) recreateTunnel(cfg *TunnelConfig, teardown bool) error {
 	}
 
 	if teardown {
-		m.tearDown(*cfg)
+		if err := m.tearDown(*cfg); err != nil {
+			return fmt.Errorf("tearDown before recreate: %w", err)
+		}
 	}
 
 	if err := m.bringUpTunnel(*cfg); err != nil {

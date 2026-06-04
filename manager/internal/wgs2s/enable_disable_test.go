@@ -46,6 +46,39 @@ func TestEnable_KernelFailureLeavesDiskDisabled(t *testing.T) {
 	}
 }
 
+// TestDisable_KernelTearDownFailureAbortsSaga covers BUG-L10 follow-up:
+// if the kernel deleteLink step fails (e.g. EBUSY), tearDown must surface
+// that error so the saga aborts BEFORE persisting Enabled=false to disk.
+// Previously tearDown swallowed deleteLink errors and DisableTunnel still
+// reached the save step, leaving disk and kernel inconsistent.
+func TestDisable_KernelTearDownFailureAbortsSaga(t *testing.T) {
+	mgr, fk := newTestManager(t)
+	cfg := TunnelConfig{ID: "A", InterfaceName: "wg-s2s0", Enabled: true}
+	mgr.config.Tunnels = []TunnelConfig{cfg}
+	fk.createIface(cfg.InterfaceName)
+
+	mgr.deleteLink = func(uint32) error {
+		return errors.New("simulated EBUSY: device or resource busy")
+	}
+
+	var saveSnapshots [][]TunnelConfig
+	mgr.saveOverride = func() error {
+		saveSnapshots = append(saveSnapshots, snapshotTunnels(mgr.config.Tunnels))
+		return nil
+	}
+
+	if err := mgr.DisableTunnel("A"); err == nil {
+		t.Fatal("expected error from kernel teardown failure")
+	}
+
+	if len(saveSnapshots) > 0 {
+		t.Fatalf("save must NOT run when kernel teardown fails; got %d snapshots", len(saveSnapshots))
+	}
+	if !mgr.config.Tunnels[0].Enabled {
+		t.Fatal("in-memory Enabled was flipped to false despite kernel teardown failure")
+	}
+}
+
 // TestUpdate_KernelFailureKeepsOldDiskState covers BUG-M11 for UpdateTunnel:
 // when the kernel recreate step fails, the disk must keep the prior tunnel
 // configuration. Before the kernel-first refactor, UpdateTunnel mutated
