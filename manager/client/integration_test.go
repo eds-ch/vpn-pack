@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"unifi-tailscale/manager/config"
@@ -244,4 +245,108 @@ func TestIntegrationValidateResponseParsing(t *testing.T) {
 	info, err := ic.Validate(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "9.0.1", info.ApplicationVersion)
+}
+
+// SEC-C7: error messages from non-2xx upstream responses must not include
+// the raw response body. The body can carry session tokens, stack traces,
+// or other sensitive data and propagates into operator-visible logs and
+// /api/* responses through error wrapping.
+func TestIntegrationErrorsOmitUpstreamBody(t *testing.T) {
+	const secret = "INTERNAL_SECRET_TOKEN_xyz_12345"
+
+	cases := []struct {
+		name   string
+		call   func(ic *IntegrationClient) error
+		method string
+		path   string
+	}{
+		{
+			name:   "Validate",
+			method: "GET",
+			path:   "/v1/info",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.Validate(context.Background())
+				return err
+			},
+		},
+		{
+			name:   "ListZones",
+			method: "GET",
+			path:   "/v1/sites/s1/firewall/zones",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.ListZones(context.Background(), "s1")
+				return err
+			},
+		},
+		{
+			name:   "CreateZone",
+			method: "POST",
+			path:   "/v1/sites/s1/firewall/zones",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.CreateZone(context.Background(), "s1", "z")
+				return err
+			},
+		},
+		{
+			name:   "CreatePolicy",
+			method: "POST",
+			path:   "/v1/sites/s1/firewall/policies",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.CreatePolicy(context.Background(), "s1", CreatePolicyRequest{Name: "x"})
+				return err
+			},
+		},
+		{
+			name:   "DeletePolicy",
+			method: "DELETE",
+			path:   "/v1/sites/s1/firewall/policies/p1",
+			call: func(ic *IntegrationClient) error {
+				return ic.DeletePolicy(context.Background(), "s1", "p1")
+			},
+		},
+		{
+			name:   "DeleteZone",
+			method: "DELETE",
+			path:   "/v1/sites/s1/firewall/zones/z1",
+			call: func(ic *IntegrationClient) error {
+				return ic.DeleteZone(context.Background(), "s1", "z1")
+			},
+		},
+		{
+			name:   "CreateDNSPolicy",
+			method: "POST",
+			path:   "/v1/sites/s1/dns/policies",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.CreateDNSPolicy(context.Background(), "s1", createDNSPolicyRequest{Domain: "x"})
+				return err
+			},
+		},
+		{
+			name:   "DeleteDNSPolicy",
+			method: "DELETE",
+			path:   "/v1/sites/s1/dns/policies/p1",
+			call: func(ic *IntegrationClient) error {
+				return ic.DeleteDNSPolicy(context.Background(), "s1", "p1")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ic := newTestIntegrationClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(500)
+				_, _ = w.Write([]byte(secret))
+			})
+
+			err := tc.call(ic)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, domain.ErrIntegrationAPI)
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("error message leaked upstream body %q: %v", secret, err)
+			}
+			if !strings.Contains(err.Error(), "500") {
+				t.Fatalf("error message must include status code; got: %v", err)
+			}
+		})
+	}
 }

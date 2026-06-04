@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,6 +17,23 @@ import (
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 )
+
+// debugBody truncates an upstream response body to a safe length and
+// records it at debug level only. The error returned to callers never
+// contains the body (SEC-C7); the (redacted) body stays out of stderr
+// and /api/logs at default log levels.
+func debugBody(label string, status int, body []byte) {
+	const max = 200
+	snippet := body
+	if len(snippet) > max {
+		snippet = snippet[:max]
+	}
+	slog.Debug("integration upstream error body",
+		"op", label,
+		"status", status,
+		"body", string(snippet),
+	)
+}
 
 type IntegrationClient struct {
 	mu         sync.RWMutex
@@ -117,7 +135,8 @@ func (c *IntegrationClient) Validate(ctx context.Context) (*domain.AppInfo, erro
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: GET /v1/info returned %d: %s", domain.ErrIntegrationAPI, status, body)
+		debugBody("GET /v1/info", status, body)
+		return nil, fmt.Errorf("%w: GET /v1/info returned %d", domain.ErrIntegrationAPI, status)
 	}
 
 	var info domain.AppInfo
@@ -133,7 +152,8 @@ func doListRequest[T any](c *IntegrationClient, ctx context.Context, path string
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: GET %s returned %d: %s", domain.ErrIntegrationAPI, path, status, body)
+		debugBody("GET "+path, status, body)
+		return nil, fmt.Errorf("%w: GET %s returned %d", domain.ErrIntegrationAPI, path, status)
 	}
 	var page paginatedResponse
 	if err := json.Unmarshal(body, &page); err != nil {
@@ -184,7 +204,8 @@ func (c *IntegrationClient) CreateZone(ctx context.Context, siteID, name string)
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: create zone returned %d: %s", domain.ErrIntegrationAPI, status, body)
+		debugBody("create zone", status, body)
+		return nil, fmt.Errorf("%w: create zone returned %d", domain.ErrIntegrationAPI, status)
 	}
 
 	var zone domain.Zone
@@ -227,7 +248,8 @@ func (c *IntegrationClient) CreatePolicy(ctx context.Context, siteID string, req
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: create policy returned %d: %s", domain.ErrIntegrationAPI, status, body)
+		debugBody("create policy", status, body)
+		return nil, fmt.Errorf("%w: create policy returned %d", domain.ErrIntegrationAPI, status)
 	}
 
 	var pol domain.Policy
@@ -244,7 +266,8 @@ func (c *IntegrationClient) DeletePolicy(ctx context.Context, siteID, policyID s
 		return err
 	}
 	if status < 200 || status >= 300 {
-		return fmt.Errorf("%w: delete policy returned %d: %s", domain.ErrIntegrationAPI, status, body)
+		debugBody("delete policy", status, body)
+		return fmt.Errorf("%w: delete policy returned %d", domain.ErrIntegrationAPI, status)
 	}
 	return nil
 }
@@ -256,7 +279,8 @@ func (c *IntegrationClient) DeleteZone(ctx context.Context, siteID, zoneID strin
 		return err
 	}
 	if status < 200 || status >= 300 {
-		return fmt.Errorf("%w: delete zone returned %d: %s", domain.ErrIntegrationAPI, status, body)
+		debugBody("delete zone", status, body)
+		return fmt.Errorf("%w: delete zone returned %d", domain.ErrIntegrationAPI, status)
 	}
 	return nil
 }
@@ -443,7 +467,8 @@ func (c *IntegrationClient) CreateDNSPolicy(ctx context.Context, siteID string, 
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("%w: create DNS policy returned %d: %s", domain.ErrIntegrationAPI, status, body)
+		debugBody("create DNS policy", status, body)
+		return nil, fmt.Errorf("%w: create DNS policy returned %d", domain.ErrIntegrationAPI, status)
 	}
 	var pol domain.DNSPolicy
 	if err := json.Unmarshal(body, &pol); err != nil {
@@ -462,7 +487,8 @@ func (c *IntegrationClient) DeleteDNSPolicy(ctx context.Context, siteID, policyI
 		return err
 	}
 	if status < 200 || status >= 300 {
-		return fmt.Errorf("%w: delete DNS policy returned %d: %s", domain.ErrIntegrationAPI, status, body)
+		debugBody("delete DNS policy", status, body)
+		return fmt.Errorf("%w: delete DNS policy returned %d", domain.ErrIntegrationAPI, status)
 	}
 	return nil
 }
