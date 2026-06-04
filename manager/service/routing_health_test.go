@@ -206,3 +206,37 @@ func TestRoutingHealth_CacheHealthyState(t *testing.T) {
 	c.Check()
 	assert.Equal(t, 2, calls, "call after TTL should re-check")
 }
+
+// TestRoutingHealth_CacheClearedOnInterfaceFlap covers BUG-L13: when
+// tailscale0 disappears the cache must be cleared so the next Check() after
+// the interface comes back recomputes warnings instead of serving the stale
+// snapshot from before the flap.
+func TestRoutingHealth_CacheClearedOnInterfaceFlap(t *testing.T) {
+	exists := true
+	c := newTestChecker(func(c *RoutingHealthChecker) {
+		c.ifaceExists = func(string) bool { return exists }
+		c.readRPFilter = func(string) (int, error) { return 1, nil } // populates a warning so cache is non-nil
+	})
+
+	first := c.Check()
+	require.NotNil(t, first, "first call must populate cache with a warning")
+	c.mu.Lock()
+	had := c.hasCache
+	c.mu.Unlock()
+	require.True(t, had, "first call must mark hasCache")
+
+	exists = false
+	if got := c.Check(); got != nil {
+		t.Fatalf("Check() with absent interface must return nil; got %v", got)
+	}
+	c.mu.Lock()
+	stillCached := c.hasCache
+	c.mu.Unlock()
+	if stillCached {
+		t.Fatal("cache must be cleared when tailscale0 disappears")
+	}
+
+	exists = true
+	second := c.Check()
+	require.NotNil(t, second, "Check() after re-appearance must recompute, not return stale nil")
+}

@@ -48,6 +48,13 @@ func (c *RoutingHealthChecker) Check() *domain.RoutingHealth {
 		return nil
 	}
 	if !c.ifaceExists(config.TailscaleInterface) {
+		// Interface is gone — drop any cached snapshot so a later re-check
+		// (after the interface comes back) recomputes warnings instead of
+		// serving the pre-flap state (BUG-L13).
+		c.mu.Lock()
+		c.cached = nil
+		c.hasCache = false
+		c.mu.Unlock()
 		return nil
 	}
 
