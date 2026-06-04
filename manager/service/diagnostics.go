@@ -327,6 +327,13 @@ func BuildDERPRegions(derpMap *tailcfg.DERPMap, derpErr error, regionLatencyNs m
 	return regions
 }
 
+// ipRouteShowDev runs `ip -j route show dev <iface>`. Swapped in tests to
+// exercise context cancellation / timeout paths without spawning a real
+// process.
+var ipRouteShowDev = func(ctx context.Context, iface string) ([]byte, error) {
+	return exec.CommandContext(ctx, "ip", "-j", "route", "show", "dev", iface).Output()
+}
+
 func CheckRoutesInstalled(ctx context.Context, iface string, expectedCIDRs []string) bool {
 	if len(expectedCIDRs) == 0 {
 		return true
@@ -335,7 +342,7 @@ func CheckRoutesInstalled(ctx context.Context, iface string, expectedCIDRs []str
 	cctx, cancel := config.WithTimeout(ctx, config.SubprocessTimeout)
 	defer cancel()
 
-	out, err := exec.CommandContext(cctx, "ip", "-j", "route", "show", "dev", iface).Output()
+	out, err := ipRouteShowDev(cctx, iface)
 	if err != nil {
 		return false
 	}

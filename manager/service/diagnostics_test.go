@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 
@@ -248,13 +250,33 @@ func TestCheckRoutesInstalled_AcceptsContextAndPreservesEmptyFastPath(t *testing
 	require.True(t, CheckRoutesInstalled(context.Background(), "any-iface", []string{}))
 }
 
-func TestCheckRoutesInstalled_CancelledContextReturnsFalse(t *testing.T) {
-	// BUG-L2: a cancelled context must short-circuit the subprocess (via
-	// exec.CommandContext returning ctx.Err() before fork), so the call
-	// returns false rather than ignoring the cancellation.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	require.False(t, CheckRoutesInstalled(ctx, "lo", []string{"127.0.0.0/8"}))
+// BUG-L2: a hanging `ip route show` invocation must be bounded by the
+// per-call SubprocessTimeout. Swap the inner exec hook for a runner that
+// blocks until ctx fires; shrink the timeout so the test stays fast.
+func TestCheckRoutesInstalled_HangingSubprocessReturnsWithinTimeout(t *testing.T) {
+	origTO := config.SubprocessTimeout
+	config.SubprocessTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { config.SubprocessTimeout = origTO })
+
+	origHook := ipRouteShowDev
+	ipRouteShowDev = func(ctx context.Context, _ string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { ipRouteShowDev = origHook })
+
+	done := make(chan bool, 1)
+	start := time.Now()
+	go func() { done <- CheckRoutesInstalled(context.Background(), "x", []string{"1.2.3.4/32"}) }()
+
+	select {
+	case ok := <-done:
+		require.False(t, ok, "hung subprocess returns ctx.Err(); fn returns false")
+		require.Less(t, time.Since(start), 500*time.Millisecond,
+			"SubprocessTimeout (50ms) must fire well before this bound")
+	case <-time.After(2 * time.Second):
+		t.Fatal("CheckRoutesInstalled never returned: SubprocessTimeout not honored (BUG-L2)")
+	}
 }
 
 func TestGetDiagnostics_WgNilFirewall(t *testing.T) {

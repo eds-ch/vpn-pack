@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+
+	"unifi-tailscale/manager/config"
 )
 
 // --- Mocks ---
@@ -221,20 +224,37 @@ func TestDeactivate_Error(t *testing.T) {
 	assert.Equal(t, ErrUpstream, se.Kind)
 }
 
-func TestDeactivate_AppliesPerCallTimeout(t *testing.T) {
-	var hadDeadline bool
+// BUG-L1: a hanging EditPrefs call must be bounded by the per-call timeout
+// even when the parent context has no deadline.
+func TestDeactivate_HangingEditPrefsReturnsWithinPerCallTimeout(t *testing.T) {
+	origTO := config.TailscaleLocalAPITimeout
+	config.TailscaleLocalAPITimeout = 50 * time.Millisecond
+	t.Cleanup(func() { config.TailscaleLocalAPITimeout = origTO })
+
 	svc := newTestTailscaleService(func(s *TailscaleService) {
 		s.ts = &mockTailscaleClient{
 			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-				_, hadDeadline = ctx.Deadline()
-				return &ipn.Prefs{}, nil
+				<-ctx.Done()
+				return nil, ctx.Err()
 			},
 		}
 	})
 
-	err := svc.Deactivate(context.Background())
-	require.NoError(t, err)
-	assert.True(t, hadDeadline, "EditPrefs must receive a context with a per-call deadline even when parent is Background")
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- svc.Deactivate(context.Background()) }()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "EditPrefs returns ctx.Err(), wrapped as upstream error")
+		var se *Error
+		require.ErrorAs(t, err, &se)
+		assert.Equal(t, ErrUpstream, se.Kind)
+		assert.Less(t, time.Since(start), 500*time.Millisecond,
+			"per-call timeout (50ms) must fire well before this bound")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Deactivate never returned: per-call timeout not honored on hanging EditPrefs (BUG-L1)")
+	}
 }
 
 // --- Login tests ---
