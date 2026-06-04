@@ -264,12 +264,15 @@ func (s *ExitNodeService) masqArgs(action string) [][]string {
 }
 
 func (s *ExitNodeService) addMasquerade(ctx context.Context) error {
-	cmds := []string{"iptables", "ip6tables"}
-	for i, args := range s.masqArgs("-A") {
-		out, err := s.run(ctx, cmds[i], args...)
-		if err != nil {
-			return fmt.Errorf("%s masquerade add: %w (%s)", cmds[i], err, strings.TrimSpace(string(out)))
-		}
+	all := s.masqArgs("-A")
+	args4 := all[0]
+	if out, err := s.run(ctx, "iptables", args4...); err != nil {
+		return fmt.Errorf("iptables masquerade add: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	args6 := all[1]
+	if out, err := s.run(ctx, "ip6tables", args6...); err != nil {
+		slog.Warn("ip6tables masquerade add (ignored; IPv6 likely disabled)",
+			"err", err, "out", strings.TrimSpace(string(out)))
 	}
 	return nil
 }

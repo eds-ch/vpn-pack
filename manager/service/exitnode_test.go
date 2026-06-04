@@ -673,6 +673,25 @@ func TestApply_PartialFailureRollsBackRulesAndMasq(t *testing.T) {
 	assert.NotEqual(t, domain.ExitNodeAll, manifest.policy.Mode, "manifest must not be updated on failure")
 }
 
+// TestAddMasquerade_TolerantToIP6Disabled covers SEC-C11 / BUG-M2.
+// If ip6tables is missing or disabled (returns "command not found"), the
+// IPv4 masquerade must still install and Apply must succeed.
+func TestAddMasquerade_TolerantToIP6Disabled(t *testing.T) {
+	state := newFakeIPRuleState()
+	state.failIP6Add = true
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.NoError(t, err, "Apply must tolerate ip6tables failure")
+	assert.Equal(t, 1, state.masqCount(), "exactly the IPv4 masquerade should be installed")
+	state.mu.Lock()
+	assert.True(t, state.masqRules["iptables"], "iptables masquerade must be installed")
+	assert.False(t, state.masqRules["ip6tables"], "ip6tables masquerade must NOT be installed")
+	state.mu.Unlock()
+}
+
 // TestApplySelectiveRejectsCatchAllPrefix covers SEC-C19 inline (apply-side).
 // A selective policy containing a 0.0.0.0/0 or ::/0 client must be refused
 // — the operator must explicitly opt into mode=all.
