@@ -71,7 +71,12 @@ func main() {
 		manifest = state.NewManifest(config.ManifestPath)
 	}
 	if manifest.Recovered() {
-		slog.Warn("manifest was corrupted at load; quarantined and reset to empty; integration zones may be orphaned",
+		// BUG-L8: with the manifest gone, the integration zones/policies in
+		// UniFi may be orphaned. Scan-based cleanup that does not depend on
+		// manifest state is the scope of BUG-L17 / Task 10.12; until then,
+		// the operator can run `vpn-pack-manager --cleanup` to remove the
+		// known resources (best-effort while the manifest is empty).
+		slog.Warn("manifest was corrupted at load; quarantined and reset to empty; integration zones may be orphaned — run `vpn-pack-manager --cleanup` to remove residual resources",
 			"path", config.ManifestPath)
 	}
 
