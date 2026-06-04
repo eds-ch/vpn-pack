@@ -65,6 +65,29 @@ else
     green "ReadWritePaths includes /proc/nf_dpi"
 fi
 
+# unifi-core actively rewrites our nginx snippet on restart (verified
+# empirically 2026-06-04: restart inode changed, content reverted). The
+# manager's NginxManager.EnsureConfig is the only thing keeping our
+# snippet authoritative across unifi-core restarts. Under ProtectSystem=
+# strict the manager needs explicit write access to that ONE file —
+# narrowed to the file path (not the directory) so a compromised manager
+# cannot overwrite shared-runnable-network.conf and other UniFi-managed
+# snippets. The "-" prefix tolerates the path being absent before the
+# first install.sh has run.
+if ! grep -qE "^ReadWritePaths=.*-/data/unifi-core/config/http/shared-runnable-vpnpack.conf" "$UNIT"; then
+    red "ReadWritePaths missing -/data/unifi-core/config/http/shared-runnable-vpnpack.conf (needed for nginx self-healing under unifi-core revert)"
+else
+    green "ReadWritePaths includes -/data/unifi-core/config/http/shared-runnable-vpnpack.conf (file-level narrow)"
+fi
+
+# Hardening assertion: directory-level write to /data/unifi-core/config/http
+# would let a compromised manager overwrite UniFi-managed snippets like
+# shared-runnable-network.conf. Forbid it explicitly so a future "fix" that
+# widens the bind cannot land without this test failing.
+if grep -qE "^ReadWritePaths=.*[^/-]/data/unifi-core/config/http(\s|$)" "$UNIT"; then
+    red "ReadWritePaths must not bind /data/unifi-core/config/http as a directory — use the file path"
+fi
+
 # Address-family restriction: AF_UNIX needed for UDAPI socket + manager
 # listen socket; AF_INET/AF_INET6 for HTTP integration client + tailscaled
 # dial; AF_NETLINK for iptables-rule plumbing.
