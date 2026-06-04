@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/state"
 )
 
 type TunnelConfig = domain.TunnelConfig
@@ -37,13 +38,8 @@ func saveConfig(path string, cfg *TunnelsConfig) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
-		return fmt.Errorf("write config tmp: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename config: %w", err)
+	if err := state.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("save config: %w", err)
 	}
 	return nil
 }

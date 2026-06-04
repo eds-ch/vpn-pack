@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,21 @@ func TestSaveConfigRoundtrip(t *testing.T) {
 
 	assert.Equal(t, "tunnel-two", loaded.Tunnels[1].Name)
 	assert.Equal(t, false, loaded.Tunnels[1].Enabled)
+}
+
+func TestSaveConfigLeavesNoOrphanTmp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tunnels.json")
+	cfg := &TunnelsConfig{Version: 1, Tunnels: []TunnelConfig{{ID: "t1", Name: "x", ListenPort: 51820}}}
+	require.NoError(t, saveConfig(path, cfg))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("orphan tmp left after save: %s", e.Name())
+		}
+	}
 }
 
 func TestNextInterfaceName(t *testing.T) {
