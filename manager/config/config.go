@@ -101,9 +101,10 @@ const (
 )
 
 const (
-	DirPerm    = 0755
-	SecretPerm = 0600
-	ConfigPerm = 0644
+	DirPerm       = 0755
+	SecretDirPerm = 0700
+	SecretPerm    = 0600
+	ConfigPerm    = 0644
 )
 
 // Set via -ldflags at build time.

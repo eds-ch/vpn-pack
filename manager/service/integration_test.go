@@ -3,11 +3,48 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestSaveAPIKeyAt_DirectoryMode0700 closes SEC-C9. The Integration API
+// key file is created 0600 already, but the parent directory was created
+// 0755 which exposed the file's existence (and its mtime, which leaks
+// rotation timing) to any local UID. After this fix the parent must be
+// 0700 — exclusive to root.
+func TestSaveAPIKeyAt_DirectoryMode0700(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "config", "api-key")
+	if err := saveAPIKeyAt(keyPath, "test-key"); err != nil {
+		t.Fatalf("saveAPIKeyAt: %v", err)
+	}
+	info, err := os.Stat(filepath.Dir(keyPath))
+	if err != nil {
+		t.Fatalf("stat parent: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		t.Fatalf("parent dir mode: got %o, want 0700", mode)
+	}
+	// SaveAPIKey re-runs after an upgrade where the dir already exists 0755 —
+	// re-applying must tighten it to 0700.
+	if err := os.Chmod(filepath.Dir(keyPath), 0o755); err != nil {
+		t.Fatalf("seed 0755: %v", err)
+	}
+	if err := saveAPIKeyAt(keyPath, "test-key-2"); err != nil {
+		t.Fatalf("saveAPIKeyAt rerun: %v", err)
+	}
+	info, err = os.Stat(filepath.Dir(keyPath))
+	if err != nil {
+		t.Fatalf("stat parent after rerun: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		t.Fatalf("parent dir mode after rerun: got %o, want 0700", mode)
+	}
+}
 
 // --- Mocks ---
 
