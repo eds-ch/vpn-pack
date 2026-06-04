@@ -251,19 +251,28 @@ EOS
     #   - rm: no-op so the EXIT trap inside vp_download_and_verify leaves
     #     the staging dir intact for post-mortem assertions.
     local pub="$case_dir/cosign.pub"
+    # Resolve the real cosign path BEFORE creating the shim. The subshell
+    # below runs with PATH starting at $stubs (where cosign IS the shim),
+    # so a runtime `command -v cosign` inside the shim would resolve to
+    # the shim itself and exec a fork bomb. Pin the absolute path here.
+    local real_cosign; real_cosign=$(command -v cosign)
     cat > "$stubs/cosign" <<EOSH
 #!/bin/sh
-real=$(command -v cosign)
-verb="\$1"; shift
+# install.sh's verify_signature uses keyless OIDC. Locally we cannot
+# mint a Fulcio cert for the production identity, so translate the
+# invocation to --key mode using the ephemeral pub generated above.
+real='$real_cosign'
+pub='$pub'
+verb=\$1; shift
 bundle=""; file=""
 while [ \$# -gt 0 ]; do
   case "\$1" in
     --certificate-identity|--certificate-oidc-issuer) shift 2 ;;
-    --bundle) bundle="\$2"; shift 2 ;;
-    *) file="\$1"; shift ;;
+    --bundle) bundle=\$2; shift 2 ;;
+    *) file=\$1; shift ;;
   esac
 done
-exec "\$real" "\$verb" --insecure-ignore-tlog --key "$pub" --bundle "\$bundle" "\$file"
+exec "\$real" "\$verb" --insecure-ignore-tlog --key "\$pub" --bundle "\$bundle" "\$file"
 EOSH
     cat > "$stubs/mktemp" <<EOSH
 #!/bin/sh
