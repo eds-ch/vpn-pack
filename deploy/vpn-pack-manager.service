@@ -5,7 +5,10 @@ Wants=tailscaled.service
 
 [Service]
 ExecStart=/persistent/vpn-pack/bin/vpn-pack-manager \
+    --listen-socket=/run/vpn-pack/manager.sock \
     --socket=/run/tailscale/tailscaled.sock
+RuntimeDirectory=vpn-pack
+RuntimeDirectoryMode=0755
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=78
@@ -13,7 +16,7 @@ NoNewPrivileges=yes
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
-ReadWritePaths=/proc/nf_dpi/
+ReadWritePaths=/proc/nf_dpi/ /run/vpn-pack/
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 MemoryDenyWriteExecute=yes
