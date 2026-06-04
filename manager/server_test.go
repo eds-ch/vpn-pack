@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/httpmw"
 	"unifi-tailscale/manager/service"
 
 	"github.com/stretchr/testify/assert"
@@ -122,9 +126,61 @@ func TestNewServerWithMocks(t *testing.T) {
 	assert.NotNil(t, s.manifest)
 }
 
+// roundTripperFunc adapts a plain function into an http.RoundTripper.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// newAuthedTestClient stands up an httptest.Server backed by the real
+// routes() chain. ConnContext is wired so PeerUIDAuth sees the test
+// process's euid (httptest uses TCP, which has no SO_PEERCRED); the
+// CSRF cookie's Secure flag is flipped off so the cookie jar will echo
+// it back over plain http. The returned client primes the CSRF cookie
+// and copies it as X-Csrf-Token on every non-GET request.
+func newAuthedTestClient(t *testing.T, srv *Server) (*httptest.Server, *http.Client) {
+	t.Helper()
+
+	httpmw.CSRFSetSecureForTests(false)
+	t.Cleanup(func() { httpmw.CSRFSetSecureForTests(true) })
+
+	h := httptest.NewUnstartedServer(srv.routes())
+	h.Config.ConnContext = httpmw.WithFakePeerUIDForTests(uint32(os.Geteuid()))
+	h.Start()
+	t.Cleanup(h.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	cl := &http.Client{Jar: jar}
+
+	// Prime the CSRF cookie by hitting a safe endpoint.
+	resp, err := cl.Get(h.URL + "/api/status")
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	base := cl.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	cl.Transport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			u, _ := url.Parse(h.URL)
+			for _, c := range jar.Cookies(u) {
+				if c.Name == "vp_csrf" {
+					r.Header.Set("X-Csrf-Token", c.Value)
+				}
+			}
+			if r.Header.Get("Content-Type") == "" {
+				r.Header.Set("Content-Type", "application/json")
+			}
+		}
+		return base.RoundTrip(r)
+	})
+	return h, cl
+}
+
 func TestRouteRegistration(t *testing.T) {
 	s := newTestServer()
-	mux := s.routes()
+	h, cl := newAuthedTestClient(t, s)
 
 	routes := []struct {
 		method string
@@ -169,13 +225,69 @@ func TestRouteRegistration(t *testing.T) {
 	for _, r := range routes {
 		t.Run(r.method+" "+r.path, func(t *testing.T) {
 			path := strings.ReplaceAll(r.path, "{id}", "test-id")
-			req := httptest.NewRequest(r.method, path, nil)
-			w := httptest.NewRecorder()
-			mux.ServeHTTP(w, req)
-			assert.NotEqual(t, http.StatusMethodNotAllowed, w.Code,
+			body := strings.NewReader("{}")
+			req, err := http.NewRequest(r.method, h.URL+path, body)
+			require.NoError(t, err)
+			resp, err := cl.Do(req)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			// 405 = route not registered or wrong method.
+			// 403 = middleware rejected — also indicates routing reached chain.
+			// PeerUIDAuth is satisfied by the test client, so 403 means
+			// something deeper than auth rejected.
+			assert.NotEqual(t, http.StatusMethodNotAllowed, resp.StatusCode,
 				"route %s %s returned 405 — not registered or wrong method", r.method, r.path)
+			assert.NotEqual(t, http.StatusForbidden, resp.StatusCode,
+				"route %s %s returned 403 — middleware chain rejected, but auth was satisfied", r.method, r.path)
 		})
 	}
+}
+
+func TestRoutes_MutationWithoutCSRFRejected(t *testing.T) {
+	s := newTestServer()
+	httpmw.CSRFSetSecureForTests(false)
+	t.Cleanup(func() { httpmw.CSRFSetSecureForTests(true) })
+
+	h := httptest.NewUnstartedServer(s.routes())
+	h.Config.ConnContext = httpmw.WithFakePeerUIDForTests(uint32(os.Geteuid()))
+	h.Start()
+	t.Cleanup(h.Close)
+
+	// No cookie jar, no CSRF header — POST must be 403.
+	req, err := http.NewRequest(http.MethodPost, h.URL+"/api/tailscale/up", strings.NewReader("{}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{}).Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestRoutes_MutationWithWrongContentTypeRejected(t *testing.T) {
+	s := newTestServer()
+	h, cl := newAuthedTestClient(t, s)
+
+	// CSRF is satisfied by the helper; wrong Content-Type must yield 415.
+	req, err := http.NewRequest(http.MethodPost, h.URL+"/api/tailscale/up", strings.NewReader("plain"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := cl.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
+}
+
+func TestRoutes_NoPeerCredentialsForbidden(t *testing.T) {
+	s := newTestServer()
+	// httptest.NewServer with no ConnContext = no peer-uid in request context.
+	h := httptest.NewServer(s.routes())
+	t.Cleanup(h.Close)
+
+	resp, err := http.Get(h.URL + "/api/status")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"a TCP request without peer credentials must be 403, even on a safe method")
 }
 
 func TestHandleStatusWithMocks(t *testing.T) {

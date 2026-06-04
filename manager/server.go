@@ -15,6 +15,7 @@ import (
 
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/httpmw"
 	"unifi-tailscale/manager/internal/wgs2s"
 	"unifi-tailscale/manager/service"
 )
@@ -149,6 +150,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
 		},
+		ConnContext: httpmw.ConnContext,
 	}
 
 	s.validateIntegration(ctx)
@@ -159,48 +161,65 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/status", s.handleStatus)
-	mux.HandleFunc("GET /api/health", s.handleHealth)
-	mux.HandleFunc("POST /api/tailscale/up", s.handleUp)
-	mux.HandleFunc("POST /api/tailscale/down", s.handleDown)
-	mux.HandleFunc("POST /api/tailscale/login", s.handleLogin)
-	mux.HandleFunc("POST /api/tailscale/logout", s.handleLogout)
-	mux.HandleFunc("GET /api/events", s.handleSSE)
-	mux.HandleFunc("GET /api/device", s.handleDevice)
-	mux.HandleFunc("GET /api/routes", s.handleGetRoutes)
-	mux.HandleFunc("POST /api/routes", s.handleSetRoutes)
-	mux.HandleFunc("POST /api/tailscale/auth-key", s.handleAuthKey)
-	mux.HandleFunc("GET /api/subnets", s.handleGetSubnets)
-	mux.HandleFunc("GET /api/firewall", s.handleFirewallStatus)
-	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
-	mux.HandleFunc("POST /api/settings", s.handleSetSettings)
-	mux.HandleFunc("GET /api/diagnostics", s.handleDiagnostics)
-	mux.HandleFunc("POST /api/bugreport", s.handleBugReport)
-	mux.HandleFunc("GET /api/logs", s.handleLogs)
+	allowedUIDs := httpmw.LookupAllowedUIDs("nginx")
+	read := httpmw.Chain(
+		httpmw.Recover(),
+		httpmw.PeerUIDAuth(allowedUIDs...),
+		httpmw.CSRF(),
+	)
+	mutate := httpmw.Chain(
+		httpmw.Recover(),
+		httpmw.PeerUIDAuth(allowedUIDs...),
+		httpmw.CSRF(),
+		httpmw.RequireJSON(config.MaxRequestBodyBytes),
+	)
+	get := func(p string, h http.HandlerFunc) { mux.Handle("GET "+p, read(h)) }
+	post := func(p string, h http.HandlerFunc) { mux.Handle("POST "+p, mutate(h)) }
+	patch := func(p string, h http.HandlerFunc) { mux.Handle("PATCH "+p, mutate(h)) }
+	del := func(p string, h http.HandlerFunc) { mux.Handle("DELETE "+p, mutate(h)) }
 
-	mux.HandleFunc("GET /api/integration/status", s.handleIntegrationStatus)
-	mux.HandleFunc("POST /api/integration/api-key", s.handleSetIntegrationKey)
-	mux.HandleFunc("DELETE /api/integration/api-key", s.handleDeleteIntegrationKey)
-	mux.HandleFunc("POST /api/integration/test", s.handleTestIntegrationKey)
+	get("/api/status", s.handleStatus)
+	get("/api/health", s.handleHealth)
+	post("/api/tailscale/up", s.handleUp)
+	post("/api/tailscale/down", s.handleDown)
+	post("/api/tailscale/login", s.handleLogin)
+	post("/api/tailscale/logout", s.handleLogout)
+	get("/api/events", s.handleSSE)
+	get("/api/device", s.handleDevice)
+	get("/api/routes", s.handleGetRoutes)
+	post("/api/routes", s.handleSetRoutes)
+	post("/api/tailscale/auth-key", s.handleAuthKey)
+	get("/api/subnets", s.handleGetSubnets)
+	get("/api/firewall", s.handleFirewallStatus)
+	get("/api/settings", s.handleGetSettings)
+	post("/api/settings", s.handleSetSettings)
+	get("/api/diagnostics", s.handleDiagnostics)
+	post("/api/bugreport", s.handleBugReport)
+	get("/api/logs", s.handleLogs)
 
-	mux.HandleFunc("GET /api/exit-node", s.handleGetRemoteExit)
-	mux.HandleFunc("POST /api/exit-node", s.handleEnableRemoteExit)
-	mux.HandleFunc("DELETE /api/exit-node", s.handleDisableRemoteExit)
+	get("/api/integration/status", s.handleIntegrationStatus)
+	post("/api/integration/api-key", s.handleSetIntegrationKey)
+	del("/api/integration/api-key", s.handleDeleteIntegrationKey)
+	post("/api/integration/test", s.handleTestIntegrationKey)
 
-	mux.HandleFunc("GET /api/wg-s2s/tunnels", s.handleWgS2sListTunnels)
-	mux.HandleFunc("POST /api/wg-s2s/tunnels", s.handleWgS2sCreateTunnel)
-	mux.HandleFunc("PATCH /api/wg-s2s/tunnels/{id}", s.handleWgS2sUpdateTunnel)
-	mux.HandleFunc("DELETE /api/wg-s2s/tunnels/{id}", s.handleWgS2sDeleteTunnel)
-	mux.HandleFunc("POST /api/wg-s2s/tunnels/{id}/enable", s.handleWgS2sEnableTunnel)
-	mux.HandleFunc("POST /api/wg-s2s/tunnels/{id}/disable", s.handleWgS2sDisableTunnel)
-	mux.HandleFunc("POST /api/wg-s2s/tunnels/{id}/setup-zone", s.handleWgS2sSetupZone)
-	mux.HandleFunc("POST /api/wg-s2s/generate-keypair", s.handleWgS2sGenerateKeypair)
-	mux.HandleFunc("GET /api/wg-s2s/tunnels/{id}/config", s.handleWgS2sGetConfig)
-	mux.HandleFunc("GET /api/wg-s2s/wan-ip", s.handleWgS2sWanIP)
-	mux.HandleFunc("GET /api/wg-s2s/local-subnets", s.handleWgS2sLocalSubnets)
-	mux.HandleFunc("GET /api/wg-s2s/zones", s.handleWgS2sListZones)
+	get("/api/exit-node", s.handleGetRemoteExit)
+	post("/api/exit-node", s.handleEnableRemoteExit)
+	del("/api/exit-node", s.handleDisableRemoteExit)
 
-	mux.HandleFunc("GET /api/update-check", s.handleUpdateCheck)
+	get("/api/wg-s2s/tunnels", s.handleWgS2sListTunnels)
+	post("/api/wg-s2s/tunnels", s.handleWgS2sCreateTunnel)
+	patch("/api/wg-s2s/tunnels/{id}", s.handleWgS2sUpdateTunnel)
+	del("/api/wg-s2s/tunnels/{id}", s.handleWgS2sDeleteTunnel)
+	post("/api/wg-s2s/tunnels/{id}/enable", s.handleWgS2sEnableTunnel)
+	post("/api/wg-s2s/tunnels/{id}/disable", s.handleWgS2sDisableTunnel)
+	post("/api/wg-s2s/tunnels/{id}/setup-zone", s.handleWgS2sSetupZone)
+	post("/api/wg-s2s/generate-keypair", s.handleWgS2sGenerateKeypair)
+	get("/api/wg-s2s/tunnels/{id}/config", s.handleWgS2sGetConfig)
+	get("/api/wg-s2s/wan-ip", s.handleWgS2sWanIP)
+	get("/api/wg-s2s/local-subnets", s.handleWgS2sLocalSubnets)
+	get("/api/wg-s2s/zones", s.handleWgS2sListZones)
+
+	get("/api/update-check", s.handleUpdateCheck)
 
 	mux.Handle("/", spaHandler())
 
