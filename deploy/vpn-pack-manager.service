@@ -23,7 +23,15 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/persistent/vpn-pack /run/vpn-pack /proc/nf_dpi -/data/unifi-core/config/http/shared-runnable-vpnpack.conf
+# /data/unifi-core/config/http/ (parent dir, not the file) — manager
+# must be able to *recreate* the snippet after unifi-core restart or
+# any other process deletes it. File-level binding from Phase 8.6
+# only allowed in-place rewrites; the parent-dir bind is the
+# narrowest grant that still lets self-heal recreate the file
+# (closes GAP-004). The manager runs as uid 0 and is the only thing
+# on this device writing to that dir, so attack-surface widening
+# is negligible.
+ReadWritePaths=/persistent/vpn-pack /run/vpn-pack /proc/nf_dpi /data/unifi-core/config/http
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=no

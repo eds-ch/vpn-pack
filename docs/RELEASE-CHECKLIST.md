@@ -280,8 +280,17 @@ vpn-pack UI" is a non-trivial scenario.
   probes 3/6 from required to optional. Honest but leaves users
   silently broken after firmware updates. Not acceptable.
 
-**Status:** marked for v1.5.2-beta.4 or rolled into v1.5.2 final
-together with GAP-002b regression test sweep.
+**Status (2026-06-05):** resolved in v1.5.2-beta.4 via Option A —
+`ReadWritePaths=` for `vpn-pack-manager.service` was changed from
+`-/data/unifi-core/config/http/shared-runnable-vpnpack.conf` (file
+level, optional) to `/data/unifi-core/config/http` (parent dir).
+After the fix, `make hardening-smoke` probes 3 and 6 must both pass
+with the file actually re-created. Re-run probe 7/8 to confirm
+no socket-activation regression. Threat model widening is minor:
+the manager runs uid 0 and is the only process on the device
+writing to that directory; ProtectSystem=strict still blocks the
+rest of `/data`. The systemd-analyze security score should not
+materially degrade (we trade a `-/path` for `/dir`).
 
 ---
 
