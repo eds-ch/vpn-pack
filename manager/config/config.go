@@ -49,6 +49,7 @@ const (
 	UpdateCheckPeriod  = 24 * time.Hour
 	UpdateInitialDelay = 30 * time.Second
 	GithubAPITimeout   = 15 * time.Second
+	UpdateFailCacheTTL = 30 * time.Minute
 )
 
 const (

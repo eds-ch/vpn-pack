@@ -1,9 +1,17 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"unifi-tailscale/manager/config"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -48,4 +56,36 @@ func TestCompareVersions(t *testing.T) {
 			assert.Equal(t, tt.want, compareVersions(tt.a, tt.b))
 		})
 	}
+}
+
+// BUG-L6: when GitHub returns 5xx (or network errors), the updater used
+// to retry every call — a tight retry loop hits GitHub's anonymous rate
+// limit in minutes. Cache the failure for UpdateFailCacheTTL so we make
+// at most one upstream attempt per TTL window.
+func TestUpdater_CachesFailedCheck(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	origURL := githubReleasesURLHook
+	t.Cleanup(func() { githubReleasesURLHook = origURL })
+	githubReleasesURLHook = func() string { return srv.URL }
+
+	uc := &updateChecker{
+		current:    "1.0.0",
+		httpClient: &http.Client{Timeout: 2 * time.Second},
+	}
+
+	for i := 0; i < 5; i++ {
+		info := uc.check(context.Background())
+		require.NotNil(t, info)
+		require.False(t, info.Available)
+	}
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&hits),
+		"5 calls within UpdateFailCacheTTL should produce 1 upstream hit, got %d", hits)
+	_ = config.UpdateFailCacheTTL
 }

@@ -19,13 +19,17 @@ func githubReleasesURL() string {
 	return "https://api.github.com/repos/" + config.GithubRepo + "/releases/latest"
 }
 
+// githubReleasesURLHook is overridden in tests to point at httptest.Server.
+var githubReleasesURLHook = githubReleasesURL
+
 type updateChecker struct {
-	mu         sync.Mutex
-	info       *UpdateInfo
-	checkedAt  time.Time
-	current    string
-	httpClient *http.Client
-	sf         singleflight.Group
+	mu          sync.Mutex
+	info        *UpdateInfo
+	checkedAt   time.Time
+	failedAt    time.Time
+	current     string
+	httpClient  *http.Client
+	sf          singleflight.Group
 }
 
 func newUpdateChecker() *updateChecker {
@@ -55,18 +59,32 @@ func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 		uc.mu.Unlock()
 		return info
 	}
+	// BUG-L6: if the last attempt failed within the fail-cache TTL,
+	// short-circuit so a 5xx storm cannot stampede GitHub's rate limit.
+	if !uc.failedAt.IsZero() && time.Since(uc.failedAt) < config.UpdateFailCacheTTL {
+		uc.mu.Unlock()
+		return &UpdateInfo{Available: false, CurrentVersion: uc.current}
+	}
 	uc.mu.Unlock()
 
 	v, _, _ := uc.sf.Do("check", func() (any, error) {
 		info := uc.fetchLatest(ctx)
 		uc.mu.Lock()
-		uc.info = info
-		uc.checkedAt = time.Now()
+		if info == nil {
+			uc.failedAt = time.Now()
+		} else {
+			uc.info = info
+			uc.checkedAt = time.Now()
+			uc.failedAt = time.Time{}
+		}
 		uc.mu.Unlock()
 		return info, nil
 	})
 
 	info, _ := v.(*UpdateInfo)
+	if info == nil {
+		return &UpdateInfo{Available: false, CurrentVersion: uc.current}
+	}
 	return info
 }
 
@@ -100,7 +118,7 @@ func canonSemver(v string) string {
 }
 
 func (uc *updateChecker) fetchLatest(ctx context.Context) *UpdateInfo {
-	req, err := http.NewRequestWithContext(ctx, "GET", githubReleasesURL(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", githubReleasesURLHook(), nil)
 	if err != nil {
 		return nil
 	}
