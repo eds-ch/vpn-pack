@@ -398,6 +398,16 @@ func TestValidateExitNodePolicy(t *testing.T) {
 			Mode:    domain.ExitNodeSelective,
 			Clients: make([]domain.ExitNodeClient, maxExitClients+1),
 		}, true},
+		// SEC-C19: selective mode must never silently accept a catch-all
+		// prefix; only mode=all is allowed to mean "every client".
+		{"selective catch-all v4", domain.ExitNodePolicy{
+			Mode:    domain.ExitNodeSelective,
+			Clients: []domain.ExitNodeClient{{IP: "0.0.0.0/0"}},
+		}, true},
+		{"selective catch-all v6", domain.ExitNodePolicy{
+			Mode:    domain.ExitNodeSelective,
+			Clients: []domain.ExitNodeClient{{IP: "::/0"}},
+		}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

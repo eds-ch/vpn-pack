@@ -574,6 +574,10 @@ func ValidateExitNodePolicy(policy domain.ExitNodePolicy) error {
 			if familyForAddr(c.IP) == "" {
 				return validationError(fmt.Sprintf("invalid client IP/CIDR: %s", c.IP))
 			}
+			if isCatchAllPrefix(c.IP) {
+				return validationError(fmt.Sprintf(
+					"selective client %q is a catch-all prefix; use mode=all explicitly", c.IP))
+			}
 		}
 		return nil
 	default:
