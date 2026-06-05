@@ -24,15 +24,52 @@ GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 COSIGN_IDENTITY="eduard.chesnokov@gmail.com"
 COSIGN_ISSUER="https://github.com/login/oauth"
 
+# Pinned cosign for bootstrap. Refreshing this pin: download the new
+# cosign-linux-arm64 from
+# https://github.com/sigstore/cosign/releases/download/<ver>/cosign-linux-arm64,
+# verify its sha256 against the upstream cosign_checksums.txt at the
+# same release, then update both lines.
+COSIGN_VERSION="v2.4.1"
+COSIGN_SHA256_ARM64="3b2e2e3854d0356c45fe6607047526ccd04742d20bd44afb5be91fa2a6e7cb4a"
+
+# COSIGN_BIN is set by ensure_cosign and used by verify_signature.
+COSIGN_BIN=""
+
+ensure_cosign() {
+    if command -v cosign >/dev/null 2>&1; then
+        COSIGN_BIN=$(command -v cosign)
+        return 0
+    fi
+    if [ "$(uname -m)" != "aarch64" ]; then
+        printf 'FATAL: cosign bootstrap is currently arm64-only; install cosign manually.\n' >&2
+        exit 1
+    fi
+    cosign_dir=${INSTALL_TMP:-${TMPDIR:-/tmp}}
+    cosign_tmp="${cosign_dir}/cosign"
+    cosign_url="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-arm64"
+    info "Bootstrapping cosign ${COSIGN_VERSION} (no persistent install)..."
+    if ! curl -fsSL -o "$cosign_tmp" "$cosign_url"; then
+        printf 'FATAL: failed to download cosign from %s\n' "$cosign_url" >&2
+        exit 1
+    fi
+    got=$(sha256sum "$cosign_tmp" | awk '{print $1}')
+    if [ "$got" != "$COSIGN_SHA256_ARM64" ]; then
+        printf 'FATAL: cosign sha256 mismatch (got %s, want %s); refusing to use untrusted binary\n' \
+            "$got" "$COSIGN_SHA256_ARM64" >&2
+        exit 1
+    fi
+    chmod 0700 "$cosign_tmp"
+    COSIGN_BIN="$cosign_tmp"
+}
+
 verify_signature() {
     file=$1
     bundle=$2
-    if ! command -v cosign >/dev/null 2>&1; then
-        printf 'FATAL: cosign required to verify the release signature.\n' >&2
-        printf 'Install: https://docs.sigstore.dev/cosign/installation\n' >&2
+    if [ -z "$COSIGN_BIN" ]; then
+        printf 'FATAL: ensure_cosign must run before verify_signature\n' >&2
         exit 1
     fi
-    if ! cosign verify-blob \
+    if ! "$COSIGN_BIN" verify-blob \
         --certificate-identity "$COSIGN_IDENTITY" \
         --certificate-oidc-issuer "$COSIGN_ISSUER" \
         --bundle "$bundle" \
@@ -209,6 +246,8 @@ vp_download_and_verify() {
         rm -rf "$INSTALL_TMP"
         die "Checksums download failed"
     }
+
+    ensure_cosign
 
     info "Verifying cosign signature on archive..."
     verify_signature "${INSTALL_TMP}/${ARCHIVE_FILE}" "${INSTALL_TMP}/${ARCHIVE_FILE}.cosign.bundle"

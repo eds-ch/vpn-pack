@@ -52,9 +52,16 @@ run_case() {
     local fn_file="$case_dir/fn.sh"
     extract_verify "$src" "$fn_file"
 
-    # Build sandbox PATH: only contains the fake cosign (or nothing).
+    # Build the mock cosign binary based on the mode under test. We set
+    # COSIGN_BIN directly to bypass ensure_cosign (the bootstrap path
+    # is covered separately by run_bootstrap_case below).
+    local cosign_bin="$case_dir/cosign"
     case "$cosign_mode" in
-        missing) ;;
+        missing)
+            # Leave COSIGN_BIN unset so verify_signature must reject
+            # the call ("ensure_cosign must run before verify_signature").
+            cosign_bin=""
+            ;;
         fail)
             cat > "$case_dir/cosign" <<'EOS'
 #!/usr/bin/env bash
@@ -73,17 +80,90 @@ EOS
         *) echo "bad cosign_mode: $cosign_mode" >&2; exit 2 ;;
     esac
 
-    # Always provide a command shim so command -v can still be used.
     : > "$case_dir/artifact"
     : > "$case_dir/artifact.bundle"
 
     local out exit_code=0
     out=$(
-        PATH="$case_dir:$SYSTEM_PATH" \
         bash -c "
             set -e
+            COSIGN_BIN='$cosign_bin'
             $(cat "$fn_file")
             verify_signature '$case_dir/artifact' '$case_dir/artifact.bundle'
+        " 2>&1
+    ) || exit_code=$?
+
+    if [[ "$exit_code" -ne "$expect_exit" ]]; then
+        red "$label (got exit $exit_code, want $expect_exit; output: $out)"
+        return
+    fi
+    green "$label"
+}
+
+# Bootstrap test: ensure_cosign must reject a downloaded cosign whose
+# sha256 doesn't match the pinned value. Mocks curl to return a
+# tampered binary; expects ensure_cosign to fail-closed before the
+# untrusted binary is ever exec'd.
+run_bootstrap_case() {
+    local label=$1 src=$2 mode=$3 expect_exit=$4
+
+    local case_dir
+    case_dir=$(mktemp -d "$SANDBOX/bootstrap-XXXX")
+
+    # Extract both ensure_cosign and verify_signature from the source.
+    if ! sed -n '/^ensure_cosign() {/,/^}/p' "$src" > "$case_dir/ensure.sh"; then
+        red "$label: extract ensure_cosign failed"
+        return
+    fi
+    if [[ ! -s "$case_dir/ensure.sh" ]]; then
+        # Source has no ensure_cosign (e.g. older installer); skip.
+        return
+    fi
+
+    # Stub helpers that ensure_cosign expects (get.sh uses die; install.sh inlines).
+    cat > "$case_dir/info.sh" <<'EOS'
+info() { :; }
+die() { echo "$*" >&2; exit 1; }
+EOS
+
+    # Place a fake curl on PATH that writes a tampered payload.
+    cat > "$case_dir/curl" <<EOS
+#!/usr/bin/env bash
+out=""
+while [[ \$# -gt 0 ]]; do
+    case "\$1" in
+        -o) out="\$2"; shift 2 ;;
+        *)  shift ;;
+    esac
+done
+if [[ -n "\$out" ]]; then
+    case "$mode" in
+        tampered) printf 'not-a-real-cosign-binary' > "\$out" ;;
+        netfail)  exit 22 ;;  # curl exit for HTTP failure
+    esac
+fi
+exit 0
+EOS
+    chmod +x "$case_dir/curl"
+
+    # Force the arm64 check to pass even on amd64 dev hosts.
+    cat > "$case_dir/uname" <<'EOS'
+#!/usr/bin/env bash
+[[ "$1" == "-m" ]] && echo aarch64 || /usr/bin/uname "$@"
+EOS
+    chmod +x "$case_dir/uname"
+
+    local out exit_code=0
+    out=$(
+        PATH="$case_dir:$SYSTEM_PATH" \
+        INSTALL_TMP="$case_dir" \
+        TMPDIR="$case_dir" \
+        bash -c "
+            set -e
+            COSIGN_BIN=''
+            $(cat "$case_dir/info.sh")
+            $(cat "$case_dir/ensure.sh")
+            ensure_cosign
         " 2>&1
     ) || exit_code=$?
 
@@ -103,6 +183,8 @@ for installer in get.sh install.sh; do
     run_case "$installer: missing cosign exits non-zero" "$src" missing 1
     run_case "$installer: failed cosign exits non-zero"  "$src" fail    1
     run_case "$installer: passing cosign exits zero"     "$src" ok      0
+    run_bootstrap_case "$installer: ensure_cosign rejects sha256 mismatch" "$src" tampered 1
+    run_bootstrap_case "$installer: ensure_cosign fails on download error" "$src" netfail  1
 done
 
 # SEC-C2: installers must use mktemp -d (not predictable paths) and
