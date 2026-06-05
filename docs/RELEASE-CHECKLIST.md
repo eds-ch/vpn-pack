@@ -223,6 +223,68 @@ backlogged for v1.5.3 — none are merge blockers):
 
 ---
 
+## GAP-004: nginx-snippet self-heal can't recreate `/data` file under Phase 8.6 hardening — **fix before v1.5.2 final**
+
+**Discovered:** 2026-06-05 running `make hardening-smoke` against beta.3.
+The probes that exercise nginx-config self-healing (probe 3, probe 6)
+both failed with `nginx config restore failed: read-only file system`.
+This was the deferred validation from Task 8.10 (RELEASE-CHECKLIST
+note: *"Re-run after the next deploy to confirm the file-level bind
+still passes probe 6"*).
+
+**Root cause:** Phase 8.6 commit `3207fcc` narrowed `ReadWritePaths=`
+to just the snippet file path itself (with `-` prefix for optional),
+not the parent dir. With `ProtectSystem=strict`, the parent dir
+`/data/unifi-core/config/http/` is read-only for the manager process.
+The kernel allows **in-place** writes to the file (the file path itself
+is in ReadWritePaths) but refuses **create** (needs parent-dir write).
+
+When unifi-core restarts (probe 3) or the source drifts and gets
+re-deployed (probe 6), `/data/.../shared-runnable-vpnpack.conf` is
+gone. Manager's nginx-watcher detects the missing file, attempts
+`os.WriteFile` to recreate, fails with EROFS. Self-heal never
+completes — nginx loses the location block for `/vpn-pack/` until the
+next install.sh run (which executes outside systemd hardening).
+
+**Why beta.1 didn't catch it:** Task 8.10 verified 7/7 probes
+**against the pre-deploy state**, before the file-level ReadWritePaths
+narrowing landed. The note explicitly flagged that re-verification was
+needed after the next deploy. That deploy is now beta.3; re-verification
+just happened and failed.
+
+**Out of band:** the missing-file scenario does not break a fresh
+install — install.sh writes the file outside hardening. It only bites
+on `unifi-core` restart (firmware update, user-triggered restart) or
+manual /data tampering. A user who never restarts unifi-core never
+notices. But "user upgrades UniFi firmware and silently loses the
+vpn-pack UI" is a non-trivial scenario.
+
+**Resolution options** (pick one):
+
+- **Option A — widen ReadWritePaths to the parent dir.** Replace
+  `-/data/unifi-core/config/http/shared-runnable-vpnpack.conf` with
+  `/data/unifi-core/config/http/`. Loses the file-level bound; gains
+  recreate-from-scratch. Threat model: manager could write any file
+  under that dir (other unifi-core http includes), but the manager
+  process already runs uid 0 and is the only thing on the system
+  writing there, so the practical attack surface widening is small.
+  **Recommended.**
+
+- **Option B — keep file-level binding, change manager to write via
+  an out-of-band helper.** E.g., manager signals install.sh on
+  missing-file event. Architecturally cleaner but adds an IPC mode
+  and a privileged helper that's bigger than what we get for free
+  by widening the bind. Not recommended.
+
+- **Option C — declare that self-heal is best-effort** and downgrade
+  probes 3/6 from required to optional. Honest but leaves users
+  silently broken after firmware updates. Not acceptable.
+
+**Status:** marked for v1.5.2-beta.4 or rolled into v1.5.2 final
+together with GAP-002b regression test sweep.
+
+---
+
 ## GAP-003: CI workflow does not run on `release/*` branches — **fix before next release**
 
 **Discovered:** 2026-06-05 during v1.5.2-beta.1 build preparation.
