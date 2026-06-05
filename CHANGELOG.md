@@ -18,6 +18,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   v1.6.0 release line; rotation will be noted here and bumped in the
   installer constants together.
 
+## [1.5.2-beta.7] - 2026-06-05
+
+### Security
+- Go toolchain bumped to 1.26.4 via `toolchain` directive in
+  `manager/go.mod`. Pulls in upstream patches for `crypto/x509`,
+  `crypto/tls`, `archive/tar`, `html/template`, `net/http`, `mime`,
+  `net/textproto` across Go 1.26.2/.3/.4. Local Go install is not
+  required to upgrade — `GOTOOLCHAIN=auto` downloads 1.26.4 on first
+  build. Tailscale upstream `go.mod` is unchanged.
+- UI: `vite` 6.4.1 → 6.4.3 closes two high-severity advisories
+  (dev-server path traversal in optimized-deps `.map` handling and
+  WebSocket arbitrary file read). In-range `npm audit fix` also swept
+  transitive `undici`, `rollup`, `postcss`, `picomatch`. `npm audit`
+  now reports 0 vulnerabilities.
+
+### Changed
+- manager: `fsnotify` v1.9.0 → v1.10.1 (inotify watch handling on
+  shared path prefixes; kqueue fd leak fix)
+- manager: `golang.org/x/sys` v0.40.0 → v0.45.0
+- ui: `svelte` 5.53.1 → 5.56.2 (reactivity / effect-tracking patches)
+- ui: `vitest` 4.0.18 → 4.1.8 (test-only)
+
+### Notes
+- No functional changes to the runtime; soak from `1.5.2-beta.6`
+  carries forward. Patch stack (`patches/001..006`) applies cleanly
+  against unchanged Tailscale `v1.96.4`. Tailscale `1.96.4 → 1.98.5`
+  is intentionally deferred — see `release/v1.5.2-beta` discussion.
+
 ## [1.5.1] - 2026-04-30
 
 ### Changed
@@ -354,7 +382,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.7...HEAD
+[1.5.2-beta.7]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2-beta.7
 [1.5.0]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0...v1.4.1
