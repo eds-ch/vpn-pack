@@ -33,6 +33,14 @@ func TestCompareVersions(t *testing.T) {
 		{"old stable older than beta", "1.3.1", "1.4.0-beta.1", -1},
 		{"equal betas", "1.4.0-beta.1", "1.4.0-beta.1", 0},
 		{"both stable equal", "1.4.0", "1.4.0", 0},
+		// BUG-L5: a user on a pre-release must still see upgrades to
+		// newer pre-releases of the same base. The old comparator
+		// returned 0 for any pair of pre-releases on the same base, so
+		// 1.5.0-beta.3 -> 1.5.0-beta.4 was silently invisible.
+		{"newer beta same base", "1.5.0-beta.4", "1.5.0-beta.3", 1},
+		{"older beta same base", "1.5.0-beta.3", "1.5.0-beta.4", -1},
+		{"rc newer than beta same base", "1.5.0-rc.1", "1.5.0-beta.3", 1},
+		{"stable newer than rc same base", "1.5.0", "1.5.0-rc.1", 1},
 	}
 
 	for _, tt := range tests {
