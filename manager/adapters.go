@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -289,11 +290,16 @@ func localSubnetProvider() []service.SubnetEntry {
 	return out
 }
 
+var collectSystemSubnetsHook = service.CollectSystemSubnets
+
 func subnetValidatorProvider(allowedIPs []string, excludeIfaces ...string) ([]service.SubnetConflict, []service.SubnetConflict) {
-	sys, err := service.CollectSystemSubnets(excludeIfaces...)
+	sys, err := collectSystemSubnetsHook(excludeIfaces...)
 	if err != nil {
-		slog.Warn("subnet collection failed, skipping validation", "err", err)
-		return nil, nil
+		slog.Warn("subnet collection failed; refusing tunnel creation (fail-closed)", "err", err)
+		return nil, []service.SubnetConflict{{
+			Severity: "block",
+			Message:  fmt.Sprintf("subnet validation unavailable: %v", err),
+		}}
 	}
 	vr := service.ValidateAllowedIPs(allowedIPs, sys)
 	return vr.Warnings, vr.Blocked
