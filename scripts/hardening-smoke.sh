@@ -210,6 +210,34 @@ else
     fi
 fi
 
+# ── Probe 8: post-reboot simulation (GAP-002b regression guard) ─────
+# /run is tmpfs; after reboot /run/vpn-pack/ is empty. The .socket unit
+# must re-create it via its own RuntimeDirectory= — otherwise
+# ListenStream= fails ENOENT and the manager never comes up.
+# Without an actual reboot we tear down units, wipe the dir, and
+# start the socket cold to exercise the same code path.
+info "probe 8: post-reboot simulation — socket unit recreates /run/vpn-pack on cold start"
+probe8_state=$(run_ssh '
+    set -e
+    systemctl stop vpn-pack-manager.service 2>/dev/null || true
+    systemctl stop vpn-pack-manager.socket   2>/dev/null || true
+    rm -rf /run/vpn-pack
+    systemctl start vpn-pack-manager.socket  2>&1
+    dir_stat=$(stat -c "%U:%G %a" /run/vpn-pack 2>/dev/null || echo MISSING)
+    sock_active=$(systemctl is-active vpn-pack-manager.socket 2>/dev/null || echo inactive)
+    systemctl start vpn-pack-manager.service 2>&1
+    svc_active=$(systemctl is-active vpn-pack-manager.service 2>/dev/null || echo inactive)
+    echo "dir=$dir_stat sock=$sock_active svc=$svc_active"
+' 2>&1 | tail -1)
+case "$probe8_state" in
+    "dir=root:root 755 sock=active svc=active")
+        green "cold start re-created /run/vpn-pack root:root 0755 and both units came up active"
+        ;;
+    *)
+        red "post-reboot cold start failed: $probe8_state"
+        ;;
+esac
+
 # ── Probe 5: no new permission denials introduced by the restarts ──
 # Re-check the manager journal after both restarts above. Catches the
 # case where a denial happens only during a specific code path that

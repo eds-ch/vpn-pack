@@ -172,6 +172,57 @@ v1.5.2-beta.1 — they will see broken UI.
 
 ---
 
+## GAP-002b: socket unit missing `RuntimeDirectory=` — fails at every reboot — **MERGE BLOCKER for v1.5.2**
+
+**Discovered:** 2026-06-05 during external review of the GAP-002
+socket-activation fix. Caught before users hit it (the beta.2 upgrade
+test did not reboot the device, so the regression was latent).
+
+**Symptom:** `vpn-pack-manager.socket` declares
+`ListenStream=/run/vpn-pack/manager.sock` but has no `RuntimeDirectory=`.
+`/run` is tmpfs on UDM-SE / UCG-Ultra / UDR-SE (CLAUDE.md persistence
+matrix), so after every reboot `/run/vpn-pack/` does not exist.
+systemd does **not** auto-create parent directories for `ListenStream=`
+unix-socket paths — the unit fails with `ENOENT` before the manager is
+ever activated. `vpn-pack-manager.service` has `Requires=` on the
+socket, so the service also refuses to start. The manager is dead
+after every reboot; nginx returns 502 from `/vpn-pack/`.
+
+**Why the beta.2 upgrade test missed it:** the test went beta.1 → beta.2
+without rebooting. beta.1's `.service` had `RuntimeDirectory=vpn-pack`,
+which had already created `/run/vpn-pack/`. The tmpfs entry survived
+the install. The fresh-boot path was never exercised.
+
+**Resolution:** add `RuntimeDirectory=vpn-pack` + `RuntimeDirectoryMode=0755`
+to the `[Socket]` section of `deploy/vpn-pack-manager.socket`. systemd
+ref-counts `RuntimeDirectory=` across all units that declare it; the
+`.service` retains its own declaration as defense-in-depth (downgrade /
+manual partial install scenarios).
+
+**Regression guard:** `scripts/hardening-smoke.sh` probe 8 tears down
+both units, wipes `/run/vpn-pack/`, starts the socket cold, and asserts
+both the directory and the units come back active. Catches this exact
+class of regression without requiring an actual `reboot`.
+
+**Out-of-scope follow-ups** (called out during the GAP-002b review,
+backlogged for v1.5.3 — none are merge blockers):
+
+- Manager exit 78 (UniFi-version-check failure) under socket activation:
+  every subsequent nginx connection re-triggers activation, manager
+  exits 78 again, `RestartPreventExitStatus=78` declines to restart.
+  Net effect is "502 forever after the first connection" rather than
+  "service in failed state at boot". The user can still SSH in and
+  diagnose; documented here so operators understand the new failure
+  signature.
+- Boot-order race: `Requires=vpn-pack-manager.socket` on the service
+  plus `Wants=tailscaled.service` means an incoming nginx connection
+  can activate the manager before tailscaled finishes coming up. The
+  manager's tailscaled-localapi client already retries (Phase 9
+  bounded localapi decorator); not a new failure mode introduced by
+  socket activation, but slightly more likely now.
+
+---
+
 ## GAP-003: CI workflow does not run on `release/*` branches — **fix before next release**
 
 **Discovered:** 2026-06-05 during v1.5.2-beta.1 build preparation.
