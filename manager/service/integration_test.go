@@ -31,7 +31,7 @@ func TestSaveAPIKeyAt_DirectoryMode0700(t *testing.T) {
 	}
 	// SaveAPIKey re-runs after an upgrade where the dir already exists 0755 —
 	// re-applying must tighten it to 0700.
-	if err := os.Chmod(filepath.Dir(keyPath), 0o755); err != nil {
+	if err := os.Chmod(filepath.Dir(keyPath), 0o755); err != nil { //nolint:gosec // G302: deliberately seeds a lax mode to verify saveAPIKeyAt tightens it back to 0700
 		t.Fatalf("seed 0755: %v", err)
 	}
 	if err := saveAPIKeyAt(keyPath, "test-key-2"); err != nil {

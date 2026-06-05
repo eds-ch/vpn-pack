@@ -27,7 +27,7 @@ func (defaultSyncer) SyncDir(path string) error {
 	if err != nil {
 		return err
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	return d.Sync()
 }
 
@@ -67,7 +67,7 @@ func WriteFileWith(sync Syncer, path string, data []byte, perm os.FileMode) erro
 		cleanup()
 		return fmt.Errorf("close tmp: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := os.Rename(tmpPath, path); err != nil { //nolint:gosec // G703: tmpPath is from os.CreateTemp in the same dir; path is the caller-owned destination
 		cleanup()
 		return fmt.Errorf("rename: %w", err)
 	}

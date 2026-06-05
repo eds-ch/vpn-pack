@@ -90,9 +90,7 @@ func (f *fakeUDAPI) serve(conn net.Conn) {
 
 	if f.stall {
 		// Hold the conn open until t.Cleanup fires or client closes.
-		select {
-		case <-f.stop:
-		}
+		<-f.stop
 		return
 	}
 

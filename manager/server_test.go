@@ -259,7 +259,7 @@ func TestRoutes_MutationWithoutCSRFRejected(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
@@ -273,7 +273,7 @@ func TestRoutes_MutationWithWrongContentTypeRejected(t *testing.T) {
 	req.Header.Set("Content-Type", "text/plain")
 	resp, err := cl.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
 }
 
@@ -285,7 +285,7 @@ func TestRoutes_NoPeerCredentialsForbidden(t *testing.T) {
 
 	resp, err := http.Get(h.URL + "/api/status")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
 		"a TCP request without peer credentials must be 403, even on a safe method")
 }

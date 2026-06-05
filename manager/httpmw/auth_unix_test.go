@@ -39,8 +39,9 @@ func TestConnContext_ExtractsPeerUIDFromRealUnixSocket(t *testing.T) {
 	})
 
 	srv := &http.Server{
-		Handler:     handler,
-		ConnContext: ConnContext,
+		Handler:           handler,
+		ConnContext:       ConnContext,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
@@ -77,7 +78,11 @@ func TestPeerUIDAuth_AcceptsRealUnixConn(t *testing.T) {
 	handler := PeerUIDAuth()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	srv := &http.Server{Handler: handler, ConnContext: ConnContext}
+	srv := &http.Server{
+		Handler:           handler,
+		ConnContext:       ConnContext,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 
@@ -89,6 +94,6 @@ func TestPeerUIDAuth_AcceptsRealUnixConn(t *testing.T) {
 	cl := &http.Client{Transport: tr, Timeout: 5 * time.Second}
 	resp, err := cl.Get("http://unix/")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 }

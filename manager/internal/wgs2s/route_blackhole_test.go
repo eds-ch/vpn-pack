@@ -96,13 +96,6 @@ func (f *fakeKernel) deleteRoute(cidr string) {
 	delete(f.routeIface, normalizeCIDR(cidr))
 }
 
-func (f *fakeKernel) routeIfaceFor(cidr string) (uint32, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	idx, ok := f.routeIface[normalizeCIDR(cidr)]
-	return idx, ok
-}
-
 func (f *fakeKernel) createIface(name string) uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()

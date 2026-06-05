@@ -22,7 +22,7 @@ func openManagerSocket(path string) (net.Listener, error) {
 	if path == "" {
 		return nil, errNoSocketPath
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create socket dir: %w", err)
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -32,7 +32,7 @@ func openManagerSocket(path string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen unix %s: %w", path, err)
 	}
-	if err := os.Chmod(path, 0o660); err != nil {
+	if err := os.Chmod(path, 0o660); err != nil { //nolint:gosec // G302: 0660 is intentional — nginx group needs connect(2); PeerUIDAuth still gates access
 		_ = ln.Close()
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
