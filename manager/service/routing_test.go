@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"testing"
 	"time"
@@ -308,6 +309,25 @@ func TestSetRoutes_OffCleansExitRoutes(t *testing.T) {
 	assert.True(t, result.OK)
 	assert.Len(t, advertisedRoutes, 1)
 	assert.Equal(t, "10.0.0.0/24", advertisedRoutes[0].String())
+}
+
+// SEC-C18: an unbounded SetRoutes call lets a compromised UI flood
+// AdvertiseRoutes with thousands of prefixes, causing tailscaled config
+// blow-up and admin-page DoS. Cap above the realistic upper bound for a
+// home/edge gateway.
+func TestSetRoutes_RejectsAboveMaxAdvertisedRoutes(t *testing.T) {
+	svc := newTestRoutingService()
+
+	routes := make([]string, MaxAdvertisedRoutes+1)
+	for i := range routes {
+		routes[i] = fmt.Sprintf("10.%d.%d.0/24", i/256, i%256)
+	}
+
+	_, err := svc.SetRoutes(context.Background(), &SetRoutesRequest{Routes: routes}, nil)
+	require.Error(t, err)
+	var se *Error
+	require.ErrorAs(t, err, &se)
+	assert.Equal(t, ErrValidation, se.Kind)
 }
 
 func TestSetRoutes_EditPrefsError(t *testing.T) {

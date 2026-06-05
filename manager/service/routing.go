@@ -46,6 +46,11 @@ type SetRoutesRequest struct {
 	ExitNode bool     `json:"exitNode"`
 }
 
+// MaxAdvertisedRoutes caps the number of subnet routes a single SetRoutes
+// call may advertise. Realistic edge-gateway deployments stay well below
+// this; the cap exists so a compromised UI cannot flood tailscaled prefs.
+const MaxAdvertisedRoutes = 256
+
 type SetRoutesResult struct {
 	OK       bool   `json:"ok"`
 	Message  string `json:"message"`
@@ -113,6 +118,9 @@ func (svc *RoutingService) GetRoutes(ctx context.Context) (*RoutesResponse, erro
 }
 
 func (svc *RoutingService) SetRoutes(ctx context.Context, req *SetRoutesRequest, activeVPNClients []string) (*SetRoutesResult, error) {
+	if len(req.Routes) > MaxAdvertisedRoutes {
+		return nil, validationError(fmt.Sprintf("too many routes: %d (max %d)", len(req.Routes), MaxAdvertisedRoutes))
+	}
 	prefixes := make([]netip.Prefix, 0, len(req.Routes))
 	for _, cidr := range req.Routes {
 		p, err := netip.ParsePrefix(cidr)
