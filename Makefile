@@ -221,6 +221,17 @@ sign: checksums
 # ── Release ────────────────────────────────────────────────────────
 
 release: sign
+	@if git rev-parse "v$(VPNPACK_VERSION)" >/dev/null 2>&1; then \
+		echo "ERROR: tag v$(VPNPACK_VERSION) already exists locally (HEAD=$$(git rev-parse --short HEAD)). Refusing to re-release."; \
+		exit 1; \
+	fi
+	@if git ls-remote --tags --exit-code origin "v$(VPNPACK_VERSION)" >/dev/null 2>&1; then \
+		echo "ERROR: tag v$(VPNPACK_VERSION) already exists on origin. Refusing to overwrite."; \
+		exit 1; \
+	fi
+	@echo "==> Tagging v$(VPNPACK_VERSION) at $$(git rev-parse --short HEAD) on $$(git rev-parse --abbrev-ref HEAD)..."
+	git tag -a "v$(VPNPACK_VERSION)" -m "vpn-pack v$(VPNPACK_VERSION)"
+	git push origin "v$(VPNPACK_VERSION)"
 	@echo "==> Creating GitHub release v$(VPNPACK_VERSION)..."
 	@printf 'Tailscale %s for UniFi Cloud Gateway devices.\n\n## Install\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/%s/main/get.sh | bash\n```\n' \
 		"$(TAILSCALE_VERSION)" "$(GITHUB_REPO)" > $(DIST_DIR)/release-notes.md
