@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
@@ -252,4 +253,90 @@ COMMIT
 	if res.Misplaced() {
 		t.Fatalf("UBIOS only must not be misplaced: %+v", res)
 	}
+}
+
+// SEC-C15: when ts-forward is misplaced, AuditAndFixTsForwardOrder must
+// (1) delete the misplaced rule and (2) re-insert it at the position
+// immediately following UBIOS_FORWARD_JUMP. This locks the exact iptables
+// command shape the patch contract requires.
+func TestAuditAndFixTsForwardOrder_DeletesAndReinsertsAtCorrectPosition(t *testing.T) {
+	misplaced := `*filter
+:FORWARD ACCEPT [0:0]
+-A FORWARD -j ts-forward
+-A FORWARD -j UBIOS_FORWARD_JUMP
+-A FORWARD -j SOME_OTHER
+COMMIT
+`
+	fm := &FirewallManager{}
+	fm.filterCache = misplaced
+	fm.filterTime = time.Now()
+
+	var calls [][]string
+	orig := iptablesRunHook
+	iptablesRunHook = func(_ context.Context, args ...string) error {
+		calls = append(calls, append([]string(nil), args...))
+		return nil
+	}
+	t.Cleanup(func() { iptablesRunHook = orig })
+
+	if err := fm.AuditAndFixTsForwardOrder(context.Background()); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 iptables calls (delete then insert); got %d: %+v", len(calls), calls)
+	}
+	wantDel := []string{"-w", "2", "-t", "filter", "-D", "FORWARD", "-j", "ts-forward"}
+	if !equalArgs(calls[0], wantDel) {
+		t.Fatalf("delete args wrong:\nwant %q\ngot  %q", wantDel, calls[0])
+	}
+	// ts at 1, UBIOS at 2: after deletion UBIOS shifts to pos 1; new
+	// ts-forward slot is at UBIOSPos (original index 2). The original
+	// UBIOSPos is preserved in the result because UBIOS-after-delete
+	// occupies index 1 and inserting at 2 puts ts AFTER it.
+	wantIns := []string{"-w", "2", "-t", "filter", "-I", "FORWARD", "2", "-j", "ts-forward"}
+	if !equalArgs(calls[1], wantIns) {
+		t.Fatalf("insert args wrong:\nwant %q\ngot  %q", wantIns, calls[1])
+	}
+}
+
+// SEC-C15: when ordering is already correct, no iptables mutations must
+// run. Idempotency is what makes safely calling the audit on every
+// reconcile tick acceptable.
+func TestAuditAndFixTsForwardOrder_NoopWhenCorrect(t *testing.T) {
+	correct := `*filter
+-A FORWARD -j UBIOS_FORWARD_JUMP
+-A FORWARD -j ts-forward
+COMMIT
+`
+	fm := &FirewallManager{}
+	fm.filterCache = correct
+	fm.filterTime = time.Now()
+
+	var calls int
+	orig := iptablesRunHook
+	iptablesRunHook = func(_ context.Context, _ ...string) error {
+		calls++
+		return nil
+	}
+	t.Cleanup(func() { iptablesRunHook = orig })
+
+	if err := fm.AuditAndFixTsForwardOrder(context.Background()); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected 0 iptables calls on correct ordering, got %d", calls)
+	}
+}
+
+func equalArgs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

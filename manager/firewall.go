@@ -515,6 +515,13 @@ func auditTsForwardOrder(rulesText string) auditTsForwardOrderResult {
 	return res
 }
 
+// iptablesRunHook is the seam the audit/repair path uses to invoke
+// iptables. Overridable in tests so the seam can record arguments
+// without actually mutating the host's firewall.
+var iptablesRunHook = func(ctx context.Context, args ...string) error {
+	return exec.CommandContext(ctx, "iptables", args...).Run()
+}
+
 // AuditAndFixTsForwardOrder verifies the FORWARD-chain ordering and, when
 // ts-forward is misplaced, removes the rule and re-inserts it immediately
 // after UBIOS_FORWARD_JUMP. Idempotent: no-op when ordering is correct.
@@ -529,13 +536,13 @@ func (fm *FirewallManager) AuditAndFixTsForwardOrder(ctx context.Context) error 
 	}
 	slog.Warn("ts-forward chain order regressed; restoring after UBIOS_FORWARD_JUMP",
 		"tsForwardPos", res.TSForwardPos, "ubiosPos", res.UBIOSPos)
-	if err := exec.CommandContext(ctx, "iptables", "-w", "2", "-t", "filter", "-D", "FORWARD", "-j", "ts-forward").Run(); err != nil {
+	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-D", "FORWARD", "-j", "ts-forward"); err != nil {
 		return fmt.Errorf("delete misplaced ts-forward: %w", err)
 	}
 	// After deletion the rule above UBIOS shifts up by one; the new slot
 	// directly after UBIOS_FORWARD_JUMP is at position UBIOSPos (1-based).
 	insertAt := res.UBIOSPos
-	if err := exec.CommandContext(ctx, "iptables", "-w", "2", "-t", "filter", "-I", "FORWARD", strconv.Itoa(insertAt), "-j", "ts-forward").Run(); err != nil {
+	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-I", "FORWARD", strconv.Itoa(insertAt), "-j", "ts-forward"); err != nil {
 		return fmt.Errorf("reinsert ts-forward at %d: %w", insertAt, err)
 	}
 	fm.invalidateFilterCache()
