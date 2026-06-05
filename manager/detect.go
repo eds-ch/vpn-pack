@@ -106,6 +106,11 @@ func parseUniFiVersion(raw string) (uniFiVersion, error) {
 	if raw == "" {
 		return uniFiVersion{}, fmt.Errorf("empty version string")
 	}
+	if i := strings.IndexByte(raw, ':'); i >= 0 {
+		if _, err := strconv.Atoi(raw[:i]); err == nil {
+			raw = raw[i+1:]
+		}
+	}
 	parts := strings.SplitN(raw, ".", 3)
 	major, err := strconv.Atoi(parts[0])
 	if err != nil {

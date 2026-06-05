@@ -23,6 +23,11 @@ func TestParseUniFiVersion(t *testing.T) {
 		{"empty", "", 0, 0, "", true},
 		{"garbage", "abc.def", 0, 0, "", true},
 		{"major garbage", "abc", 0, 0, "", true},
+		// BUG-L4: dpkg reports installed UniFi Network with a Debian epoch
+		// prefix ("1:3.2.18-21345"). Without stripping, parsing fails and
+		// boot bails out as if Network were missing.
+		{"debian epoch single-digit", "1:3.2.18-21345", 3, 2, "3.2", false},
+		{"debian epoch multi-digit", "10:11.0.0", 11, 0, "11.0", false},
 	}
 
 	for _, tt := range tests {
