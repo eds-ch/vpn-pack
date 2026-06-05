@@ -94,7 +94,7 @@ func main() {
 		Listener:    ln,
 		SocketPath:  *socket,
 		DeviceInfo:  info,
-		Tailscale:   NewTailscaleControl(*socket),
+		Tailscale:   client.NewBoundedTailscaleControl(NewTailscaleControl(*socket), config.TailscaleLocalAPITimeout),
 		Hub:         sse.NewHub(),
 		Manifest:    manifest,
 		Integration: ic,

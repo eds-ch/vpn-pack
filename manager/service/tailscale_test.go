@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -11,8 +12,10 @@ import (
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
 
-	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/client"
+	"unifi-tailscale/manager/domain"
 )
 
 // --- Mocks ---
@@ -44,6 +47,23 @@ func (m *mockTailscaleClient) StartLoginInteractive(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Stubs to satisfy domain.TailscaleControl so the mock can be wrapped by
+// client.NewBoundedTailscaleControl in BUG-L1 regression. None of these
+// surfaces are exercised by TailscaleService tests.
+
+func (m *mockTailscaleClient) StatusWithoutPeers(context.Context) (*ipnstate.Status, error) {
+	return nil, nil
+}
+func (m *mockTailscaleClient) GetPrefs(context.Context) (*ipn.Prefs, error)               { return nil, nil }
+func (m *mockTailscaleClient) Start(context.Context, ipn.Options) error                   { return nil }
+func (m *mockTailscaleClient) BugReport(context.Context, string) (string, error)          { return "", nil }
+func (m *mockTailscaleClient) CheckIPForwarding(context.Context) error                    { return nil }
+func (m *mockTailscaleClient) CurrentDERPMap(context.Context) (*tailcfg.DERPMap, error)   { return nil, nil }
+func (m *mockTailscaleClient) WatchIPNBus(context.Context, ipn.NotifyWatchOpt) (domain.IPNWatcher, error) {
+	return nil, nil
+}
+func (m *mockTailscaleClient) TailDaemonLogs(context.Context) (io.Reader, error) { return nil, nil }
 
 func (m *mockTailscaleClient) Logout(ctx context.Context) error {
 	if m.logoutFn != nil {
@@ -225,19 +245,20 @@ func TestDeactivate_Error(t *testing.T) {
 }
 
 // BUG-L1: a hanging EditPrefs call must be bounded by the per-call timeout
-// even when the parent context has no deadline.
+// even when the parent context has no deadline. After Task 10.13 the
+// bound is enforced by client.BoundedTailscaleControl at the composition
+// root; this test wraps the mock with a short-bound decorator to keep
+// the test fast — production wires the same decorator in main.go with
+// config.TailscaleLocalAPITimeout.
 func TestDeactivate_HangingEditPrefsReturnsWithinPerCallTimeout(t *testing.T) {
-	origTO := config.TailscaleLocalAPITimeout
-	config.TailscaleLocalAPITimeout = 50 * time.Millisecond
-	t.Cleanup(func() { config.TailscaleLocalAPITimeout = origTO })
-
+	mock := &mockTailscaleClient{
+		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
 	svc := newTestTailscaleService(func(s *TailscaleService) {
-		s.ts = &mockTailscaleClient{
-			editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
-				<-ctx.Done()
-				return nil, ctx.Err()
-			},
-		}
+		s.ts = client.NewBoundedTailscaleControl(mock, 50*time.Millisecond)
 	})
 
 	done := make(chan error, 1)

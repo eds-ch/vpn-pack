@@ -5,9 +5,11 @@ import (
 	"time"
 )
 
-// Per-call timeouts. Declared as vars (not consts) so tests can shrink them
-// to exercise the timeout-fired path without waiting the full duration.
-var (
+// Per-call timeouts. The Tailscale localapi cap is enforced once at the
+// composition root by client.NewBoundedTailscaleControl (Task 10.13), so
+// these are consts again — tests that need a shorter bound construct
+// their own bounded wrapper instead of mutating a global.
+const (
 	TailscaleLocalAPITimeout = 10 * time.Second
 	SubprocessTimeout        = 15 * time.Second
 	UDAPIDefaultTimeout      = 10 * time.Second

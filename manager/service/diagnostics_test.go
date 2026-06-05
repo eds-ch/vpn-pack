@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 
@@ -251,13 +250,13 @@ func TestCheckRoutesInstalled_AcceptsContextAndPreservesEmptyFastPath(t *testing
 }
 
 // BUG-L2: a hanging `ip route show` invocation must be bounded by the
-// per-call SubprocessTimeout. Swap the inner exec hook for a runner that
-// blocks until ctx fires; shrink the timeout so the test stays fast.
+// effective per-call timeout — either the caller-supplied ctx deadline or
+// config.SubprocessTimeout, whichever fires first (Go honors the earliest
+// deadline). Task 10.13 reverted SubprocessTimeout to const, so the test
+// supplies its own 50ms ctx to exercise the bounded path without waiting
+// the production 15s. The hook stays in place so we exercise the real
+// CheckRoutesInstalled ctx propagation.
 func TestCheckRoutesInstalled_HangingSubprocessReturnsWithinTimeout(t *testing.T) {
-	origTO := config.SubprocessTimeout
-	config.SubprocessTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { config.SubprocessTimeout = origTO })
-
 	origHook := ipRouteShowDev
 	ipRouteShowDev = func(ctx context.Context, _ string) ([]byte, error) {
 		<-ctx.Done()
@@ -265,17 +264,20 @@ func TestCheckRoutesInstalled_HangingSubprocessReturnsWithinTimeout(t *testing.T
 	}
 	t.Cleanup(func() { ipRouteShowDev = origHook })
 
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
 	done := make(chan bool, 1)
 	start := time.Now()
-	go func() { done <- CheckRoutesInstalled(context.Background(), "x", []string{"1.2.3.4/32"}) }()
+	go func() { done <- CheckRoutesInstalled(ctx, "x", []string{"1.2.3.4/32"}) }()
 
 	select {
 	case ok := <-done:
 		require.False(t, ok, "hung subprocess returns ctx.Err(); fn returns false")
 		require.Less(t, time.Since(start), 500*time.Millisecond,
-			"SubprocessTimeout (50ms) must fire well before this bound")
+			"caller deadline (50ms) must propagate through CheckRoutesInstalled")
 	case <-time.After(2 * time.Second):
-		t.Fatal("CheckRoutesInstalled never returned: SubprocessTimeout not honored (BUG-L2)")
+		t.Fatal("CheckRoutesInstalled never returned: ctx deadline not honored (BUG-L2)")
 	}
 }
 
