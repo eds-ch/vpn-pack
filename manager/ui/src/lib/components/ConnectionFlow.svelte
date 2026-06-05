@@ -2,6 +2,7 @@
     import QRCode from './QRCode.svelte';
     import AuthKeyInput from './AuthKeyInput.svelte';
     import { tailscaleUp } from '../api.js';
+    import { safeHref } from '../safeHref.ts';
 
     let { status } = $props();
 
@@ -101,7 +102,7 @@
                             Open this URL or scan the QR code:
                         </p>
                         <a
-                            href={status.authURL}
+                            href={safeHref(status.authURL)}
                             target="_blank"
                             rel="noopener noreferrer"
                             class="text-body text-blue hover:text-blue-hover break-all"
