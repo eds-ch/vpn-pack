@@ -58,3 +58,6 @@ scripts/*
 !scripts/golden/
 !scripts/golden/installer-stdout.txt
 
+# Upgrade snapshots (device state captures — semi-sensitive, never committed)
+snapshots/
+
