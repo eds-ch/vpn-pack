@@ -10,6 +10,223 @@ exercise it because the cert identity is minted at signing time.
 
 ---
 
+## GAP-001: cosign bootstrap on target device — **MERGE BLOCKER for v1.5.2**
+
+**Discovered:** 2026-06-05 during v1.5.2-beta.1 upgrade test on UDM-SE.
+
+**Symptom:** `get.sh` (since `59c6bef`, Phase 8.1/8.2) calls
+`verify_signature() → cosign verify-blob` unconditionally. On a stock
+UDM-SE / UCG-Ultra there is no `cosign` binary, so the new `get.sh` exits
+fail-closed with `FATAL: cosign required to verify the release signature`.
+
+**Impact:** every existing v1.5.1 user upgrading via the documented
+`curl get.sh | bash` path hits this fatal error. The release publishes,
+but **nobody can install it** without first manually downloading a
+≈110 MB cosign binary onto an embedded router. This is unacceptable UX
+and was not part of the Phase 8 design.
+
+**Why this must block merge to `main`:** the moment
+`release/v1.5.2-beta` lands on `main`, the public
+`raw.githubusercontent.com/.../main/get.sh` URL serves the cosign-strict
+version. Stable users on v1.5.1 follow that exact URL — they break
+silently. The window between merge and a fix is the blast radius.
+
+**Acceptable resolutions** (pick one before merge):
+
+- **Option A — bootstrap cosign inside `get.sh`.** Detect missing
+  `cosign`, download
+  `https://github.com/sigstore/cosign/releases/download/v<pin>/cosign-linux-arm64`,
+  install to `${TMPDIR}/cosign` (mode 0700), use it for verify, discard
+  on exit. Pin a specific cosign version (and its sha256) inside
+  get.sh — this is the same trust boundary we already accept for
+  Sigstore Fulcio, so it does not widen our threat model. Estimated
+  effort: small. **Recommended.**
+
+- **Option B — openssl-only verify.** Cosign-bundle contains a Fulcio
+  certificate + signature; verify it with `openssl x509 -verify -CAfile`
+  (Fulcio root pinned in get.sh) + `openssl dgst -verify`. UDM-SE ships
+  `openssl` natively. Removes the cosign dependency entirely.
+  Estimated effort: medium. Riskier (we re-implement bundle parsing).
+
+- **Option C — bundle cosign in the release tarball + bootstrap
+  installer.** Defeats the purpose: cosign would be needed *before*
+  the tarball is unpacked, so this only works if a second tiny
+  installer ships cosign first. Effectively the same trust dance as
+  Option A with more moving parts. Not recommended.
+
+**Rejected:** lowering `verify_signature()` to "warn on missing cosign,
+continue install" — that re-opens SEC-B4 fail-closed guarantee.
+
+**Required follow-ups when implementing the chosen option:**
+
+1. Update Section 3b below — remove the assumption that cosign is
+   pre-installed.
+2. Extend `scripts/test-release-roundtrip.sh` to cover the bootstrap
+   path: simulate a host without cosign, run get.sh against a mocked
+   release endpoint, assert that the bootstrap step runs *and* that a
+   tampered bundle still fails the verify.
+3. CHANGELOG entry for v1.5.2 must mention the new cosign bootstrap and
+   the pinned cosign version + sha256.
+4. Re-run the full Phase B → Phase I upgrade test from
+   `docs/superpowers/plans/2026-06-04-security-stability-remediation.md`
+   Section "Final Ship" — the cosign bootstrap path is *part of* the
+   v1.5.2 install surface and was not exercised in the v1.5.2-beta.1
+   soak.
+
+**Temporary workaround for v1.5.2-beta.1 soak only:** bypass `get.sh`
+entirely; pull tarball with `gh release download` (or `curl` direct
+from the release page), unpack on the device, run `install.sh`. This
+does **not** exercise the cosign verify path but is fine for testing
+Phase 4 (unix socket), Phase 5 (saga), Phase 6 (UDAPI client), Phase 7
+(logredact), Phase 8.6 (systemd hardening), Phase 9 (timeouts), and
+Phase 10 (tactical batch). Phase 8.1 / 8.2 verification path must be
+re-tested after GAP-001 is resolved.
+
+---
+
+## GAP-002: CAP_CHOWN stripped by hardening breaks unix-socket nginx access — **MERGE BLOCKER for v1.5.2**
+
+**Discovered:** 2026-06-05 during v1.5.2-beta.1 upgrade test on UDM-SE.
+
+**Symptom:** `vpn-pack-manager` boots, sets up the socket at
+`/run/vpn-pack/manager.sock` with mode 0660, but the subsequent
+`os.Chown(path, -1, nginx_gid)` call inside [listener.go:44](manager/listener.go#L44)
+fails with `operation not permitted`. The socket is left as
+`root:root mode=660`. `nginx` workers run as user `nginx` (gid 132)
+and cannot `connect(2)` to a socket they have no read/write bit on.
+
+```
+WARN socket chown to nginx group failed; nginx may be unable to connect
+err: chown /run/vpn-pack/manager.sock: operation not permitted
+```
+
+**Root cause:** Phase 8.6 (`deploy/vpn-pack-manager.service`) narrows
+`CapabilityBoundingSet` to `CAP_NET_ADMIN CAP_NET_RAW`. **CAP_CHOWN is
+not in this set**, so even though the process runs as uid 0, the kernel
+refuses the chown — bounding set is the upper bound on effective caps.
+Phase 4 (unix socket with nginx-group access) and Phase 8.6 (cap
+narrowing) were designed independently and conflict.
+
+**Verified impact:**
+```
+$ sudo -u nginx curl -sf --unix-socket /run/vpn-pack/manager.sock http://x/api/status
+$ echo $?
+7   # connection refused — permission denied
+```
+nginx cannot proxy `/vpn-pack/api/*` to the manager. **The UI is
+broken on every production install of v1.5.2-beta.1.** The local
+SSH-as-root test passes because root bypasses file mode.
+
+**Acceptable resolutions** (pick one before merge):
+
+- **Option A — add `CAP_CHOWN` to bounding set + ambient.** In
+  `deploy/vpn-pack-manager.service`:
+  ```
+  CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_CHOWN
+  AmbientCapabilities=CAP_CHOWN
+  ```
+  CAP_CHOWN by itself is a small attack surface (it permits chown of
+  any file, but the process already runs as uid 0, so this just
+  preserves a privilege we used to have implicitly). Smallest possible
+  change; preserves all other Phase 8.6 hardening. **Recommended for
+  v1.5.2-beta.2.**
+
+- **Option B — systemd socket activation.** Move socket creation into
+  systemd via `vpn-pack-manager.socket`:
+  ```
+  ListenStream=/run/vpn-pack/manager.sock
+  SocketUser=root
+  SocketGroup=nginx
+  SocketMode=0660
+  ```
+  Plus pass the fd to the manager via `LISTEN_FDS` env (`systemd.socket`
+  protocol). Removes the chown call entirely from the manager. Cleaner
+  architecture but requires manager code changes (parse `LISTEN_FDS`,
+  drop `openManagerSocket()`'s `net.Listen("unix", ...)`). Medium
+  effort.
+
+- **Option C — `Group=nginx` + `UMask=0007` on the service unit.**
+  Run the manager with primary group `nginx`; the socket inherits
+  that group automatically (no chown needed). Side effect: every file
+  the manager writes (`/persistent/vpn-pack/state/*`, manifest,
+  tunnels.json) will be `root:nginx` — which may unexpectedly grant
+  read access to nginx for the state files. **Not recommended**
+  unless we audit every write site for sensitivity.
+
+**Required follow-ups when implementing the chosen option:**
+
+1. Adjust hardening-smoke probe 6 to assert `socket owner=root:nginx`
+   instead of just `mode=660`.
+2. `make hardening-smoke HOST=...` must be re-run post-fix; this is
+   the same probe that surfaced the issue.
+3. Re-run Phase D upgrade-diff — `net/socket-modes.txt` anomaly should
+   clear.
+4. Re-run Phase E with nginx-proxy path (`curl https://device/vpn-pack/api/status`
+   with valid UniFi auth cookie) — must return 200, not 502.
+
+**Temporary workaround for v1.5.2-beta.1 soak only:** the manager is
+functional and tailscaled is running; tests that hit the API via root
+SSH (`curl --unix-socket`) still work. UI-based smoke tests will fail
+until GAP-002 is fixed. Do **not** ask test users to install
+v1.5.2-beta.1 — they will see broken UI.
+
+---
+
+## GAP-003: CI workflow does not run on `release/*` branches — **fix before next release**
+
+**Discovered:** 2026-06-05 during v1.5.2-beta.1 build preparation.
+
+**Symptom:** `make check` surfaced 12 golangci-lint issues introduced
+across Phase 1-10 commits on `release/v1.5.2-beta`. CI never caught
+them because the workflow trigger excludes the release branch.
+
+**Root cause:** [.github/workflows/ci.yml](.github/workflows/ci.yml#L1-L5)
+declares:
+
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+```
+
+Push events to `release/v1.5.2-beta` (and earlier `release/*` branches)
+do not match either trigger. There is no `workflow_dispatch` either, so
+manual runs are impossible without editing the file.
+
+**Impact:** every release-branch commit since v1.5.1 (Apr 30) ran
+without CI. Lint regressions, test regressions, and build breakage
+would all reach a tagged beta release before anyone noticed — exactly
+what happened with the 12 lint findings.
+
+**Resolution:**
+
+```yaml
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+```
+
+`release/**` covers `release/v1.5.2-beta`, `release/v1.5.3-beta`, etc.
+`workflow_dispatch` adds a manual-run option for ad-hoc verification.
+PR trigger remains `main`-only — release branches don't open PRs in
+themselves; the only PR is `release/* → main` at merge time.
+
+**Effort:** trivial (4-line edit). Include in the same v1.5.2-beta.2
+fix batch as GAP-001 / GAP-002.
+
+**Required follow-ups:**
+
+1. After the workflow change lands on `release/v1.5.2-beta`, verify CI
+   actually fires on the next push.
+2. Add a CHANGELOG entry under v1.5.2 noting the CI scope change.
+
+---
+
 ## 1. Pre-release: local validation
 
 From a clean checkout of the release branch:
