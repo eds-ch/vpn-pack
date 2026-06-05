@@ -10,8 +10,14 @@ Requires=vpn-pack-manager.socket
 # it up; --listen-socket flag is only used in dev/standalone mode.
 ExecStart=/persistent/vpn-pack/bin/vpn-pack-manager \
     --socket=/run/tailscale/tailscaled.sock
-RuntimeDirectory=vpn-pack
-RuntimeDirectoryMode=0755
+# RuntimeDirectory= is intentionally NOT set here. systemd's documented
+# behavior for RuntimeDirectory= is "rm -rf and recreate the directory
+# at unit start, even if pre-existing" (verified on systemd 247 on
+# UDM-SE: service restart changes /run/vpn-pack inode and deletes the
+# socket file the .socket unit created inside). Owning the directory
+# from the .socket unit only avoids that wipeout — the .service unit
+# inherits access via the systemd-managed runtime-dir lifecycle on the
+# socket unit. Closes GAP-005.
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=78

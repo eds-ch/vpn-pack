@@ -223,6 +223,71 @@ backlogged for v1.5.3 — none are merge blockers):
 
 ---
 
+## GAP-005: `systemctl restart vpn-pack-manager.service` deletes the listening socket file → 502 in the browser — **fix before v1.5.2 final**
+
+**Discovered:** 2026-06-05 after `make hardening-smoke` passed 10/10
+on v1.5.2-beta.5 (fresh `1.5.1 → beta.5` upgrade path). The user
+opened `/vpn-pack/` and got **502 Bad Gateway** from nginx — the
+manager process was alive (Main PID intact, listening fd in `/proc/$PID/fd/`),
+but `/run/vpn-pack/manager.sock` no longer existed on disk. nginx
+worker hits `ENOENT` on `connect(2)`.
+
+**Root cause:** both `vpn-pack-manager.socket` and
+`vpn-pack-manager.service` declared `RuntimeDirectory=vpn-pack`. The
+comment block added in GAP-002b's resolution assumed *"systemd
+refcounts the references"* — empirically that's not what happens on
+systemd 247 (Debian 11, shipped on UDM-SE). Verified by inode
+inspection across a restart:
+
+```
+before: /run/vpn-pack inode=699243, manager.sock inode=699244
+after restart: /run/vpn-pack inode=698150 (DIFFERENT — rm -rf'd and recreated)
+               /run/vpn-pack/manager.sock GONE
+```
+
+systemd's documented behavior for `RuntimeDirectory=` is *"the listed
+directories will be created at unit start-up… **If pre-existing
+directories are encountered they are removed and recreated to ensure
+proper ownership**"*. When the `.service` unit restarts, it wipes the
+runtime directory the `.socket` unit owns, taking the bound socket
+file with it. The manager's inherited listening fd survives (kernel
+keeps the socket alive while a process holds the fd), but the path
+the file system entry pointed to is unreachable.
+
+**Why probes didn't catch it:** probe 4 only asserted `is-active`
+after restart. Both the service and the socket unit still reported
+active because the manager kept the inherited fd. Probe 7 checks
+the socket file but runs early (before probe 4's restart). No probe
+checked the socket file's *inode identity* before and after a service
+restart.
+
+**Out of band trigger paths:** `Restart=on-failure` (any unhandled
+manager crash), `systemctl restart vpn-pack-manager` (manual ops),
+package upgrade install.sh path (the `[+] Stopping…` / `[+] Starting…`
+sequence). Every one of these silently breaks the `/vpn-pack/` UI
+without a single error in the manager journal.
+
+**Resolution:** remove `RuntimeDirectory=` from `.service`. Let the
+`.socket` unit own the directory exclusively. The service unit
+inherits access at execution time via the still-bound socket and
+its now-existing parent directory; no service-side recreate is
+needed. This was the simplest fix that the inode-identity probe
+verifies.
+
+Added probe 9 (regression guard): capture
+`stat -c '%i' /run/vpn-pack/manager.sock` before and after
+`systemctl restart vpn-pack-manager.service` and fail on inode
+change or file absence. Probe 9 verified by reverting to the
+pre-fix `.service` and confirming it actually FAILs (TDD discipline).
+
+**Status (2026-06-05):** resolved in v1.5.2-beta.6 — `.service`'s
+`RuntimeDirectory=` and `RuntimeDirectoryMode=` directives removed
+(replaced with a comment block explaining why they're absent).
+`.socket` retains them. `make hardening-smoke` 10/10 PASS post-fix,
+GAP-005 probe 9 FAILS on the pre-fix unit (proves probe validity).
+
+---
+
 ## GAP-004: nginx-snippet self-heal can't recreate `/data` file under Phase 8.6 hardening — **fix before v1.5.2 final**
 
 **Discovered:** 2026-06-05 running `make hardening-smoke` against beta.3.

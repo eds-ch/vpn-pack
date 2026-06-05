@@ -177,6 +177,40 @@ if ! run_ssh "systemctl is-active --quiet vpn-pack-manager"; then
     red "vpn-pack-manager did not come back up within 30s after restart"
 fi
 
+# ── Probe 9: socket file survives a service restart (GAP-005 guard) ─
+# systemd's RuntimeDirectory= directive wipes its target on unit start,
+# even if pre-existing. When both .socket and .service declared
+# RuntimeDirectory=vpn-pack, `systemctl restart vpn-pack-manager.service`
+# re-created /run/vpn-pack with a fresh inode and the socket file the
+# .socket unit had bound was gone. systemd still reported both units
+# active (manager kept the inherited listening fd) but every nginx
+# connect(2) from then on hit ENOENT → 502 Bad Gateway in the browser.
+#
+# Probe 4 above only checks is-active, which would still PASS in that
+# state. This probe captures the .sock inode before and after probe 4's
+# restart and asserts both that the file still exists and that the
+# inode is unchanged. Same-inode is the precise check: an inode change
+# means systemd rm-rf'd and recreated the parent dir, which is exactly
+# the regression we're guarding against.
+info "probe 9: /run/vpn-pack/manager.sock survives a service restart (GAP-005)"
+sock_before=$(run_ssh "stat -c '%i' /run/vpn-pack/manager.sock 2>/dev/null" || echo "")
+run_ssh "systemctl restart vpn-pack-manager.service" >/dev/null
+sleep 2
+sock_after=$(run_ssh "stat -c '%i' /run/vpn-pack/manager.sock 2>/dev/null" || echo "")
+if [[ -z "$sock_after" ]]; then
+    red "socket file gone after service restart (GAP-005 regression: RuntimeDirectory= conflict between .socket and .service)"
+elif [[ "$sock_before" != "$sock_after" ]]; then
+    red "socket inode changed across service restart: before=$sock_before after=$sock_after (GAP-005 regression)"
+else
+    # Confirm the path is actually reachable, not just present-but-stale.
+    nginx_reach=$(run_ssh "sudo -u nginx curl -sf --max-time 3 --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL" || echo FAIL)
+    if [[ "$nginx_reach" == "ok" ]]; then
+        green "socket file survived service restart (inode preserved: $sock_after) and remains nginx-reachable"
+    else
+        red "socket file present (inode $sock_after) but nginx user cannot connect — investigate"
+    fi
+fi
+
 # ── Probe 6: drift-induced self-heal proves the write path works ────
 # Probe 3 only checks that content matches AFTER unifi-core's revert;
 # when /persistent and /data already hold identical content (the common
