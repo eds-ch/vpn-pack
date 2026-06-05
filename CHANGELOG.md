@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Tailscale updated from 1.96.4 to 1.98.5 (resolves the deferral
+  recorded in `[1.5.2-beta.7]`). Upstream skipped a stable 1.97 minor
+  — only `v1.97.0-pre` exists — so this is a two-minor jump landing
+  on the latest stable. Patches `001..006` regenerated against fresh
+  v1.98.5 context: payload identical (line-for-line `+`/`-` counts
+  match), only header `# Tailscale-Version` and surrounding context
+  refreshed; `make verify-patches` clean.
+- Upstream changes inside the patch surface that warranted review
+  (all benign, none required patch-logic changes):
+  - `wgengine/router/osrouter`: `src_valid_mark=1` set alongside the
+    connmark save/restore rules so `rp_filter`'s reverse-path check
+    actually uses the bypass fwmark — fixes a martian-drop class of
+    bugs on hosts where `net.ipv4.conf.all.src_valid_mark` defaults
+    to 0. Complements (does not collide with) our patch 006 exit-node
+    routing into table 53.
+  - `wgengine/router/osrouter`: netfilter add-on blocks (connmark
+    rules and CGNAT drop) now gate on `r.netfilterMode` instead of
+    `cfg.NetfilterMode` to match the SNAT/loopback pattern when
+    `setNetfilterModeLocked` fails.
+  - `util/linuxfw`: incoming CGNAT-range traffic now allowed when
+    the new nodeattr is set; nil-deref fixes for nftables chain
+    check and connmark rules without IPv6.
+
 ### Security
 - Release artifacts (`vpn-pack-<ver>.tar.gz`, `checksums.txt`) are now
   signed with cosign keyless OIDC. Verifiers must pin the identity

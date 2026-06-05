@@ -1,18 +1,18 @@
-# Tailscale-Version: 1.96.4
+# Tailscale-Version: 1.98.5
 # Description: Use ubnt-device-info for accurate product name instead of generic SoC name
---- a/hostinfo/hostinfo_linux.go	2026-02-21 10:13:12.854104053 +0000
-+++ b/hostinfo/hostinfo_linux.go	2026-02-21 10:16:23.501758797 +0000
+--- a/hostinfo/hostinfo_linux.go
++++ b/hostinfo/hostinfo_linux.go
 @@ -8,6 +8,7 @@
  import (
  	"bytes"
  	"os"
 +	"os/exec"
  	"strings"
-
+ 
  	"golang.org/x/sys/unix"
-@@ -49,6 +50,17 @@
+@@ -48,6 +49,17 @@
  }
-
+ 
  func deviceModelLinux() string {
 +	// For Ubiquiti devices, use ubnt-device-info for accurate product name
 +	// instead of generic SoC name from DeviceTree.
