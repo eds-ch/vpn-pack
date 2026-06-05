@@ -37,7 +37,6 @@ CLAUDE.md
 
 # Documentation
 docs/*
-!docs/RELEASE-CHECKLIST.md
 
 # GitHub Wiki (separate git repo)
 wiki/
