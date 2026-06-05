@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -472,6 +473,79 @@ func stripUUIDWrapper(s string) string {
 
 func zoneIPSetName(chainPrefix string) string {
 	return chainPrefix + "_subnets"
+}
+
+// auditTsForwardOrderResult describes the FORWARD-chain order between
+// tailscaled's `-j ts-forward` hook and UniFi's `-j UBIOS_FORWARD_JUMP`.
+// SEC-C15: patch 005 sets the right order once at AddHooks time, but only
+// the firewall-watcher can catch a later regression (manual flush, restore
+// from save). Misplaced => ts-forward appears BEFORE UBIOS_FORWARD_JUMP,
+// which means Tailscale's fallback ACCEPT runs before UniFi zone policies.
+type auditTsForwardOrderResult struct {
+	HasUBIOS     bool
+	HasTSForward bool
+	TSForwardPos int // 1-based, 0 if missing
+	UBIOSPos     int // 1-based, 0 if missing
+}
+
+func (r auditTsForwardOrderResult) Misplaced() bool {
+	return r.HasUBIOS && r.HasTSForward && r.TSForwardPos < r.UBIOSPos
+}
+
+// auditTsForwardOrder walks the FORWARD chain rules in iptables-save
+// output. The input is the raw output of `iptables-save -t filter`.
+func auditTsForwardOrder(rulesText string) auditTsForwardOrderResult {
+	var res auditTsForwardOrderResult
+	pos := 0
+	prefix := "-A FORWARD "
+	for _, line := range strings.Split(rulesText, "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		pos++
+		if strings.Contains(line, "-j ts-forward") && !res.HasTSForward {
+			res.HasTSForward = true
+			res.TSForwardPos = pos
+		}
+		if strings.Contains(line, "-j UBIOS_FORWARD_JUMP") && !res.HasUBIOS {
+			res.HasUBIOS = true
+			res.UBIOSPos = pos
+		}
+	}
+	return res
+}
+
+// AuditAndFixTsForwardOrder verifies the FORWARD-chain ordering and, when
+// ts-forward is misplaced, removes the rule and re-inserts it immediately
+// after UBIOS_FORWARD_JUMP. Idempotent: no-op when ordering is correct.
+func (fm *FirewallManager) AuditAndFixTsForwardOrder(ctx context.Context) error {
+	rules := fm.cachedFilterRules()
+	if rules == "" {
+		return nil
+	}
+	res := auditTsForwardOrder(rules)
+	if !res.Misplaced() {
+		return nil
+	}
+	slog.Warn("ts-forward chain order regressed; restoring after UBIOS_FORWARD_JUMP",
+		"tsForwardPos", res.TSForwardPos, "ubiosPos", res.UBIOSPos)
+	if err := exec.CommandContext(ctx, "iptables", "-w", "2", "-t", "filter", "-D", "FORWARD", "-j", "ts-forward").Run(); err != nil {
+		return fmt.Errorf("delete misplaced ts-forward: %w", err)
+	}
+	// After deletion the rule above UBIOS shifts up by one; the new slot
+	// directly after UBIOS_FORWARD_JUMP is at position UBIOSPos (1-based).
+	insertAt := res.UBIOSPos
+	if err := exec.CommandContext(ctx, "iptables", "-w", "2", "-t", "filter", "-I", "FORWARD", strconv.Itoa(insertAt), "-j", "ts-forward").Run(); err != nil {
+		return fmt.Errorf("reinsert ts-forward at %d: %w", insertAt, err)
+	}
+	fm.invalidateFilterCache()
+	return nil
+}
+
+func (fm *FirewallManager) invalidateFilterCache() {
+	fm.filterMu.Lock()
+	fm.filterCache = ""
+	fm.filterMu.Unlock()
 }
 
 func (fm *FirewallManager) cachedFilterRules() string {

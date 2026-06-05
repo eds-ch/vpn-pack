@@ -201,3 +201,55 @@ func TestSetupWgS2sFirewall_ReportsIpsetFailure(t *testing.T) {
 		t.Fatal("chain rules must be rolled back on ipset failure")
 	}
 }
+
+// SEC-C15: ts-forward must run AFTER UBIOS_FORWARD_JUMP so UniFi zone
+// policies evaluate before Tailscale's fallback ACCEPT. The auditor must
+// recognise misplacement so the watcher can repair it.
+func TestAuditTsForwardOrder(t *testing.T) {
+	misplaced := `*filter
+:FORWARD ACCEPT [0:0]
+-A FORWARD -j ts-forward
+-A FORWARD -j UBIOS_FORWARD_JUMP
+COMMIT
+`
+	res := auditTsForwardOrder(misplaced)
+	if !res.Misplaced() {
+		t.Fatalf("expected Misplaced=true for %+v", res)
+	}
+	if res.TSForwardPos != 1 || res.UBIOSPos != 2 {
+		t.Fatalf("positions wrong: %+v", res)
+	}
+
+	correct := `*filter
+:FORWARD ACCEPT [0:0]
+-A FORWARD -j ts-mark
+-A FORWARD -j UBIOS_FORWARD_JUMP
+-A FORWARD -j ts-forward
+COMMIT
+`
+	res = auditTsForwardOrder(correct)
+	if res.Misplaced() {
+		t.Fatalf("expected Misplaced=false for %+v", res)
+	}
+	if res.TSForwardPos != 3 || res.UBIOSPos != 2 {
+		t.Fatalf("positions wrong: %+v", res)
+	}
+
+	tsOnly := `*filter
+-A FORWARD -j ts-forward
+COMMIT
+`
+	res = auditTsForwardOrder(tsOnly)
+	if res.Misplaced() {
+		t.Fatalf("ts-forward only must not be misplaced: %+v", res)
+	}
+
+	ubiosOnly := `*filter
+-A FORWARD -j UBIOS_FORWARD_JUMP
+COMMIT
+`
+	res = auditTsForwardOrder(ubiosOnly)
+	if res.Misplaced() {
+		t.Fatalf("UBIOS only must not be misplaced: %+v", res)
+	}
+}

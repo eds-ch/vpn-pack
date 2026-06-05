@@ -202,6 +202,13 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 		return
 	}
 
+	// SEC-C15: ts-forward may be present but at the wrong position relative
+	// to UBIOS_FORWARD_JUMP after manual flushes or restore-from-save. Audit
+	// the order on every tick; the call is idempotent when ordering is sane.
+	if err := s.fw.AuditAndFixTsForwardOrder(ctx); err != nil {
+		slog.Warn("ts-forward order audit failed", "err", err)
+	}
+
 	forward, input, output, ipset := s.fw.CheckTailscaleRulesPresent(ctx)
 
 	ts := s.manifest.GetTailscaleZone()

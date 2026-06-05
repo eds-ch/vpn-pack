@@ -60,6 +60,37 @@ func TestCheckAndRestoreRulesDeduplication(t *testing.T) {
 	assert.Equal(t, int32(1), maxConcurrent.Load(), "only one concurrent execution should happen")
 }
 
+// SEC-C15: the firewall watcher must invoke the ts-forward order audit on
+// every reconcile tick so a regression between AddHooks runs is repaired.
+func TestRestoreTailscaleRules_InvokesTsForwardOrderAudit(t *testing.T) {
+	orig := interfaceExistsFunc
+	interfaceExistsFunc = func(string) bool { return true }
+	t.Cleanup(func() { interfaceExistsFunc = orig })
+
+	var auditCalls atomic.Int32
+	fw := &mockFirewallService{
+		integrationReadyFn: func() bool { return true },
+		checkTailscaleRulesPresentFn: func(ctx context.Context) (bool, bool, bool, bool) {
+			return true, true, true, true
+		},
+		auditAndFixTsForwardOrderFn: func(ctx context.Context) error {
+			auditCalls.Add(1)
+			return nil
+		},
+	}
+	manifest := &mockManifestStore{
+		getTailscaleZoneFn: func() ZoneManifest { return ZoneManifest{ZoneID: "z1"} },
+	}
+	s := newTestServer(func(s *Server) {
+		s.fw = fw
+		s.manifest = manifest
+	})
+
+	s.restoreTailscaleRules(context.Background())
+
+	assert.Equal(t, int32(1), auditCalls.Load(), "audit must run on every restoreTailscaleRules tick")
+}
+
 func TestRetryLoop(t *testing.T) {
 	var callCount int
 	fn := func(context.Context) error {
