@@ -2,13 +2,15 @@ module unifi-tailscale/manager
 
 go 1.26.1
 
+toolchain go1.26.4
+
 require (
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/jsimonetti/rtnetlink v1.4.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.30.0
 	golang.org/x/sync v0.19.0
-	golang.org/x/sys v0.40.0
+	golang.org/x/sys v0.45.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	tailscale.com v0.0.0
 )
