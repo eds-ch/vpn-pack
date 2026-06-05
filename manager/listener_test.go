@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,4 +61,40 @@ func TestOpenManagerSocket_EmptyPathFails(t *testing.T) {
 	}
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errNoSocketPath) || err.Error() != "")
+}
+
+func TestSystemdListener_NotActivatedReturnsNilNil(t *testing.T) {
+	// No LISTEN_PID/LISTEN_FDS → process was not socket-activated.
+	// systemdListener must return (nil, nil), not an error, so the
+	// dev fallback path can take over cleanly.
+	t.Setenv("LISTEN_PID", "")
+	t.Setenv("LISTEN_FDS", "")
+	ln, err := systemdListener()
+	require.NoError(t, err)
+	assert.Nil(t, ln)
+}
+
+func TestSystemdListener_WrongPidIgnored(t *testing.T) {
+	// LISTEN_PID belonging to another process must not be honoured —
+	// otherwise env-var leakage from an unrelated socket-activated
+	// parent would point us at a random fd.
+	t.Setenv("LISTEN_PID", "1")
+	t.Setenv("LISTEN_FDS", "1")
+	ln, err := systemdListener()
+	require.NoError(t, err)
+	assert.Nil(t, ln)
+}
+
+func TestSystemdListener_RejectsMultipleFDs(t *testing.T) {
+	// We only ever configure ListenStream= once in vpn-pack-manager.socket;
+	// receiving more than one fd is a misconfiguration that should fail
+	// loudly rather than silently take fd 3 and leak fd 4+.
+	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
+	t.Setenv("LISTEN_FDS", "2")
+	ln, err := systemdListener()
+	if ln != nil {
+		_ = ln.Close()
+	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "want exactly 1")
 }

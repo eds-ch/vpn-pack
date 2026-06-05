@@ -11,6 +11,7 @@ STATE_DIR="${INSTALL_DIR}/state"
 CONFIG_DIR="${INSTALL_DIR}/config"
 SYSTEMD_UNIT="/etc/systemd/system/tailscaled.service"
 MANAGER_UNIT="/etc/systemd/system/vpn-pack-manager.service"
+MANAGER_SOCKET_UNIT="/etc/systemd/system/vpn-pack-manager.socket"
 NGINX_DEST="/data/unifi-core/config/http/shared-runnable-vpnpack.conf"
 
 # Parse flags
@@ -92,9 +93,19 @@ if systemctl is-active --quiet vpn-pack-manager 2>/dev/null; then
     systemctl stop vpn-pack-manager
 fi
 
+if systemctl is-active --quiet vpn-pack-manager.socket 2>/dev/null; then
+    info "Stopping vpn-pack-manager.socket..."
+    systemctl stop vpn-pack-manager.socket
+fi
+
 if systemctl is-enabled --quiet vpn-pack-manager 2>/dev/null; then
     info "Disabling vpn-pack-manager..."
     systemctl disable vpn-pack-manager
+fi
+
+if systemctl is-enabled --quiet vpn-pack-manager.socket 2>/dev/null; then
+    info "Disabling vpn-pack-manager.socket..."
+    systemctl disable vpn-pack-manager.socket
 fi
 
 if systemctl is-active --quiet tailscaled 2>/dev/null; then
@@ -150,7 +161,7 @@ fi
 
 # ── Remove systemd units ──────────────────────────────────────────
 
-for unit in "${MANAGER_UNIT}" "${SYSTEMD_UNIT}"; do
+for unit in "${MANAGER_UNIT}" "${MANAGER_SOCKET_UNIT}" "${SYSTEMD_UNIT}"; do
     if [ -f "$unit" ]; then
         info "Removing $(basename "$unit")..."
         rm -f "$unit"

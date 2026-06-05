@@ -1,0 +1,18 @@
+[Unit]
+Description=VPN Pack Manager API socket
+# Created and chowned by systemd before the service starts. The manager
+# process therefore does not need CAP_CHOWN to grant nginx group access
+# (closes GAP-002 from RELEASE-CHECKLIST.md).
+
+[Socket]
+ListenStream=/run/vpn-pack/manager.sock
+SocketUser=root
+SocketGroup=nginx
+SocketMode=0660
+# Surface activation cleanly: never auto-restart the listener on remove;
+# if the socket file goes missing we want the failure visible, not papered
+# over by a respawn.
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

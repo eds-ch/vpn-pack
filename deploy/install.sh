@@ -11,6 +11,7 @@ STATE_DIR="${INSTALL_DIR}/state"
 CONFIG_DIR="${INSTALL_DIR}/config"
 SYSTEMD_UNIT="/etc/systemd/system/tailscaled.service"
 MANAGER_UNIT="/etc/systemd/system/vpn-pack-manager.service"
+MANAGER_SOCKET_UNIT="/etc/systemd/system/vpn-pack-manager.socket"
 NGINX_SRC="${CONFIG_DIR}/nginx-vpnpack.conf"
 NGINX_DEST="/data/unifi-core/config/http/shared-runnable-vpnpack.conf"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -154,7 +155,10 @@ echo ""
 
 if [ "$UPGRADE" = true ]; then
     info "Stopping existing services..."
+    # Stop service before socket so an inbound connection during teardown
+    # doesn't accidentally relaunch a half-installed manager.
     systemctl stop vpn-pack-manager 2>/dev/null || true
+    systemctl stop vpn-pack-manager.socket 2>/dev/null || true
     systemctl stop tailscaled 2>/dev/null || true
 fi
 
@@ -200,13 +204,21 @@ nginx -s reload 2>/dev/null || warn "nginx reload failed (will be picked up on n
 info "Installing systemd services..."
 safe_install "${SCRIPT_DIR}/systemd/tailscaled.service" "${SYSTEMD_UNIT}" 0644
 safe_install "${SCRIPT_DIR}/systemd/vpn-pack-manager.service" "${MANAGER_UNIT}" 0644
+safe_install "${SCRIPT_DIR}/systemd/vpn-pack-manager.socket" "${MANAGER_SOCKET_UNIT}" 0644
 
 systemctl daemon-reload
 systemctl enable tailscaled
+# Socket must be enabled before the service so the listen fd is ready
+# when systemd activates the manager. .service Requires the .socket
+# unit, so a misordered start would be rejected by systemd anyway.
+systemctl enable vpn-pack-manager.socket
 systemctl enable vpn-pack-manager
 
 info "Starting tailscaled..."
 systemctl start tailscaled
+
+info "Starting vpn-pack-manager.socket..."
+systemctl start vpn-pack-manager.socket
 
 info "Starting vpn-pack-manager..."
 systemctl start vpn-pack-manager

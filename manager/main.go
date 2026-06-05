@@ -84,10 +84,20 @@ func main() {
 			"path", config.ManifestPath)
 	}
 
-	ln, err := openManagerSocket(*listenSocket)
+	ln, err := systemdListener()
 	if err != nil {
-		slog.Error("listener open failed", "err", err, "path", *listenSocket)
+		slog.Error("systemd socket activation failed", "err", err)
 		os.Exit(1)
+	}
+	if ln != nil {
+		slog.Info("socket source", "via", "systemd")
+	} else {
+		ln, err = openManagerSocket(*listenSocket)
+		if err != nil {
+			slog.Error("listener open failed", "err", err, "path", *listenSocket)
+			os.Exit(1)
+		}
+		slog.Info("socket source", "via", "self", "path", *listenSocket)
 	}
 
 	srv := NewServer(ctx, ServerOptions{

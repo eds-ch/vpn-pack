@@ -1,11 +1,14 @@
 [Unit]
 Description=VPN Pack Manager (UniFi)
-After=tailscaled.service ubios-udapi-server.service unifi-core.service
+After=tailscaled.service ubios-udapi-server.service unifi-core.service vpn-pack-manager.socket
 Wants=tailscaled.service
+Requires=vpn-pack-manager.socket
 
 [Service]
+# Socket activated: systemd opens /run/vpn-pack/manager.sock with the
+# right owner+mode and passes the fd via LISTEN_FDS. The manager picks
+# it up; --listen-socket flag is only used in dev/standalone mode.
 ExecStart=/persistent/vpn-pack/bin/vpn-pack-manager \
-    --listen-socket=/run/vpn-pack/manager.sock \
     --socket=/run/tailscale/tailscaled.sock
 RuntimeDirectory=vpn-pack
 RuntimeDirectoryMode=0755
@@ -14,6 +17,8 @@ RestartSec=5
 RestartPreventExitStatus=78
 
 # ── Hardening (SEC-B2) ──────────────────────────────────────────────
+# CAP_CHOWN intentionally absent: socket activation removes the need
+# to chown the socket file at runtime (closes GAP-002).
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=yes

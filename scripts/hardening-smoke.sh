@@ -192,6 +192,24 @@ else
     trap - EXIT
 fi
 
+# ── Probe 7: socket activation produced root:nginx 0660 sock ────────
+# GAP-002 regression guard: socket-activated /run/vpn-pack/manager.sock
+# must be owned by root:nginx with mode 0660. Without this, nginx
+# workers (group nginx) can't connect(2) and the UI returns 502.
+# Also verify the nginx user itself can actually open it.
+info "probe 7: /run/vpn-pack/manager.sock owner=root:nginx mode=660 and nginx-readable"
+sock_stat=$(run_ssh "stat -c '%U:%G %a' /run/vpn-pack/manager.sock 2>/dev/null")
+if [[ "$sock_stat" != "root:nginx 660" ]]; then
+    red "socket owner/mode wrong: got '$sock_stat', want 'root:nginx 660'"
+else
+    nginx_connect=$(run_ssh "sudo -u nginx curl -sf --max-time 3 --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL")
+    if [[ "$nginx_connect" == "ok" ]]; then
+        green "socket owner+mode correct and nginx user can connect"
+    else
+        red "socket owner/mode look correct but nginx user cannot connect — investigate"
+    fi
+fi
+
 # ── Probe 5: no new permission denials introduced by the restarts ──
 # Re-check the manager journal after both restarts above. Catches the
 # case where a denial happens only during a specific code path that

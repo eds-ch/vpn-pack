@@ -186,7 +186,8 @@ package: build
 	mkdir -p $(DIST_DIR)/$(PACKAGE_NAME)/systemd
 	cp $(BUILD_DIR)/tailscale $(BUILD_DIR)/tailscaled $(BUILD_DIR)/vpn-pack-manager \
 		$(DIST_DIR)/$(PACKAGE_NAME)/bin/
-	cp deploy/tailscaled.service deploy/tailscaled.defaults deploy/vpn-pack-manager.service \
+	cp deploy/tailscaled.service deploy/tailscaled.defaults \
+		deploy/vpn-pack-manager.service deploy/vpn-pack-manager.socket \
 		$(DIST_DIR)/$(PACKAGE_NAME)/systemd/
 	cp deploy/nginx-vpnpack.conf \
 		$(DIST_DIR)/$(PACKAGE_NAME)/
