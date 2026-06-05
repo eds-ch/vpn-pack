@@ -69,23 +69,27 @@ fi
 # empirically 2026-06-04: restart inode changed, content reverted). The
 # manager's NginxManager.EnsureConfig is the only thing keeping our
 # snippet authoritative across unifi-core restarts. Under ProtectSystem=
-# strict the manager needs explicit write access to that ONE file —
-# narrowed to the file path (not the directory) so a compromised manager
-# cannot overwrite shared-runnable-network.conf and other UniFi-managed
-# snippets. The "-" prefix tolerates the path being absent before the
-# first install.sh has run.
-if ! grep -qE "^ReadWritePaths=.*-/data/unifi-core/config/http/shared-runnable-vpnpack.conf" "$UNIT"; then
-    red "ReadWritePaths missing -/data/unifi-core/config/http/shared-runnable-vpnpack.conf (needed for nginx self-healing under unifi-core revert)"
+# strict the manager needs write access — and crucially, it must be able
+# to *recreate* the file from scratch after unifi-core deletes it.
+#
+# GAP-004 (2026-06-05): the original file-level bind (-/.../vpnpack.conf)
+# allowed in-place rewrites but blocked create-from-scratch under
+# ProtectSystem=strict (the parent dir was read-only). Widened to the
+# parent dir, which is the narrowest grant that still lets self-heal
+# recreate the file. Threat model: manager runs uid 0 and is the only
+# thing on this device writing to that dir, so widening is negligible
+# vs. the alternatives the manager already has at uid 0.
+#
+# Match the bare token /data/unifi-core/config/http as a whitespace-
+# separated path in the value, regardless of position. The token-stream
+# form ([^[:space:]]+[[:space:]]+)* tolerates any path ordering and
+# correctly rejects the old file-level revert
+# (-/data/unifi-core/config/http/shared-runnable-vpnpack.conf), which
+# would appear as a different non-space token.
+if ! grep -qE "^ReadWritePaths=([^[:space:]]+[[:space:]]+)*/data/unifi-core/config/http([[:space:]]|$)" "$UNIT"; then
+    red "ReadWritePaths missing /data/unifi-core/config/http (parent dir needed for nginx self-heal create-from-scratch — GAP-004)"
 else
-    green "ReadWritePaths includes -/data/unifi-core/config/http/shared-runnable-vpnpack.conf (file-level narrow)"
-fi
-
-# Hardening assertion: directory-level write to /data/unifi-core/config/http
-# would let a compromised manager overwrite UniFi-managed snippets like
-# shared-runnable-network.conf. Forbid it explicitly so a future "fix" that
-# widens the bind cannot land without this test failing.
-if grep -qE "^ReadWritePaths=.*[^/-]/data/unifi-core/config/http(\s|$)" "$UNIT"; then
-    red "ReadWritePaths must not bind /data/unifi-core/config/http as a directory — use the file path"
+    green "ReadWritePaths includes /data/unifi-core/config/http (parent-dir grant, GAP-004)"
 fi
 
 # Address-family restriction: AF_UNIX needed for UDAPI socket + manager
