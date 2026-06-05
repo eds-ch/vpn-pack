@@ -744,11 +744,20 @@ func (m *TunnelManager) save() error {
 	return saveConfig(filepath.Join(m.configDir, configFileName), m.config)
 }
 
+// checkPortAvailable verifies the UDP port is free for both v4 and v6
+// families. BUG-L11: probing only udp4 missed peers bound on [::]:port
+// with IPV6_V6ONLY=1, so manager started a second tunnel on a port that
+// wireguard-go could not actually claim end-to-end.
 func checkPortAvailable(port int) error {
-	conn, err := net.ListenPacket("udp4", fmt.Sprintf(":%d", port))
+	v4, err := net.ListenPacket("udp4", fmt.Sprintf(":%d", port))
 	if err != nil {
-		return fmt.Errorf("port in use or unavailable: %w", err)
+		return fmt.Errorf("port in use or unavailable (udp4): %w", err)
 	}
-	_ = conn.Close()
+	_ = v4.Close()
+	v6, err := net.ListenPacket("udp6", fmt.Sprintf("[::]:%d", port))
+	if err != nil {
+		return fmt.Errorf("port in use or unavailable (udp6): %w", err)
+	}
+	_ = v6.Close()
 	return nil
 }
