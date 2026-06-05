@@ -147,28 +147,40 @@ func listWgS2sInterfaces() ([]string, error) {
 	return result, nil
 }
 
+// buildIntegrationAPIHook and loadAPIKeyHook are overridden in tests.
+var buildIntegrationAPIHook = buildIntegrationAPI
+var loadAPIKeyHook = service.LoadAPIKey
+
+// vpnPackResourceNamePrefix is the common Name prefix every zone and
+// policy this manager creates carries (see service/firewall.go and
+// client/integration.go). The discovery fallback uses it to identify
+// our resources when the local manifest is missing or corrupt.
+const vpnPackResourceNamePrefix = "VPN Pack: "
+
 func removeIntegrationResources() {
-	apiKey := service.LoadAPIKey()
+	apiKey := loadAPIKeyHook()
 	if apiKey == "" {
 		slog.Warn("cleanup: no Integration API key, skipping zone/policy cleanup")
 		return
 	}
 
+	ic := buildIntegrationAPIHook(apiKey)
+	if !ic.HasAPIKey() {
+		slog.Warn("cleanup: integration disabled (SPKI pin missing); skipping zone/policy cleanup")
+		return
+	}
+
 	manifest, err := LoadManifest(config.ManifestPath)
 	if err != nil {
-		slog.Warn("cleanup: cannot load manifest, skipping zone/policy cleanup", "err", err)
+		slog.Warn("cleanup: manifest unreadable; falling back to API discovery", "err", err)
+		removeIntegrationResourcesByDiscovery(ic)
 		return
 	}
 
 	siteID := manifest.SiteID
 	if siteID == "" {
-		slog.Warn("cleanup: no site ID in manifest, skipping zone/policy cleanup")
-		return
-	}
-
-	ic := buildIntegrationAPI(apiKey)
-	if !ic.HasAPIKey() {
-		slog.Warn("cleanup: integration disabled (SPKI pin missing); skipping zone/policy cleanup")
+		slog.Warn("cleanup: no site ID in manifest; falling back to API discovery")
+		removeIntegrationResourcesByDiscovery(ic)
 		return
 	}
 	slog.Info("cleanup: removing Integration API zones and policies", "siteId", siteID)
@@ -220,6 +232,54 @@ func removeIntegrationResources() {
 	}
 
 	slog.Info("cleanup: Integration API cleanup complete")
+}
+
+// removeIntegrationResourcesByDiscovery is the BUG-L17 fallback. With no
+// manifest to consult, we ask the API which zones and policies exist and
+// delete everything whose Name carries our "VPN Pack: " prefix. Policies
+// must go before zones (FK constraint on the Integration side).
+func removeIntegrationResourcesByDiscovery(ic IntegrationAPI) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	siteID, err := ic.DiscoverSiteID(ctx)
+	if err != nil || siteID == "" {
+		slog.Warn("cleanup: discovery fallback aborted (no siteID)", "err", err)
+		return
+	}
+	slog.Info("cleanup: discovery fallback active", "siteId", siteID)
+
+	policies, err := ic.ListPolicies(ctx, siteID)
+	if err != nil {
+		slog.Warn("cleanup: discovery fallback could not list policies", "err", err)
+	} else {
+		for _, p := range policies {
+			if !strings.HasPrefix(p.Name, vpnPackResourceNamePrefix) {
+				continue
+			}
+			pid := p.ID
+			deleteResourceBestEffort("policy (discovered)", p.Name, func() error {
+				return ic.DeletePolicy(ctx, siteID, pid)
+			})
+		}
+	}
+
+	zones, err := ic.ListZones(ctx, siteID)
+	if err != nil {
+		slog.Warn("cleanup: discovery fallback could not list zones", "err", err)
+		return
+	}
+	for _, z := range zones {
+		if !strings.HasPrefix(z.Name, vpnPackResourceNamePrefix) {
+			continue
+		}
+		zid := z.ID
+		deleteResourceBestEffort("zone (discovered)", z.Name, func() error {
+			return ic.DeleteZone(ctx, siteID, zid)
+		})
+	}
+
+	slog.Info("cleanup: discovery fallback complete")
 }
 
 func removeExitNodeRules() {

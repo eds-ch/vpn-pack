@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os/exec"
+	"sync/atomic"
 	"testing"
+
+	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/service"
+	"unifi-tailscale/manager/state"
 )
 
 // TestRunCleanup_RefusesWhenManagerActive locks in the architectural
@@ -42,5 +48,70 @@ func TestCleanupManagerActiveCheck_FailsClosedOnProbeError(t *testing.T) {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		t.Fatalf("error is *exec.ExitError, should be exec setup error: %T", err)
+	}
+}
+
+// BUG-L17: if the manifest is corrupt or unreadable, the original cleanup
+// silently skipped all Integration-API deletes, leaving every zone and
+// policy this manager ever created orphaned in UniFi. The fallback uses
+// API discovery on the "VPN Pack: " name prefix.
+func TestRemoveIntegrationResources_DiscoveryFallback(t *testing.T) {
+	t.Cleanup(func() {
+		loadAPIKeyHook = service.LoadAPIKey
+		LoadManifest = state.LoadManifest
+		buildIntegrationAPIHook = buildIntegrationAPI
+	})
+
+	loadAPIKeyHook = func() string { return "fake-key" }
+	LoadManifest = func(string) (*state.Manifest, error) {
+		return nil, errors.New("manifest unreadable")
+	}
+
+	var deletedPolicies, deletedZones atomic.Int32
+	var seenDiscoverSiteID atomic.Bool
+	ic := &mockIntegrationAPI{
+		hasAPIKeyFn:      func() bool { return true },
+		discoverSiteIDFn: func(context.Context) (string, error) { seenDiscoverSiteID.Store(true); return "site-x", nil },
+		listPoliciesFn: func(context.Context, string) ([]domain.Policy, error) {
+			return []domain.Policy{
+				{ID: "p1", Name: "VPN Pack: Allow LAN to Tailscale"},
+				{ID: "p2", Name: "Some User Policy"}, // must NOT be deleted
+				{ID: "p3", Name: "VPN Pack: Allow Tailscale to LAN"},
+			}, nil
+		},
+		listZonesFn: func(context.Context, string) ([]domain.Zone, error) {
+			return []domain.Zone{
+				{ID: "z1", Name: "VPN Pack: Tailscale"},
+				{ID: "z2", Name: "Internal"}, // must NOT be deleted
+				{ID: "z3", Name: "VPN Pack: WireGuard S2S"},
+			}, nil
+		},
+		deletePolicyFn: func(_ context.Context, _ string, policyID string) error {
+			if policyID == "p2" {
+				t.Errorf("deleted non-VPN-Pack policy %q", policyID)
+			}
+			deletedPolicies.Add(1)
+			return nil
+		},
+		deleteZoneFn: func(_ context.Context, _ string, zoneID string) error {
+			if zoneID == "z2" {
+				t.Errorf("deleted non-VPN-Pack zone %q", zoneID)
+			}
+			deletedZones.Add(1)
+			return nil
+		},
+	}
+	buildIntegrationAPIHook = func(string) IntegrationAPI { return ic }
+
+	removeIntegrationResources()
+
+	if !seenDiscoverSiteID.Load() {
+		t.Fatal("expected discovery to invoke DiscoverSiteID when manifest is unreadable")
+	}
+	if got := deletedPolicies.Load(); got != 2 {
+		t.Fatalf("expected 2 VPN-Pack policies deleted, got %d", got)
+	}
+	if got := deletedZones.Load(); got != 2 {
+		t.Fatalf("expected 2 VPN-Pack zones deleted, got %d", got)
 	}
 }
