@@ -79,6 +79,49 @@ else
     green "no permission denials in last 5 minutes of manager journal"
 fi
 
+# ── Probe 7: socket activation produced root:nginx 0660 sock ────────
+# GAP-002 regression guard. Run BEFORE the unifi-core-restart probes
+# because manager bounces in response to unifi-core restart, and the
+# socket file is briefly absent each bounce. Measuring here gives a
+# clean steady-state read.
+info "probe 7: /run/vpn-pack/manager.sock owner=root:nginx mode=660 and nginx-readable"
+sock_stat=$(run_ssh "stat -c '%U:%G %a' /run/vpn-pack/manager.sock 2>/dev/null" || echo "")
+if [[ "$sock_stat" != "root:nginx 660" ]]; then
+    red "socket owner/mode wrong: got '$sock_stat', want 'root:nginx 660'"
+else
+    nginx_connect=$(run_ssh "sudo -u nginx curl -sf --max-time 3 --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL" || echo FAIL)
+    if [[ "$nginx_connect" == "ok" ]]; then
+        green "socket owner+mode correct and nginx user can connect"
+    else
+        red "socket owner/mode look correct but nginx user cannot connect — investigate"
+    fi
+fi
+
+# ── Probe 8: post-reboot simulation (GAP-002b regression guard) ─────
+# /run is tmpfs; after reboot /run/vpn-pack/ is empty. Run BEFORE the
+# unifi-core restart probes for the same reason as probe 7 — these are
+# steady-state cold-boot guarantees.
+info "probe 8: post-reboot simulation — socket unit recreates /run/vpn-pack on cold start"
+probe8_state=$(run_ssh '
+    systemctl stop vpn-pack-manager.service 2>/dev/null || true
+    systemctl stop vpn-pack-manager.socket   2>/dev/null || true
+    rm -rf /run/vpn-pack
+    systemctl start vpn-pack-manager.socket  2>&1 >/dev/null || true
+    dir_stat=$(stat -c "%U:%G %a" /run/vpn-pack 2>/dev/null || echo MISSING)
+    sock_active=$(systemctl is-active vpn-pack-manager.socket 2>/dev/null || echo inactive)
+    systemctl start vpn-pack-manager.service 2>&1 >/dev/null || true
+    svc_active=$(systemctl is-active vpn-pack-manager.service 2>/dev/null || echo inactive)
+    echo "dir=$dir_stat sock=$sock_active svc=$svc_active"
+' 2>&1 | tail -1 || echo "")
+case "$probe8_state" in
+    "dir=root:root 755 sock=active svc=active")
+        green "cold start re-created /run/vpn-pack root:root 0755 and both units came up active"
+        ;;
+    *)
+        red "post-reboot cold start failed: $probe8_state"
+        ;;
+esac
+
 # ── Probe 3: nginx snippet survives unifi-core restart ──────────────
 # This is the SEC-B2 × self-healing regression test. See header.
 info "probe 3: nginx snippet self-heals after unifi-core restart"
@@ -191,52 +234,6 @@ else
     probe6_cleanup
     trap - EXIT
 fi
-
-# ── Probe 7: socket activation produced root:nginx 0660 sock ────────
-# GAP-002 regression guard: socket-activated /run/vpn-pack/manager.sock
-# must be owned by root:nginx with mode 0660. Without this, nginx
-# workers (group nginx) can't connect(2) and the UI returns 502.
-# Also verify the nginx user itself can actually open it.
-info "probe 7: /run/vpn-pack/manager.sock owner=root:nginx mode=660 and nginx-readable"
-sock_stat=$(run_ssh "stat -c '%U:%G %a' /run/vpn-pack/manager.sock 2>/dev/null")
-if [[ "$sock_stat" != "root:nginx 660" ]]; then
-    red "socket owner/mode wrong: got '$sock_stat', want 'root:nginx 660'"
-else
-    nginx_connect=$(run_ssh "sudo -u nginx curl -sf --max-time 3 --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL")
-    if [[ "$nginx_connect" == "ok" ]]; then
-        green "socket owner+mode correct and nginx user can connect"
-    else
-        red "socket owner/mode look correct but nginx user cannot connect — investigate"
-    fi
-fi
-
-# ── Probe 8: post-reboot simulation (GAP-002b regression guard) ─────
-# /run is tmpfs; after reboot /run/vpn-pack/ is empty. The .socket unit
-# must re-create it via its own RuntimeDirectory= — otherwise
-# ListenStream= fails ENOENT and the manager never comes up.
-# Without an actual reboot we tear down units, wipe the dir, and
-# start the socket cold to exercise the same code path.
-info "probe 8: post-reboot simulation — socket unit recreates /run/vpn-pack on cold start"
-probe8_state=$(run_ssh '
-    set -e
-    systemctl stop vpn-pack-manager.service 2>/dev/null || true
-    systemctl stop vpn-pack-manager.socket   2>/dev/null || true
-    rm -rf /run/vpn-pack
-    systemctl start vpn-pack-manager.socket  2>&1
-    dir_stat=$(stat -c "%U:%G %a" /run/vpn-pack 2>/dev/null || echo MISSING)
-    sock_active=$(systemctl is-active vpn-pack-manager.socket 2>/dev/null || echo inactive)
-    systemctl start vpn-pack-manager.service 2>&1
-    svc_active=$(systemctl is-active vpn-pack-manager.service 2>/dev/null || echo inactive)
-    echo "dir=$dir_stat sock=$sock_active svc=$svc_active"
-' 2>&1 | tail -1)
-case "$probe8_state" in
-    "dir=root:root 755 sock=active svc=active")
-        green "cold start re-created /run/vpn-pack root:root 0755 and both units came up active"
-        ;;
-    *)
-        red "post-reboot cold start failed: $probe8_state"
-        ;;
-esac
 
 # ── Probe 5: no new permission denials introduced by the restarts ──
 # Re-check the manager journal after both restarts above. Catches the
