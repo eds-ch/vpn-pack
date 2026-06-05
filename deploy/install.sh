@@ -155,10 +155,15 @@ echo ""
 
 if [ "$UPGRADE" = true ]; then
     info "Stopping existing services..."
-    # Stop service before socket so an inbound connection during teardown
-    # doesn't accidentally relaunch a half-installed manager.
-    systemctl stop vpn-pack-manager 2>/dev/null || true
+    # Stop socket BEFORE service. If service stops first, the socket
+    # keeps listening; the next inbound connection (nginx worker,
+    # healthcheck, browser tab on /vpn-pack/) socket-activates the
+    # service again — with the STILL-OLD on-disk binary, because
+    # binary replacement happens later in this script. The upgrade
+    # then fails with "Socket service vpn-pack-manager.service
+    # already active, refusing." when we try to start the new socket.
     systemctl stop vpn-pack-manager.socket 2>/dev/null || true
+    systemctl stop vpn-pack-manager 2>/dev/null || true
     systemctl stop tailscaled 2>/dev/null || true
 fi
 

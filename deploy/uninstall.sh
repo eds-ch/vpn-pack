@@ -88,14 +88,17 @@ echo ""
 
 # ── Stop services ─────────────────────────────────────────────────
 
-if systemctl is-active --quiet vpn-pack-manager 2>/dev/null; then
-    info "Stopping vpn-pack-manager..."
-    systemctl stop vpn-pack-manager
-fi
-
+# Stop socket BEFORE service so an inbound connection during teardown
+# (nginx worker, healthcheck, browser tab) can't socket-activate the
+# service back to life. Mirrors install.sh's upgrade-path ordering.
 if systemctl is-active --quiet vpn-pack-manager.socket 2>/dev/null; then
     info "Stopping vpn-pack-manager.socket..."
     systemctl stop vpn-pack-manager.socket
+fi
+
+if systemctl is-active --quiet vpn-pack-manager 2>/dev/null; then
+    info "Stopping vpn-pack-manager..."
+    systemctl stop vpn-pack-manager
 fi
 
 if systemctl is-enabled --quiet vpn-pack-manager 2>/dev/null; then
