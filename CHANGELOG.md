@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Release artifacts (`vpn-pack-<ver>.tar.gz`, `checksums.txt`) are now
+  signed with cosign keyless OIDC. Verifiers must pin the identity
+  `eduard.chesnokov@gmail.com` and issuer
+  `https://github.com/login/oauth` — both `get.sh` and the standalone
+  `install.sh` enforce this and refuse silent fallback. See README
+  "Verifying release signatures" for the manual `cosign verify-blob`
+  invocation. This identity is the documented signer for the upcoming
+  v1.6.0 release line; rotation will be noted here and bumped in the
+  installer constants together.
+
+## [1.5.2-beta.8] - 2026-06-05
+
 ### Changed
 - Tailscale updated from 1.96.4 to 1.98.5 (resolves the deferral
   recorded in `[1.5.2-beta.7]`). Upstream skipped a stable 1.97 minor
@@ -31,16 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the new nodeattr is set; nil-deref fixes for nftables chain
     check and connmark rules without IPv6.
 
-### Security
-- Release artifacts (`vpn-pack-<ver>.tar.gz`, `checksums.txt`) are now
-  signed with cosign keyless OIDC. Verifiers must pin the identity
-  `eduard.chesnokov@gmail.com` and issuer
-  `https://github.com/login/oauth` — both `get.sh` and the standalone
-  `install.sh` enforce this and refuse silent fallback. See README
-  "Verifying release signatures" for the manual `cosign verify-blob`
-  invocation. This identity is the documented signer for the upcoming
-  v1.6.0 release line; rotation will be noted here and bumped in the
-  installer constants together.
+### Notes
+- Manager Go code (`tailscale.com/{client/local,ipn,ipn/ipnstate,tailcfg,types/key,types/netmap,types/views}`)
+  compiles unchanged against v1.98.5 — no API breaks. `go test -race
+  -shuffle=on ./...`, `golangci-lint`, `svelte-check`, and `vitest`
+  (220/220) all green on the dev host. Full ARM64 cross-build clean.
+- Soak required before stable: patches 005 (`util/linuxfw`) and 006
+  (`wgengine/router/osrouter`) sit in the most-changed upstream zones
+  for this range (+80 / +68 LoC respectively). Device verification on
+  UDM-SE recommended before promoting to `[1.5.2]`.
 
 ## [1.5.2-beta.7] - 2026-06-05
 
@@ -406,7 +418,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.7...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.8...HEAD
+[1.5.2-beta.8]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.7...v1.5.2-beta.8
 [1.5.2-beta.7]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2-beta.7
 [1.5.0]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.1...v1.4.2
