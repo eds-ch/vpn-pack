@@ -7,16 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-06-06
+
+Stable release rolling up `1.5.2-beta.1..8`. See per-beta sections
+below for full detail.
+
 ### Security
 - Release artifacts (`vpn-pack-<ver>.tar.gz`, `checksums.txt`) are now
-  signed with cosign keyless OIDC. Verifiers must pin the identity
-  `eduard.chesnokov@gmail.com` and issuer
-  `https://github.com/login/oauth` — both `get.sh` and the standalone
-  `install.sh` enforce this and refuse silent fallback. See README
-  "Verifying release signatures" for the manual `cosign verify-blob`
-  invocation. This identity is the documented signer for the upcoming
-  v1.6.0 release line; rotation will be noted here and bumped in the
-  installer constants together.
+  signed with cosign keyless OIDC; `get.sh` and `install.sh` enforce
+  signature verification fail-closed (pin identity
+  `eduard.chesnokov@gmail.com`, issuer
+  `https://github.com/login/oauth`). `get.sh` bootstraps a pinned
+  cosign binary when one is missing on the device.
+- Tailscale baseline bumped from 1.96.4 to 1.98.5 (two-minor jump;
+  upstream skipped a stable 1.97).
+- Go toolchain bumped to 1.26.4 (transitive `crypto/x509`,
+  `crypto/tls`, `archive/tar`, `html/template`, `net/http`, `mime`,
+  `net/textproto` patches).
+- UI: `vite` 6.4.1 → 6.4.3 closes two high-severity advisories;
+  `npm audit` clean.
+- Manager: HTTP middleware stack (auth, CSRF, JSON, recover) and
+  structured log redaction (`logredact`).
+
+### Fixed
+- systemd socket-activation hardening: socket unit owns its
+  `RuntimeDirectory`; service no longer races the socket on (re)start;
+  installer stops socket before service to close the
+  socket-activation race; `ReadWritePaths` widened to nginx-snippet
+  parent dir to unblock self-heal.
+- Release: annotated tag is created at HEAD before `gh release create`
+  so the tag points at the real commit instead of a moving ref.
+- State: deep-copy `Self`, `IntegrationStatus`, `FirewallHealth` in
+  `Snapshot` to prevent JSON-marshal races.
+- wgs2s: port availability checked on both `udp4` and `udp6`;
+  shared-route blackhole and cleanup-by-prefix when manifest is
+  unreadable.
+- Patches: forward-chain order audit; throw-route error propagation;
+  tighter exit-node classification.
+- Misc: `logbuffer` `maxSize` clamped to avoid div-by-zero; bounded
+  Tailscale localapi client decorator.
+
+### Changed
+- CI runs on `release/**` branches and `workflow_dispatch`.
+- 12 `golangci-lint` findings closed ahead of stable.
+
+### Verified
+- 24h idle soak on UDM-SE (firmware 5.1.15, UniFi Network 10.4.57)
+  with `1.5.2-beta.8`: zero `NRestarts` on `tailscaled` and
+  `vpn-pack-manager`, zero warning/kernel events after boot,
+  `reconnects=0` throughout, RSS / FD / thread counts plateaued,
+  `ts-*` chain and route-table state identical at T+0 and T+24h.
 
 ## [1.5.2-beta.8] - 2026-06-05
 
@@ -432,7 +472,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.8...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2
 [1.5.2-beta.8]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.7...v1.5.2-beta.8
 [1.5.2-beta.7]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2-beta.7
 [1.5.0]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...v1.5.0
