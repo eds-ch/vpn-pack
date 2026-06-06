@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/internal/wgs2s"
 	"unifi-tailscale/manager/service"
 
 	"github.com/stretchr/testify/assert"
@@ -17,6 +19,99 @@ import (
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 )
+
+// BUG-M7: applyRefreshState must compute I/O-bound enrichment (wgManager
+// status, firewall health, routing health) OUTSIDE the state mutex so a
+// concurrent Snapshot() is not blocked behind subprocess / interface I/O.
+func TestApplyRefreshState_DoesNotHoldMutexOverWgStatusIO(t *testing.T) {
+	block := make(chan struct{})
+	started := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+
+	wgMock := &mockWgS2sControl{
+		getStatusesFn: func() []wgs2s.WgS2sStatus {
+			close(started)
+			<-block
+			return nil
+		},
+	}
+
+	s := newTestServer(func(s *Server) {
+		s.wgManager = wgMock
+	})
+
+	go s.applyRefreshState(context.Background(), nil, nil)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wgManager.GetStatuses was not invoked from applyRefreshState")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = s.state.Snapshot()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Snapshot returned promptly — state mutex was free.
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("state.Snapshot blocked while applyRefreshState held the state mutex over wgManager.GetStatuses I/O (BUG-M7)")
+	}
+}
+
+// BUG-M15: tailscale logout / backend transition to NeedsLogin should
+// invalidate any previously-cached AuthURL. Without this, the UI keeps
+// offering the now-defunct login link from a prior session until the
+// next BrowseToURL/LoginFinished notification.
+func TestUpdateStateFromNotify_ClearsAuthURLOnLogout(t *testing.T) {
+	s := newTestServer()
+
+	loginURL := "https://login.tailscale.com/admin/?key=tskey-auth-stale"
+	s.updateStateFromNotify(&ipn.Notify{BrowseToURL: &loginURL})
+	require.Equal(t, loginURL, s.state.Snapshot().AuthURL, "precondition: AuthURL must be set after BrowseToURL")
+
+	needsLogin := ipn.NeedsLogin
+	s.updateStateFromNotify(&ipn.Notify{State: &needsLogin})
+
+	if got := s.state.Snapshot().AuthURL; got != "" {
+		t.Fatalf("AuthURL must be cleared on logout/NeedsLogin transition; got %q", got)
+	}
+}
+
+// Logout via Stopped state (e.g. tailscale down) should also drop the
+// stale AuthURL.
+func TestUpdateStateFromNotify_ClearsAuthURLOnStopped(t *testing.T) {
+	s := newTestServer()
+
+	loginURL := "https://login.tailscale.com/admin/?key=tskey-auth-stale"
+	s.updateStateFromNotify(&ipn.Notify{BrowseToURL: &loginURL})
+
+	stopped := ipn.Stopped
+	s.updateStateFromNotify(&ipn.Notify{State: &stopped})
+
+	if got := s.state.Snapshot().AuthURL; got != "" {
+		t.Fatalf("AuthURL must be cleared on Stopped transition; got %q", got)
+	}
+}
+
+// Sanity: the Running transition (mid-login) must not eat the AuthURL
+// before the user has had a chance to follow it.
+func TestUpdateStateFromNotify_PreservesAuthURLWhileRunning(t *testing.T) {
+	s := newTestServer()
+
+	loginURL := "https://login.tailscale.com/admin/?key=tskey-auth-live"
+	s.updateStateFromNotify(&ipn.Notify{BrowseToURL: &loginURL})
+
+	running := ipn.Running
+	s.updateStateFromNotify(&ipn.Notify{State: &running})
+
+	if got := s.state.Snapshot().AuthURL; got != loginURL {
+		t.Fatalf("AuthURL must survive Running state; got %q want %q", got, loginURL)
+	}
+}
 
 func TestExtractPeers_IncludesExitNodeFields(t *testing.T) {
 	k1 := key.NewNode().Public()

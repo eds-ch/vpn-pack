@@ -29,7 +29,16 @@ type LogBuffer struct {
 	maxSize int
 }
 
+// minLogBufferSize is the floor NewLogBuffer enforces so the ring math
+// (modulo maxSize) is always defined and Add never indexes a zero slice.
+// BUG-L7: callers that pass zero or a negative value used to crash the
+// process; clamp so the buffer is always at least usable.
+const minLogBufferSize = 1
+
 func NewLogBuffer(maxSize int) *LogBuffer {
+	if maxSize < minLogBufferSize {
+		maxSize = minLogBufferSize
+	}
 	return &LogBuffer{
 		entries: make([]LogEntry, maxSize),
 		maxSize: maxSize,

@@ -14,6 +14,7 @@ import (
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
+	"unifi-tailscale/manager/ops"
 )
 
 const wgMaxPort = 65535
@@ -39,7 +40,7 @@ type WgS2sFirewall interface {
 	TeardownZone(ctx context.Context, tunnelID string)
 	OpenWanPort(ctx context.Context, port int, iface string)
 	CloseWanPort(ctx context.Context, port int, iface string)
-	CheckRulesPresent(ctx context.Context, ifaces []string) map[string]bool
+	CheckRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool
 	IntegrationReady() bool
 }
 
@@ -61,8 +62,9 @@ type LocalSubnetsProvider func() []SubnetEntry
 // --- Types ---
 
 type ZoneInfo struct {
-	ZoneID   string
-	ZoneName string
+	ZoneID      string
+	ZoneName    string
+	ChainPrefix string
 }
 
 type ZoneSetupResult struct {
@@ -310,13 +312,47 @@ func (svc *WgS2sService) DeleteTunnel(ctx context.Context, id string) error {
 		return notFoundError("tunnel not found")
 	}
 
-	if err := svc.loadWG().DeleteTunnel(id); err != nil {
+	// Saga: firewall teardown → zone teardown → low-level wg delete. If the
+	// final step fails, the firewall is re-installed so the operator can
+	// retry safely (BUG-L10 service-level).
+	tunnelCopy := *t
+	err := ops.Run(ctx, []ops.Op{
+		{
+			Name: "tear down tunnel firewall",
+			Do: func(_ context.Context) error {
+				svc.teardownTunnelFirewall(ctx, &tunnelCopy)
+				return nil
+			},
+			Undo: func(_ context.Context) error {
+				if svc.fw == nil {
+					return nil
+				}
+				if err := svc.fw.SetupFirewall(ctx, tunnelCopy.ID, tunnelCopy.InterfaceName, tunnelCopy.AllowedIPs); err != nil {
+					slog.Warn("rollback: restoring firewall failed", "tunnelID", tunnelCopy.ID, "err", err)
+				}
+				svc.fw.OpenWanPort(ctx, tunnelCopy.ListenPort, tunnelCopy.InterfaceName)
+				return nil
+			},
+		},
+		{
+			Name: "teardown firewall zone",
+			Do: func(_ context.Context) error {
+				if svc.fw != nil {
+					svc.fw.TeardownZone(ctx, id)
+				}
+				return nil
+			},
+			Undo: func(_ context.Context) error {
+				slog.Warn("rollback: zone teardown cannot be auto-restored; operator must recreate", "tunnelID", id)
+				return nil
+			},
+		},
+		ops.Noop("low-level wg delete (kernel + disk + keys)", func(_ context.Context) error {
+			return svc.loadWG().DeleteTunnel(id)
+		}),
+	})
+	if err != nil {
 		return upstreamError(humanizeWgS2sError(err), err)
-	}
-
-	svc.teardownTunnelFirewall(ctx, t)
-	if svc.fw != nil {
-		svc.fw.TeardownZone(ctx, id)
 	}
 	return nil
 }
@@ -469,13 +505,28 @@ func (svc *WgS2sService) EnrichForwardINOk(ctx context.Context, statuses []wgs2s
 	if svc.fw == nil {
 		return
 	}
-	var ifaces []string
-	for _, st := range statuses {
-		if st.Enabled {
-			ifaces = append(ifaces, st.InterfaceName)
+	tunnelByIface := make(map[string]*wgs2s.TunnelConfig)
+	if wg := svc.loadWG(); wg != nil {
+		tunnels := wg.GetTunnels()
+		for i := range tunnels {
+			tunnelByIface[tunnels[i].InterfaceName] = &tunnels[i]
 		}
 	}
-	fwPresent := svc.fw.CheckRulesPresent(ctx, ifaces)
+	var specs []domain.WgS2sCheckSpec
+	for _, st := range statuses {
+		if !st.Enabled {
+			continue
+		}
+		spec := domain.WgS2sCheckSpec{InterfaceName: st.InterfaceName}
+		if t, ok := tunnelByIface[st.InterfaceName]; ok {
+			spec.Subnets = t.AllowedIPs
+			if zm, found := svc.manifest.GetZone(t.ID); found {
+				spec.ChainPrefix = zm.ChainPrefix
+			}
+		}
+		specs = append(specs, spec)
+	}
+	fwPresent := svc.fw.CheckRulesPresent(ctx, specs)
 	for i := range statuses {
 		statuses[i].ForwardINOk = fwPresent[statuses[i].InterfaceName]
 	}

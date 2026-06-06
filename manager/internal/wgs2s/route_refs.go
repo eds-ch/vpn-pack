@@ -53,6 +53,16 @@ func (rc *routeRefCounter) add(cidr, tunnelID string, ifIndex uint32, metric int
 	return first
 }
 
+// owns reports whether tunnelID is registered as an owner of the CIDR at metric.
+func (rc *routeRefCounter) owns(cidr, tunnelID string, metric int) bool {
+	for _, o := range rc.owners[routeKey(cidr, metric)] {
+		if o.tunnelID == tunnelID {
+			return true
+		}
+	}
+	return false
+}
+
 // remove unregisters a tunnel as owner of a CIDR route at a given metric.
 // Returns remaining owners after removal.
 func (rc *routeRefCounter) remove(cidr, tunnelID string, metric int) []routeOwner {

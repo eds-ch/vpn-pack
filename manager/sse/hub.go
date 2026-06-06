@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -66,6 +67,17 @@ func (h *Hub) BroadcastNamed(event string, data []byte) {
 		default:
 		}
 	}
+}
+
+// BroadcastIfChanged sends data to subscribers only if it differs from the
+// last stored state. Centralised, race-free dedup; replaces the racy
+// Server.lastBroadcast []byte compared from multiple goroutines.
+func (h *Hub) BroadcastIfChanged(data []byte) {
+	prev := h.CurrentState()
+	if bytes.Equal(prev, data) {
+		return
+	}
+	h.Broadcast(data)
 }
 
 func (h *Hub) CurrentState() []byte {

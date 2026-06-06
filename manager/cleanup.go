@@ -17,15 +17,51 @@ import (
 	"unifi-tailscale/manager/udapi"
 )
 
-func runCleanup() {
+// cleanupManagerActiveCheck reports whether vpn-pack-manager.service is
+// currently active. Overridable in tests; defaults to systemctl probe.
+// Cleanup must run only with the manager service stopped — otherwise the
+// daemon and the cleanup binary can both issue concurrent GET-modify-PUT
+// cycles against UDAPI ipsets and lose updates (UDAPI exposes no
+// versioning, so the intra-process RMW lock cannot extend cross-process).
+//
+// Fail-closed: only an *exec.ExitError (systemctl ran, said "not active")
+// is treated as not-active. Any other error (binary missing, dbus
+// unreachable, permission denied) is treated as could-not-verify, and
+// the guard returns true so cleanup refuses rather than racing blind.
+var cleanupManagerActiveCheck = func() bool {
+	err := exec.Command("systemctl", "is-active", "--quiet", "vpn-pack-manager.service").Run()
+	if err == nil {
+		return true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return false
+	}
+	slog.Warn("cleanup: cannot determine manager service state; assuming active for safety", "err", err)
+	return true
+}
+
+// errCleanupRefused is returned by runCleanup when it refuses to run
+// because the manager service is still active.
+var errCleanupRefused = errors.New("vpn-pack-manager.service is active; stop it first (systemctl stop vpn-pack-manager) before running --cleanup")
+
+func runCleanup() error {
 	slog.Info("cleanup: removing UDAPI firewall rules and WG S2S interfaces")
+
+	if cleanupManagerActiveCheck() {
+		slog.Error("cleanup refused: manager service active", "err", errCleanupRefused)
+		return errCleanupRefused
+	}
 
 	uc := udapi.NewClient(config.UDAPISocketPath)
 
-	removeTailscaleUDAPIRules(uc)
-	removeWgS2sUDAPIRules(uc)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	removeTailscaleUDAPIRules(ctx, uc)
+	removeWgS2sUDAPIRules(ctx, uc)
 	removeWgS2sInterfaces()
-	removeSubnetsEntries(uc)
+	removeSubnetsEntries(ctx, uc)
 	removeExitNodeRules()
 
 	removeIntegrationResources()
@@ -37,18 +73,19 @@ func runCleanup() {
 	}
 
 	slog.Info("cleanup: done")
+	return nil
 }
 
-func removeTailscaleUDAPIRules(uc *udapi.UDAPIClient) {
+func removeTailscaleUDAPIRules(ctx context.Context, uc *udapi.UDAPIClient) {
 	marker := config.FirewallMarker
-	if err := udapi.RemoveInterfaceRules(uc, config.TailscaleInterface, marker); err != nil {
+	if err := udapi.RemoveInterfaceRules(ctx, uc, config.TailscaleInterface, marker); err != nil {
 		slog.Warn("cleanup: tailscale UDAPI rules removal failed", "err", err)
 	} else {
 		slog.Info("cleanup: tailscale UDAPI rules removed")
 	}
 }
 
-func removeWgS2sUDAPIRules(uc *udapi.UDAPIClient) {
+func removeWgS2sUDAPIRules(ctx context.Context, uc *udapi.UDAPIClient) {
 	ifaces, err := listWgS2sInterfaces()
 	if err != nil {
 		slog.Warn("cleanup: could not list wg-s2s interfaces", "err", err)
@@ -56,7 +93,7 @@ func removeWgS2sUDAPIRules(uc *udapi.UDAPIClient) {
 	}
 	for _, iface := range ifaces {
 		marker := wgS2sMarkerPrefix + iface
-		if err := udapi.RemoveInterfaceRules(uc, iface, marker); err != nil {
+		if err := udapi.RemoveInterfaceRules(ctx, uc, iface, marker); err != nil {
 			slog.Warn("cleanup: wg-s2s UDAPI rules removal failed", "iface", iface, "err", err)
 		} else {
 			slog.Info("cleanup: wg-s2s UDAPI rules removed", "iface", iface)
@@ -78,18 +115,18 @@ func removeWgS2sInterfaces() {
 	}
 }
 
-func removeSubnetsEntries(uc *udapi.UDAPIClient) {
+func removeSubnetsEntries(ctx context.Context, uc *udapi.UDAPIClient) {
 	manifest, err := LoadManifest(config.ManifestPath)
 	if err == nil && manifest.Tailscale.ChainPrefix != "" && manifest.Tailscale.ChainPrefix != config.DefaultChainPrefix {
 		ipsetName := zoneIPSetName(manifest.Tailscale.ChainPrefix)
-		if err := udapi.RemoveZoneSubnet(uc, ipsetName, config.TailscaleCGNAT); err != nil {
+		if err := udapi.RemoveZoneSubnet(ctx, uc, ipsetName, config.TailscaleCGNAT); err != nil {
 			slog.Warn("cleanup: zone ipset entry removal failed", "ipset", ipsetName, "err", err)
 		} else {
 			slog.Info("cleanup: zone ipset entry removed", "ipset", ipsetName, "cidr", config.TailscaleCGNAT)
 		}
 	}
 
-	if err := udapi.RemoveVPNSubnet(uc, config.TailscaleCGNAT); err != nil {
+	if err := udapi.RemoveVPNSubnet(ctx, uc, config.TailscaleCGNAT); err != nil {
 		slog.Warn("cleanup: VPN_subnets entry removal failed", "err", err)
 	} else {
 		slog.Info("cleanup: VPN_subnets entry removed", "cidr", config.TailscaleCGNAT)
@@ -110,26 +147,42 @@ func listWgS2sInterfaces() ([]string, error) {
 	return result, nil
 }
 
+// buildIntegrationAPIHook and loadAPIKeyHook are overridden in tests.
+var buildIntegrationAPIHook = buildIntegrationAPI
+var loadAPIKeyHook = service.LoadAPIKey
+
+// vpnPackResourceNamePrefix is the common Name prefix every zone and
+// policy this manager creates carries (see service/firewall.go and
+// client/integration.go). The discovery fallback uses it to identify
+// our resources when the local manifest is missing or corrupt.
+const vpnPackResourceNamePrefix = "VPN Pack: "
+
 func removeIntegrationResources() {
-	apiKey := service.LoadAPIKey()
+	apiKey := loadAPIKeyHook()
 	if apiKey == "" {
 		slog.Warn("cleanup: no Integration API key, skipping zone/policy cleanup")
 		return
 	}
 
+	ic := buildIntegrationAPIHook(apiKey)
+	if !ic.HasAPIKey() {
+		slog.Warn("cleanup: integration disabled (SPKI pin missing); skipping zone/policy cleanup")
+		return
+	}
+
 	manifest, err := LoadManifest(config.ManifestPath)
 	if err != nil {
-		slog.Warn("cleanup: cannot load manifest, skipping zone/policy cleanup", "err", err)
+		slog.Warn("cleanup: manifest unreadable; falling back to API discovery", "err", err)
+		removeIntegrationResourcesByDiscovery(ic)
 		return
 	}
 
 	siteID := manifest.SiteID
 	if siteID == "" {
-		slog.Warn("cleanup: no site ID in manifest, skipping zone/policy cleanup")
+		slog.Warn("cleanup: no site ID in manifest; falling back to API discovery")
+		removeIntegrationResourcesByDiscovery(ic)
 		return
 	}
-
-	ic := NewIntegrationClient(apiKey)
 	slog.Info("cleanup: removing Integration API zones and policies", "siteId", siteID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -179,6 +232,54 @@ func removeIntegrationResources() {
 	}
 
 	slog.Info("cleanup: Integration API cleanup complete")
+}
+
+// removeIntegrationResourcesByDiscovery is the BUG-L17 fallback. With no
+// manifest to consult, we ask the API which zones and policies exist and
+// delete everything whose Name carries our "VPN Pack: " prefix. Policies
+// must go before zones (FK constraint on the Integration side).
+func removeIntegrationResourcesByDiscovery(ic IntegrationAPI) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	siteID, err := ic.DiscoverSiteID(ctx)
+	if err != nil || siteID == "" {
+		slog.Warn("cleanup: discovery fallback aborted (no siteID)", "err", err)
+		return
+	}
+	slog.Info("cleanup: discovery fallback active", "siteId", siteID)
+
+	policies, err := ic.ListPolicies(ctx, siteID)
+	if err != nil {
+		slog.Warn("cleanup: discovery fallback could not list policies", "err", err)
+	} else {
+		for _, p := range policies {
+			if !strings.HasPrefix(p.Name, vpnPackResourceNamePrefix) {
+				continue
+			}
+			pid := p.ID
+			deleteResourceBestEffort("policy (discovered)", p.Name, func() error {
+				return ic.DeletePolicy(ctx, siteID, pid)
+			})
+		}
+	}
+
+	zones, err := ic.ListZones(ctx, siteID)
+	if err != nil {
+		slog.Warn("cleanup: discovery fallback could not list zones", "err", err)
+		return
+	}
+	for _, z := range zones {
+		if !strings.HasPrefix(z.Name, vpnPackResourceNamePrefix) {
+			continue
+		}
+		zid := z.ID
+		deleteResourceBestEffort("zone (discovered)", z.Name, func() error {
+			return ic.DeleteZone(ctx, siteID, zid)
+		})
+	}
+
+	slog.Info("cleanup: discovery fallback complete")
 }
 
 func removeExitNodeRules() {

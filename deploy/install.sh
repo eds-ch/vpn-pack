@@ -11,6 +11,7 @@ STATE_DIR="${INSTALL_DIR}/state"
 CONFIG_DIR="${INSTALL_DIR}/config"
 SYSTEMD_UNIT="/etc/systemd/system/tailscaled.service"
 MANAGER_UNIT="/etc/systemd/system/vpn-pack-manager.service"
+MANAGER_SOCKET_UNIT="/etc/systemd/system/vpn-pack-manager.socket"
 NGINX_SRC="${CONFIG_DIR}/nginx-vpnpack.conf"
 NGINX_DEST="/data/unifi-core/config/http/shared-runnable-vpnpack.conf"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,6 +31,25 @@ info()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
 error() { echo -e "${RED}[x]${NC} $*"; }
 die()   { error "$*"; exit 1; }
+
+# safe_install writes $src to $dst at $mode atomically. If $dst exists
+# and is a symlink, the install aborts — this prevents an attacker who
+# can pre-create a symlink at a known config path from steering writes
+# to an arbitrary file. Staging happens in the same directory as $dst
+# so the final mv is an atomic rename on the same filesystem.
+safe_install() {
+    local src=$1 dst=$2 mode=$3
+    if [[ -L "$dst" ]]; then
+        echo "FATAL: refusing to write through symlink at $dst" >&2
+        exit 1
+    fi
+    local dir tmp
+    dir=$(dirname "$dst")
+    tmp=$(mktemp "${dir}/.install.XXXXXX")
+    chmod "$mode" "$tmp"
+    cp -f --no-dereference "$src" "$tmp"
+    mv -f "$tmp" "$dst"
+}
 
 check_network_version() {
     local raw major minor rest pkg
@@ -135,6 +155,14 @@ echo ""
 
 if [ "$UPGRADE" = true ]; then
     info "Stopping existing services..."
+    # Stop socket BEFORE service. If service stops first, the socket
+    # keeps listening; the next inbound connection (nginx worker,
+    # healthcheck, browser tab on /vpn-pack/) socket-activates the
+    # service again — with the STILL-OLD on-disk binary, because
+    # binary replacement happens later in this script. The upgrade
+    # then fails with "Socket service vpn-pack-manager.service
+    # already active, refusing." when we try to start the new socket.
+    systemctl stop vpn-pack-manager.socket 2>/dev/null || true
     systemctl stop vpn-pack-manager 2>/dev/null || true
     systemctl stop tailscaled 2>/dev/null || true
 fi
@@ -151,6 +179,11 @@ cp -f "${SCRIPT_DIR}/bin/tailscaled" "${BIN_DIR}/tailscaled"
 cp -f "${SCRIPT_DIR}/bin/vpn-pack-manager" "${BIN_DIR}/vpn-pack-manager"
 chmod 755 "${BIN_DIR}/tailscale" "${BIN_DIR}/tailscaled" "${BIN_DIR}/vpn-pack-manager"
 
+# Record manager binary sha256 so uninstall.sh can refuse to run --cleanup
+# against a tampered binary (SEC-C4).
+sha256sum "${BIN_DIR}/vpn-pack-manager" | awk '{print $1}' > "${BIN_DIR}/.expected-sha256"
+chmod 0644 "${BIN_DIR}/.expected-sha256"
+
 ln -sf "${BIN_DIR}/tailscale" /usr/local/bin/tailscale
 ln -sf "${BIN_DIR}/tailscaled" /usr/local/bin/tailscaled
 
@@ -163,21 +196,34 @@ else
 fi
 
 info "Installing nginx config for /vpn-pack/ path..."
-cp -f "${SCRIPT_DIR}/nginx-vpnpack.conf" "${NGINX_SRC}"
+safe_install "${SCRIPT_DIR}/nginx-vpnpack.conf" "${NGINX_SRC}" 0644
 mkdir -p "$(dirname "${NGINX_DEST}")"
-cp -f "${NGINX_SRC}" "${NGINX_DEST}"
+safe_install "${NGINX_SRC}" "${NGINX_DEST}" 0644
+if ! nginx_test_output=$(nginx -t 2>&1); then
+    error "nginx config test failed; refusing to reload"
+    echo "$nginx_test_output" >&2
+    exit 1
+fi
 nginx -s reload 2>/dev/null || warn "nginx reload failed (will be picked up on next restart)"
 
 info "Installing systemd services..."
-cp -f "${SCRIPT_DIR}/systemd/tailscaled.service" "${SYSTEMD_UNIT}"
-cp -f "${SCRIPT_DIR}/systemd/vpn-pack-manager.service" "${MANAGER_UNIT}"
+safe_install "${SCRIPT_DIR}/systemd/tailscaled.service" "${SYSTEMD_UNIT}" 0644
+safe_install "${SCRIPT_DIR}/systemd/vpn-pack-manager.service" "${MANAGER_UNIT}" 0644
+safe_install "${SCRIPT_DIR}/systemd/vpn-pack-manager.socket" "${MANAGER_SOCKET_UNIT}" 0644
 
 systemctl daemon-reload
 systemctl enable tailscaled
+# Socket must be enabled before the service so the listen fd is ready
+# when systemd activates the manager. .service Requires the .socket
+# unit, so a misordered start would be rejected by systemd anyway.
+systemctl enable vpn-pack-manager.socket
 systemctl enable vpn-pack-manager
 
 info "Starting tailscaled..."
 systemctl start tailscaled
+
+info "Starting vpn-pack-manager.socket..."
+systemctl start vpn-pack-manager.socket
 
 info "Starting vpn-pack-manager..."
 systemctl start vpn-pack-manager

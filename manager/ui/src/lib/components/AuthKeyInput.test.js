@@ -42,6 +42,30 @@ describe('AuthKeyInput', () => {
         expect(button).toBeDisabled();
     });
 
+    // SEC-C22: auth-key value must be masked by default and must NOT be
+    // offered to browser autofill / spellcheck pipelines. Without this,
+    // anyone with shoulder access to the UI sees the tskey-auth-* secret
+    // in cleartext and the value gets fed to OS-level spellcheckers.
+    it('masks the auth key by default and disables autofill/spellcheck', () => {
+        render(AuthKeyInput);
+        const input = screen.getByPlaceholderText('tskey-auth-...');
+        expect(input).toHaveAttribute('type', 'password');
+        expect(input).toHaveAttribute('autocomplete', 'off');
+        expect(input).toHaveAttribute('spellcheck', 'false');
+    });
+
+    it('reveals the auth key after the show toggle is pressed', async () => {
+        render(AuthKeyInput);
+        const input = screen.getByPlaceholderText('tskey-auth-...');
+        const toggle = screen.getByRole('button', { name: /show auth key/i });
+        expect(input).toHaveAttribute('type', 'password');
+
+        await fireEvent.click(toggle);
+
+        expect(input).toHaveAttribute('type', 'text');
+        expect(screen.getByRole('button', { name: /hide auth key/i })).toBeInTheDocument();
+    });
+
     it('calls connectWithAuthKey when Enter is pressed with valid key', async () => {
         connectWithAuthKey.mockResolvedValue({ ok: true });
         render(AuthKeyInput);

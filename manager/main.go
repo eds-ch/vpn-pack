@@ -7,16 +7,19 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"unifi-tailscale/manager/client"
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/sse"
 	"unifi-tailscale/manager/state"
 )
 
 func main() {
-	listen := flag.String("listen", "127.0.0.1:9090", "listen address (for development/testing override)")
+	listenSocket := flag.String("listen-socket", "/run/vpn-pack/manager.sock", "manager API unix-socket listener path")
 	socket := flag.String("socket", "/run/tailscale/tailscaled.sock", "tailscaled socket path")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	cleanup := flag.Bool("cleanup", false, "remove UDAPI rules, WG S2S interfaces, and Integration API zones/policies, then exit")
@@ -27,10 +30,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	slog.SetDefault(slog.New(logredact.Wrap(slog.NewJSONHandler(os.Stderr, nil))))
 
 	if *cleanup {
-		runCleanup()
+		if err := runCleanup(); err != nil {
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -57,19 +62,49 @@ func main() {
 	}
 
 	apiKey := service.LoadAPIKey()
-	ic := NewIntegrationClient(apiKey)
+	ic := buildIntegrationAPI(apiKey)
+
+	sweepStartupOrphanTmps([]string{
+		filepath.Dir(config.ManifestPath),
+		config.WgS2sConfigDir,
+	})
 
 	manifest, err := LoadManifest(config.ManifestPath)
 	if err != nil {
 		slog.Warn("manifest load failed", "err", err)
 		manifest = state.NewManifest(config.ManifestPath)
 	}
+	if manifest.Recovered() {
+		// BUG-L8: with the manifest gone, the integration zones/policies in
+		// UniFi may be orphaned. Scan-based cleanup that does not depend on
+		// manifest state is the scope of BUG-L17 / Task 10.12; until then,
+		// the operator can run `vpn-pack-manager --cleanup` to remove the
+		// known resources (best-effort while the manifest is empty).
+		slog.Warn("manifest was corrupted at load; quarantined and reset to empty; integration zones may be orphaned — run `vpn-pack-manager --cleanup` to remove residual resources",
+			"path", config.ManifestPath)
+	}
+
+	ln, err := systemdListener()
+	if err != nil {
+		slog.Error("systemd socket activation failed", "err", err)
+		os.Exit(1)
+	}
+	if ln != nil {
+		slog.Info("socket source", "via", "systemd")
+	} else {
+		ln, err = openManagerSocket(*listenSocket)
+		if err != nil {
+			slog.Error("listener open failed", "err", err, "path", *listenSocket)
+			os.Exit(1)
+		}
+		slog.Info("socket source", "via", "self", "path", *listenSocket)
+	}
 
 	srv := NewServer(ctx, ServerOptions{
-		ListenAddr:  *listen,
+		Listener:    ln,
 		SocketPath:  *socket,
 		DeviceInfo:  info,
-		Tailscale:   NewTailscaleControl(*socket),
+		Tailscale:   client.NewBoundedTailscaleControl(NewTailscaleControl(*socket), config.TailscaleLocalAPITimeout),
 		Hub:         sse.NewHub(),
 		Manifest:    manifest,
 		Integration: ic,
@@ -85,4 +120,26 @@ func main() {
 	}
 
 	slog.Info("shutting down")
+}
+
+// buildIntegrationAPI returns a real IntegrationClient when the UniFi
+// loopback cert SPKI pin can be loaded, or a NoopIntegrationAPI when
+// not (SEC-C5 fail-closed). The Server path is nil-unsafe so a no-op
+// implementation is always required when the real client is absent.
+func buildIntegrationAPI(apiKey string) IntegrationAPI {
+	pin, err := client.LoadSPKIPin(config.UniFiCertPath)
+	if err != nil {
+		slog.Error("integration disabled — SPKI pin unavailable", "err", err, "certPath", config.UniFiCertPath)
+		return client.NoopIntegrationAPI()
+	}
+	ic, err := client.NewIntegrationClient(client.IntegrationConfig{
+		Endpoint: config.IntegrationBaseURL,
+		APIKey:   apiKey,
+		SPKIPin:  pin,
+	})
+	if err != nil {
+		slog.Error("integration disabled — client construct failed", "err", err)
+		return client.NoopIntegrationAPI()
+	}
+	return ic
 }

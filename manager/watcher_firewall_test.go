@@ -9,6 +9,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/internal/stress"
+	"unifi-tailscale/manager/service"
 )
 
 func TestCheckAndRestoreRulesDeduplication(t *testing.T) {
@@ -56,6 +60,37 @@ func TestCheckAndRestoreRulesDeduplication(t *testing.T) {
 	assert.Equal(t, int32(1), maxConcurrent.Load(), "only one concurrent execution should happen")
 }
 
+// SEC-C15: the firewall watcher must invoke the ts-forward order audit on
+// every reconcile tick so a regression between AddHooks runs is repaired.
+func TestRestoreTailscaleRules_InvokesTsForwardOrderAudit(t *testing.T) {
+	orig := interfaceExistsFunc
+	interfaceExistsFunc = func(string) bool { return true }
+	t.Cleanup(func() { interfaceExistsFunc = orig })
+
+	var auditCalls atomic.Int32
+	fw := &mockFirewallService{
+		integrationReadyFn: func() bool { return true },
+		checkTailscaleRulesPresentFn: func(ctx context.Context) (bool, bool, bool, bool) {
+			return true, true, true, true
+		},
+		auditAndFixTsForwardOrderFn: func(ctx context.Context) error {
+			auditCalls.Add(1)
+			return nil
+		},
+	}
+	manifest := &mockManifestStore{
+		getTailscaleZoneFn: func() ZoneManifest { return ZoneManifest{ZoneID: "z1"} },
+	}
+	s := newTestServer(func(s *Server) {
+		s.fw = fw
+		s.manifest = manifest
+	})
+
+	s.restoreTailscaleRules(context.Background())
+
+	assert.Equal(t, int32(1), auditCalls.Load(), "audit must run on every restoreTailscaleRules tick")
+}
+
 func TestRetryLoop(t *testing.T) {
 	var callCount int
 	fn := func(context.Context) error {
@@ -91,4 +126,89 @@ func TestRetryLoopContinuesOnError(t *testing.T) {
 	ctx := context.Background()
 	retryLoop(ctx, 3, 10*time.Millisecond, fn)
 	assert.Equal(t, 3, callCount, "should retry all attempts even on errors")
+}
+
+// TestSetupTailscaleFirewall_ConcurrencyGuard verifies that the restoring CAS
+// serialises SetupTailscaleFirewall callers so concurrent paths (SIGHUP
+// reapply, OnKeyConfigured, repairMissingPolicies, boot apply) cannot run the
+// inner setup in parallel and produce duplicate UDAPI zone-create attempts.
+// BUG-M6.
+func TestSetupTailscaleFirewall_ConcurrencyGuard(t *testing.T) {
+	s := &Server{}
+
+	var concurrent atomic.Int64
+	var maxConcurrent atomic.Int64
+
+	stress.Run(t, 8, 50, func(int) {
+		s.guardedSetup(func() {
+			cur := concurrent.Add(1)
+			for {
+				old := maxConcurrent.Load()
+				if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
+					break
+				}
+			}
+			time.Sleep(50 * time.Microsecond)
+			concurrent.Add(-1)
+		})
+	})
+
+	if got := maxConcurrent.Load(); got != 1 {
+		t.Fatalf("expected guard to serialize callers (max concurrency 1); got %d", got)
+	}
+	if s.restoring.Load() {
+		t.Fatal("restoring flag leaked: still true after all goroutines completed")
+	}
+}
+
+// TestIntegrationNotifier_OnKeyConfiguredUsesGuard verifies the adapter routes
+// SetupTailscaleFirewall through the injected guard rather than calling
+// FirewallOrchestrator directly. Regression guard for BUG-M6: if a refactor
+// reintroduces the raw call, this test fires.
+func TestIntegrationNotifier_OnKeyConfiguredUsesGuard(t *testing.T) {
+	var guardCalls atomic.Int64
+	guard := func(context.Context) (*service.SetupResult, bool) {
+		guardCalls.Add(1)
+		return &service.SetupResult{}, true
+	}
+
+	adapter := &integrationNotifierAdapter{
+		fwOrch:       &service.FirewallOrchestrator{}, // any non-nil pointer
+		guardedSetup: guard,
+		health:       NewHealthTracker(&mockSSEHub{}),
+		state:        domain.NewTailscaleState(),
+		broadcast:    func() {},
+		openWanPort:  func(context.Context) {},
+	}
+
+	adapter.OnKeyConfigured(context.Background(), &service.IntegrationStatus{SiteID: "site-1"})
+
+	if got := guardCalls.Load(); got != 1 {
+		t.Fatalf("expected OnKeyConfigured to call guardedSetup exactly once; got %d", got)
+	}
+}
+
+// TestGuardedSetup_RejectsWhileHeld verifies a second caller arriving while
+// the guard is held bails out with ran=false instead of waiting or running.
+func TestGuardedSetup_RejectsWhileHeld(t *testing.T) {
+	s := &Server{}
+
+	enter := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		s.guardedSetup(func() {
+			close(enter)
+			<-release
+		})
+		close(done)
+	}()
+
+	<-enter
+	if s.guardedSetup(func() {}) {
+		t.Fatal("expected guardedSetup to return false while the CAS is held")
+	}
+	close(release)
+	<-done
 }

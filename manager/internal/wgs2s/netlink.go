@@ -3,10 +3,28 @@ package wgs2s
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/jsimonetti/rtnetlink"
 	"golang.org/x/sys/unix"
 )
+
+// listInterfacesByPrefix returns every kernel interface whose name starts with
+// the given prefix. Used by RestoreAll to enumerate wg-s2s* interfaces and
+// scrub orphans (BUG-L12).
+func listInterfacesByPrefix(prefix string) []ifaceEntry {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var result []ifaceEntry
+	for _, ifc := range ifaces {
+		if strings.HasPrefix(ifc.Name, prefix) {
+			result = append(result, ifaceEntry{name: ifc.Name, idx: uint32(ifc.Index)})
+		}
+	}
+	return result
+}
 
 func createInterface(conn *rtnetlink.Conn, name string) (uint32, error) {
 	err := conn.Link.New(&rtnetlink.LinkMessage{

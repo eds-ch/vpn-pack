@@ -12,7 +12,7 @@
 
 VPNPACK_VERSION   := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
 PRERELEASE_FLAG   := $(if $(findstring -,$(VPNPACK_VERSION)),--prerelease,)
-TAILSCALE_VERSION := 1.96.4
+TAILSCALE_VERSION := 1.98.5
 
 TAILSCALE_SRC     := reference/tailscale
 BUILD_DIR         := build
@@ -47,11 +47,34 @@ MANAGER_LDFLAGS   := -s -w -X unifi-tailscale/manager/config.Version=$(VPNPACK_V
                      -X unifi-tailscale/manager/config.BuildDate=$(BUILD_DATE) \
                      -X unifi-tailscale/manager/config.GithubRepo=$(GITHUB_REPO)
 
-.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums release check check-go check-ui ui-stub
+.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning check-no-key-leak hardening-smoke
 
 # ── Checks (lint + test) ──────────────────────────────────────────
 
-check: check-go check-ui
+check: check-go check-ui check-nginx-symmetry check-tls-pinning check-no-key-leak
+
+check-nginx-symmetry:
+	@echo "==> Verifying nginx location include symmetry..."
+	./deploy/check-nginx-symmetry.sh
+
+check-tls-pinning:
+	@echo "==> Verifying SPKI pin TLS guard..."
+	./scripts/check-tls-pinning.sh
+
+check-no-key-leak:
+	@echo "==> Verifying no WG private-key persistence in Svelte components..."
+	./scripts/check-no-key-leak.sh
+
+# Device-side smoke for the systemd hardening (SEC-B2). Requires SSH
+# access to a UDM-SE-like device. Restarts unifi-core and the manager
+# unit — disruptive on a production gateway, intended for the test
+# device only.
+hardening-smoke:
+ifndef HOST
+	$(error HOST is required. Usage: make hardening-smoke HOST=192.168.1.1)
+endif
+	@echo "==> Running hardening smoke on $(HOST) (restarts unifi-core + manager)..."
+	./scripts/hardening-smoke.sh $(HOST)
 
 check-go: fetch-tailscale ui-stub
 	@echo "==> Running go vet..."
@@ -59,7 +82,7 @@ check-go: fetch-tailscale ui-stub
 	@echo "==> Running golangci-lint..."
 	cd $(MANAGER_DIR) && golangci-lint run --config ../.golangci.yml ./...
 	@echo "==> Running go test..."
-	cd $(MANAGER_DIR) && $(GO) test -race -count=1 ./...
+	cd $(MANAGER_DIR) && $(GO) test -race -shuffle=on -count=1 ./...
 	@echo "==> All Go checks passed."
 
 check-ui:
@@ -163,7 +186,8 @@ package: build
 	mkdir -p $(DIST_DIR)/$(PACKAGE_NAME)/systemd
 	cp $(BUILD_DIR)/tailscale $(BUILD_DIR)/tailscaled $(BUILD_DIR)/vpn-pack-manager \
 		$(DIST_DIR)/$(PACKAGE_NAME)/bin/
-	cp deploy/tailscaled.service deploy/tailscaled.defaults deploy/vpn-pack-manager.service \
+	cp deploy/tailscaled.service deploy/tailscaled.defaults \
+		deploy/vpn-pack-manager.service deploy/vpn-pack-manager.socket \
 		$(DIST_DIR)/$(PACKAGE_NAME)/systemd/
 	cp deploy/nginx-vpnpack.conf \
 		$(DIST_DIR)/$(PACKAGE_NAME)/
@@ -186,15 +210,36 @@ checksums: package
 	cd $(DIST_DIR) && sha256sum $(ARCHIVE_NAME).tar.gz > checksums.txt
 	@cat $(DIST_DIR)/checksums.txt
 
+# ── Sign ───────────────────────────────────────────────────────────
+
+sign: checksums
+	@echo "==> Signing release artifacts (cosign keyless OIDC)..."
+	./scripts/cosign-sign.sh \
+		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz \
+		$(DIST_DIR)/checksums.txt
+
 # ── Release ────────────────────────────────────────────────────────
 
-release: checksums
+release: sign
+	@if git rev-parse "v$(VPNPACK_VERSION)" >/dev/null 2>&1; then \
+		echo "ERROR: tag v$(VPNPACK_VERSION) already exists locally (HEAD=$$(git rev-parse --short HEAD)). Refusing to re-release."; \
+		exit 1; \
+	fi
+	@if git ls-remote --tags --exit-code origin "v$(VPNPACK_VERSION)" >/dev/null 2>&1; then \
+		echo "ERROR: tag v$(VPNPACK_VERSION) already exists on origin. Refusing to overwrite."; \
+		exit 1; \
+	fi
+	@echo "==> Tagging v$(VPNPACK_VERSION) at $$(git rev-parse --short HEAD) on $$(git rev-parse --abbrev-ref HEAD)..."
+	git tag -a "v$(VPNPACK_VERSION)" -m "vpn-pack v$(VPNPACK_VERSION)"
+	git push origin "v$(VPNPACK_VERSION)"
 	@echo "==> Creating GitHub release v$(VPNPACK_VERSION)..."
 	@printf 'Tailscale %s for UniFi Cloud Gateway devices.\n\n## Install\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/%s/main/get.sh | bash\n```\n' \
 		"$(TAILSCALE_VERSION)" "$(GITHUB_REPO)" > $(DIST_DIR)/release-notes.md
 	gh release create "v$(VPNPACK_VERSION)" \
 		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz \
+		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz.cosign.bundle \
 		$(DIST_DIR)/checksums.txt \
+		$(DIST_DIR)/checksums.txt.cosign.bundle \
 		get.sh \
 		--title "vpn-pack v$(VPNPACK_VERSION)" \
 		--notes-file $(DIST_DIR)/release-notes.md \

@@ -59,13 +59,50 @@ func TestLoadManifest(t *testing.T) {
 		assert.Equal(t, "VPN", m.Tailscale.ChainPrefix)
 	})
 
-	t.Run("corrupt JSON returns error", func(t *testing.T) {
+	t.Run("corrupt JSON returns empty manifest with Recovered=true", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		require.NoError(t, os.WriteFile(path, []byte("{invalid"), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		assert.True(t, m.Recovered(), "Recovered() should be true after parse failure")
+		assert.Equal(t, "", m.SiteID, "recovered manifest should be empty")
+		assert.Equal(t, "", m.Tailscale.ZoneID)
+	})
+
+	t.Run("corrupt JSON quarantines the original payload", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "manifest.json")
 		require.NoError(t, os.WriteFile(path, []byte("{invalid"), 0600))
 
 		_, err := state.LoadManifest(path)
-		assert.Error(t, err)
+		require.NoError(t, err)
+
+		matches, err := filepath.Glob(path + ".corrupt-*")
+		require.NoError(t, err)
+		require.NotEmpty(t, matches, "expected a quarantine .corrupt-* file")
+		got, err := os.ReadFile(matches[0])
+		require.NoError(t, err)
+		assert.Equal(t, "{invalid", string(got))
+	})
+
+	t.Run("valid manifest reports Recovered=false", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "manifest.json")
+		require.NoError(t, os.WriteFile(path, []byte(`{"version":2,"siteId":"s"}`), 0600))
+
+		m, err := state.LoadManifest(path)
+		require.NoError(t, err)
+		assert.False(t, m.Recovered())
+	})
+
+	t.Run("missing file reports Recovered=false", func(t *testing.T) {
+		dir := t.TempDir()
+		m, err := state.LoadManifest(filepath.Join(dir, "manifest.json"))
+		require.NoError(t, err)
+		assert.False(t, m.Recovered())
 	})
 }
 

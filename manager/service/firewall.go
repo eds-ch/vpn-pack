@@ -34,8 +34,8 @@ type FirewallManifest interface {
 
 type FirewallOps interface {
 	DiscoverChainPrefix(ctx context.Context, zoneID string) string
-	EnsureTailscaleRules(chainPrefix string) error
-	RemoveTailscaleInterfaceRules() error
+	EnsureTailscaleRules(ctx context.Context, chainPrefix string) error
+	RemoveTailscaleInterfaceRules(ctx context.Context) error
 }
 
 // --- Types ---
@@ -146,7 +146,11 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 		result.ChainPrefix = discovered
 	}
 
-	oldPrefix := o.manifest.GetTailscaleChainPrefix()
+	oldZone := o.manifest.GetTailscaleZone()
+	oldPrefix := oldZone.ChainPrefix
+	if oldPrefix == "" {
+		oldPrefix = o.manifest.GetTailscaleChainPrefix()
+	}
 
 	if err := o.manifest.SetTailscaleZone(zone.ZoneID, zone.ZoneName, policyIDs, result.ChainPrefix); err != nil {
 		result.addError("manifest", err)
@@ -156,20 +160,28 @@ func (o *FirewallOrchestrator) SetupTailscaleFirewall(ctx context.Context) *Setu
 		return result
 	}
 
+	restoreManifest := func() {
+		if err := o.manifest.SetTailscaleZone(oldZone.ZoneID, oldZone.ZoneName, oldZone.PolicyIDs, oldPrefix); err != nil {
+			slog.Warn("manifest rollback failed", "err", err)
+		}
+	}
+
 	if ctx.Err() != nil {
 		result.addError("context", ctx.Err())
+		restoreManifest()
 		return result
 	}
 
 	if result.ChainPrefix != oldPrefix {
-		if err := o.ops.RemoveTailscaleInterfaceRules(); err != nil {
+		if err := o.ops.RemoveTailscaleInterfaceRules(ctx); err != nil {
 			slog.Warn("failed to remove old tailscale rules during chain prefix migration",
 				"oldPrefix", oldPrefix, "newPrefix", result.ChainPrefix, "err", err)
 		}
 	}
 
-	if err := o.ops.EnsureTailscaleRules(result.ChainPrefix); err != nil {
+	if err := o.ops.EnsureTailscaleRules(ctx, result.ChainPrefix); err != nil {
 		result.addError("udapi", err)
+		restoreManifest()
 		return result
 	}
 	result.UDAPIApplied = true

@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Release artifacts (`vpn-pack-<ver>.tar.gz`, `checksums.txt`) are now
+  signed with cosign keyless OIDC. Verifiers must pin the identity
+  `eduard.chesnokov@gmail.com` and issuer
+  `https://github.com/login/oauth` — both `get.sh` and the standalone
+  `install.sh` enforce this and refuse silent fallback. See README
+  "Verifying release signatures" for the manual `cosign verify-blob`
+  invocation. This identity is the documented signer for the upcoming
+  v1.6.0 release line; rotation will be noted here and bumped in the
+  installer constants together.
+
+## [1.5.2-beta.8] - 2026-06-05
+
+### Changed
+- Tailscale updated from 1.96.4 to 1.98.5 (resolves the deferral
+  recorded in `[1.5.2-beta.7]`). Upstream skipped a stable 1.97 minor
+  — only `v1.97.0-pre` exists — so this is a two-minor jump landing
+  on the latest stable. Patches `001..006` regenerated against fresh
+  v1.98.5 context: payload identical (line-for-line `+`/`-` counts
+  match), only header `# Tailscale-Version` and surrounding context
+  refreshed; `make verify-patches` clean.
+- Upstream changes inside the patch surface that warranted review
+  (all benign, none required patch-logic changes):
+  - `wgengine/router/osrouter`: `src_valid_mark=1` set alongside the
+    connmark save/restore rules so `rp_filter`'s reverse-path check
+    actually uses the bypass fwmark — fixes a martian-drop class of
+    bugs on hosts where `net.ipv4.conf.all.src_valid_mark` defaults
+    to 0. Complements (does not collide with) our patch 006 exit-node
+    routing into table 53.
+  - `wgengine/router/osrouter`: netfilter add-on blocks (connmark
+    rules and CGNAT drop) now gate on `r.netfilterMode` instead of
+    `cfg.NetfilterMode` to match the SNAT/loopback pattern when
+    `setNetfilterModeLocked` fails.
+  - `util/linuxfw`: incoming CGNAT-range traffic now allowed when
+    the new nodeattr is set; nil-deref fixes for nftables chain
+    check and connmark rules without IPv6.
+
+### Notes
+- Manager Go code (`tailscale.com/{client/local,ipn,ipn/ipnstate,tailcfg,types/key,types/netmap,types/views}`)
+  compiles unchanged against v1.98.5 — no API breaks. `go test -race
+  -shuffle=on ./...`, `golangci-lint`, `svelte-check`, and `vitest`
+  (220/220) all green on the dev host. Full ARM64 cross-build clean.
+- 24h idle soak passed on UDM-SE (firmware 5.1.15, UniFi Network
+  10.4.57) starting 2026-06-05 12:06Z. 13 checkpoints at 2h cadence,
+  zero NRestarts on `tailscaled` and `vpn-pack-manager`, zero
+  `journalctl -p warning` entries across the run, zero `journalctl -k`
+  events after the post-OTA boot window, manager `/api/health`
+  `reconnects=0` throughout. RSS reached plateau after ~14h
+  (tailscaled ~40.5 MB, manager ~19.2 MB); FD and thread counts flat
+  after T+6h. `ts-*` chain count (19) and route tables 52/30 / 53/0
+  identical at T+0 and T+24h. Full trend per-checkpoint kept in the
+  gitignored `docs/soak-1.5.2-beta.8-notes.md`. This was an
+  observation soak (no synthetic API traffic, no peer-change events);
+  it validates background watcher and Tailscale steady-state on the
+  patched code, not per-request paths.
+- Earlier note about patch surface in this Tailscale range: patches
+  005 (`util/linuxfw`) and 006 (`wgengine/router/osrouter`) sit in
+  the most-changed upstream zones (+80 / +68 LoC respectively); the
+  soak above is the gate that closes that risk for the patched code's
+  idle behavior.
+
+## [1.5.2-beta.7] - 2026-06-05
+
+### Security
+- Go toolchain bumped to 1.26.4 via `toolchain` directive in
+  `manager/go.mod`. Pulls in upstream patches for `crypto/x509`,
+  `crypto/tls`, `archive/tar`, `html/template`, `net/http`, `mime`,
+  `net/textproto` across Go 1.26.2/.3/.4. Local Go install is not
+  required to upgrade — `GOTOOLCHAIN=auto` downloads 1.26.4 on first
+  build. Tailscale upstream `go.mod` is unchanged.
+- UI: `vite` 6.4.1 → 6.4.3 closes two high-severity advisories
+  (dev-server path traversal in optimized-deps `.map` handling and
+  WebSocket arbitrary file read). In-range `npm audit fix` also swept
+  transitive `undici`, `rollup`, `postcss`, `picomatch`. `npm audit`
+  now reports 0 vulnerabilities.
+
+### Changed
+- manager: `fsnotify` v1.9.0 → v1.10.1 (inotify watch handling on
+  shared path prefixes; kqueue fd leak fix)
+- manager: `golang.org/x/sys` v0.40.0 → v0.45.0
+- ui: `svelte` 5.53.1 → 5.56.2 (reactivity / effect-tracking patches)
+- ui: `vitest` 4.0.18 → 4.1.8 (test-only)
+
+### Notes
+- No functional changes to the runtime; soak from `1.5.2-beta.6`
+  carries forward. Patch stack (`patches/001..006`) applies cleanly
+  against unchanged Tailscale `v1.96.4`. Tailscale `1.96.4 → 1.98.5`
+  is intentionally deferred — see `release/v1.5.2-beta` discussion.
+
 ## [1.5.1] - 2026-04-30
 
 ### Changed
@@ -343,7 +432,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.8...HEAD
+[1.5.2-beta.8]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.7...v1.5.2-beta.8
+[1.5.2-beta.7]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2-beta.7
 [1.5.0]: https://github.com/eds-ch/vpn-pack/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/eds-ch/vpn-pack/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/eds-ch/vpn-pack/compare/v1.4.0...v1.4.1

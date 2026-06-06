@@ -17,10 +17,11 @@ import (
 
 // mockSSEHub implements SSEHub for testing.
 type mockSSEHub struct {
-	subscribeFn      func() (chan sseMessage, func(), error)
-	broadcastFn      func(data []byte)
-	broadcastNamedFn func(event string, data []byte)
-	currentStateFn   func() []byte
+	subscribeFn          func() (chan sseMessage, func(), error)
+	broadcastFn          func(data []byte)
+	broadcastIfChangedFn func(data []byte)
+	broadcastNamedFn     func(event string, data []byte)
+	currentStateFn       func() []byte
 }
 
 func (m *mockSSEHub) Subscribe() (chan sseMessage, func(), error) {
@@ -34,6 +35,13 @@ func (m *mockSSEHub) Broadcast(data []byte) {
 	if m.broadcastFn != nil {
 		m.broadcastFn(data)
 	}
+}
+func (m *mockSSEHub) BroadcastIfChanged(data []byte) {
+	if m.broadcastIfChangedFn != nil {
+		m.broadcastIfChangedFn(data)
+		return
+	}
+	m.Broadcast(data)
 }
 func (m *mockSSEHub) BroadcastNamed(event string, data []byte) {
 	if m.broadcastNamedFn != nil {
@@ -505,10 +513,11 @@ type mockFirewallService struct {
 	restoreTailscaleRulesFn         func(ctx context.Context) error
 	restoreRulesWithRetryFn         func(ctx context.Context, retries int, delay time.Duration)
 	checkTailscaleRulesPresentFn    func(ctx context.Context) (bool, bool, bool, bool)
-	checkWgS2sRulesPresentFn        func(ctx context.Context, ifaces []string) map[string]bool
+	auditAndFixTsForwardOrderFn     func(ctx context.Context) error
+	checkWgS2sRulesPresentFn        func(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool
 	discoverChainPrefixFn           func(ctx context.Context, zoneID string) string
-	ensureTailscaleRulesFn          func(chainPrefix string) error
-	removeTailscaleInterfaceRulesFn func() error
+	ensureTailscaleRulesFn          func(ctx context.Context, chainPrefix string) error
+	removeTailscaleInterfaceRulesFn func(ctx context.Context) error
 	integrationReadyFn              func() bool
 }
 
@@ -570,9 +579,15 @@ func (m *mockFirewallService) CheckTailscaleRulesPresent(ctx context.Context) (b
 	}
 	return true, true, true, true
 }
-func (m *mockFirewallService) CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
+func (m *mockFirewallService) AuditAndFixTsForwardOrder(ctx context.Context) error {
+	if m.auditAndFixTsForwardOrderFn != nil {
+		return m.auditAndFixTsForwardOrderFn(ctx)
+	}
+	return nil
+}
+func (m *mockFirewallService) CheckWgS2sRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
 	if m.checkWgS2sRulesPresentFn != nil {
-		return m.checkWgS2sRulesPresentFn(ctx, ifaces)
+		return m.checkWgS2sRulesPresentFn(ctx, specs)
 	}
 	return map[string]bool{}
 }
@@ -582,15 +597,15 @@ func (m *mockFirewallService) DiscoverChainPrefix(ctx context.Context, zoneID st
 	}
 	return ""
 }
-func (m *mockFirewallService) EnsureTailscaleRules(chainPrefix string) error {
+func (m *mockFirewallService) EnsureTailscaleRules(ctx context.Context, chainPrefix string) error {
 	if m.ensureTailscaleRulesFn != nil {
-		return m.ensureTailscaleRulesFn(chainPrefix)
+		return m.ensureTailscaleRulesFn(ctx, chainPrefix)
 	}
 	return nil
 }
-func (m *mockFirewallService) RemoveTailscaleInterfaceRules() error {
+func (m *mockFirewallService) RemoveTailscaleInterfaceRules(ctx context.Context) error {
 	if m.removeTailscaleInterfaceRulesFn != nil {
-		return m.removeTailscaleInterfaceRulesFn()
+		return m.removeTailscaleInterfaceRulesFn(ctx)
 	}
 	return nil
 }

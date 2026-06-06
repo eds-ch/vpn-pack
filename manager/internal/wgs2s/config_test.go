@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,13 +39,23 @@ func TestLoadConfig(t *testing.T) {
 		assert.Equal(t, 51820, cfg.Tunnels[0].ListenPort)
 	})
 
-	t.Run("corrupt JSON returns error", func(t *testing.T) {
+	t.Run("corrupt JSON returns empty config and quarantines original", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "tunnels.json")
 		require.NoError(t, os.WriteFile(path, []byte("{bad"), 0600))
 
-		_, err := loadConfig(path)
-		assert.Error(t, err)
+		cfg, err := loadConfig(path)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		assert.Equal(t, 1, cfg.Version)
+		assert.Empty(t, cfg.Tunnels)
+
+		matches, err := filepath.Glob(path + ".corrupt-*")
+		require.NoError(t, err)
+		require.NotEmpty(t, matches, "expected a quarantine .corrupt-* file")
+		got, err := os.ReadFile(matches[0])
+		require.NoError(t, err)
+		assert.Equal(t, "{bad", string(got))
 	})
 }
 
@@ -100,6 +111,21 @@ func TestSaveConfigRoundtrip(t *testing.T) {
 
 	assert.Equal(t, "tunnel-two", loaded.Tunnels[1].Name)
 	assert.Equal(t, false, loaded.Tunnels[1].Enabled)
+}
+
+func TestSaveConfigLeavesNoOrphanTmp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tunnels.json")
+	cfg := &TunnelsConfig{Version: 1, Tunnels: []TunnelConfig{{ID: "t1", Name: "x", ListenPort: 51820}}}
+	require.NoError(t, saveConfig(path, cfg))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("orphan tmp left after save: %s", e.Name())
+		}
+	}
 }
 
 func TestNextInterfaceName(t *testing.T) {

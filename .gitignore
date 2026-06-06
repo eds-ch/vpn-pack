@@ -36,11 +36,27 @@ temp/
 CLAUDE.md
 
 # Documentation
-docs/
+docs/*
 
 # GitHub Wiki (separate git repo)
 wiki/
 
-# Scripts
-scripts/
+# Scripts — local/dev tools are ignored; security-relevant scripts opted in explicitly
+scripts/*
+!scripts/cosign-sign.sh
+!scripts/test-installers.sh
+!scripts/test-deploy-symlink.sh
+!scripts/test-uninstall-integrity.sh
+!scripts/test-systemd-hardening.sh
+!scripts/check-tls-pinning.sh
+!scripts/hardening-smoke.sh
+!scripts/test-release-roundtrip.sh
+!scripts/check-no-key-leak.sh
+!scripts/check-no-background-exec.sh
+!scripts/test-installer-characterization.sh
+!scripts/golden/
+!scripts/golden/installer-stdout.txt
+
+# Upgrade snapshots (device state captures — semi-sensitive, never committed)
+snapshots/
 

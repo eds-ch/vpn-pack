@@ -2,6 +2,7 @@ package udapi
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -24,7 +25,39 @@ const (
 	defaultSocketPath = "/run/ubnt-udapi-server.sock"
 	requestTimeout    = 10 * time.Second
 	bindPathTemplate  = "/tmp/vpn-pack-manager-udapi-%d"
+	// maxUDAPIBodyBytes caps the size of a single UDAPI response we are
+	// willing to allocate. UDAPI replies are config snapshots; 8 MiB is
+	// well above any observed maximum and bounds a single malicious or
+	// corrupt size-line from forcing an unbounded allocation.
+	maxUDAPIBodyBytes = 8 << 20
 )
+
+type udapiMeta struct {
+	RC  string `json:"rc"`
+	Msg string `json:"msg"`
+}
+
+type udapiEnvelope struct {
+	Meta udapiMeta `json:"meta"`
+}
+
+// enforceEnvelope inspects the response of a mutating call and surfaces
+// any server-side error reported via the standard UDAPI envelope
+// ({"meta":{"rc":"error","msg":"..."}}). GET responses are not required
+// to carry this envelope and are skipped.
+func enforceEnvelope(method string, raw json.RawMessage) error {
+	if method == "GET" || method == "" || len(raw) == 0 {
+		return nil
+	}
+	var env udapiEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil
+	}
+	if env.Meta.RC == "error" {
+		return fmt.Errorf("udapi: %s: %s", env.Meta.RC, env.Meta.Msg)
+	}
+	return nil
+}
 
 type UDAPIClient struct {
 	socketPath string
@@ -54,7 +87,15 @@ func NewClient(socketPath string) *UDAPIClient {
 }
 
 func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, error) {
-	conn, bindPath, err := c.connect()
+	return c.RequestCtx(context.Background(), method, entity, payload)
+}
+
+func (c *UDAPIClient) RequestCtx(ctx context.Context, method, entity string, payload any) (*Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	conn, bindPath, err := c.connect(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -64,9 +105,22 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 	}
 
 	deadline := time.Now().Add(requestTimeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, fmt.Errorf("udapi: set deadline: %w", err)
 	}
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
 
 	env := envelope{
 		ID:      "manager-" + randomID(),
@@ -85,6 +139,9 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 
 	frame := fmt.Sprintf("%d\n%s", len(body), body)
 	if _, err := conn.Write([]byte(frame)); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		if isTimeout(err) {
 			return nil, errTimeout
 		}
@@ -94,6 +151,9 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 	reader := bufio.NewReader(conn)
 	sizeLine, err := reader.ReadString('\n')
 	if err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		if isTimeout(err) {
 			return nil, errTimeout
 		}
@@ -101,12 +161,15 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 	}
 
 	size, err := strconv.Atoi(strings.TrimSpace(sizeLine))
-	if err != nil || size <= 0 {
-		return nil, fmt.Errorf("%w: invalid size %q", errBadResponse, sizeLine)
+	if err != nil || size <= 0 || size > maxUDAPIBodyBytes {
+		return nil, fmt.Errorf("%w: invalid size %q (max %d)", errBadResponse, sizeLine, maxUDAPIBodyBytes)
 	}
 
 	respBody := make([]byte, size)
 	if _, err := io.ReadFull(reader, respBody); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		if isTimeout(err) {
 			return nil, errTimeout
 		}
@@ -118,11 +181,16 @@ func (c *UDAPIClient) Request(method, entity string, payload any) (*Response, er
 		return nil, fmt.Errorf("%w: %v", errBadResponse, err)
 	}
 
+	if err := enforceEnvelope(method, resp.Response); err != nil {
+		return nil, err
+	}
+
 	return &resp, nil
 }
 
-func (c *UDAPIClient) connect() (net.Conn, string, error) {
-	conn, err := net.Dial("unix", c.socketPath)
+func (c *UDAPIClient) connect(ctx context.Context) (net.Conn, string, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", c.socketPath)
 	if err == nil {
 		return conn, "", nil
 	}
@@ -131,11 +199,14 @@ func (c *UDAPIClient) connect() (net.Conn, string, error) {
 	_ = os.Remove(bindPath)
 
 	local := &net.UnixAddr{Name: bindPath, Net: "unix"}
-	remote := &net.UnixAddr{Name: c.socketPath, Net: "unix"}
+	dLocal := net.Dialer{LocalAddr: local}
 
-	uconn, err2 := net.DialUnix("unix", local, remote)
+	uconn, err2 := dLocal.DialContext(ctx, "unix", c.socketPath)
 	if err2 != nil {
 		_ = os.Remove(bindPath)
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, "", cerr
+		}
 		if isConnectionRefused(err) || isConnectionRefused(err2) {
 			return nil, "", errConnectionRefused
 		}

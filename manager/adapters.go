@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/service"
 )
 
@@ -113,11 +116,11 @@ type firewallOpsAdapter struct {
 func (a *firewallOpsAdapter) DiscoverChainPrefix(ctx context.Context, zoneID string) string {
 	return a.fw.DiscoverChainPrefix(ctx, zoneID)
 }
-func (a *firewallOpsAdapter) EnsureTailscaleRules(chainPrefix string) error {
-	return a.fw.EnsureTailscaleRules(chainPrefix)
+func (a *firewallOpsAdapter) EnsureTailscaleRules(ctx context.Context, chainPrefix string) error {
+	return a.fw.EnsureTailscaleRules(ctx, chainPrefix)
 }
-func (a *firewallOpsAdapter) RemoveTailscaleInterfaceRules() error {
-	return a.fw.RemoveTailscaleInterfaceRules()
+func (a *firewallOpsAdapter) RemoveTailscaleInterfaceRules(ctx context.Context) error {
+	return a.fw.RemoveTailscaleInterfaceRules(ctx)
 }
 
 // --- Adapter for WgS2sService ---
@@ -175,8 +178,8 @@ func (a *wgS2sFirewallAdapter) CloseWanPort(ctx context.Context, port int, iface
 	}
 }
 
-func (a *wgS2sFirewallAdapter) CheckRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
-	return a.fw.CheckWgS2sRulesPresent(ctx, ifaces)
+func (a *wgS2sFirewallAdapter) CheckRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
+	return a.fw.CheckWgS2sRulesPresent(ctx, specs)
 }
 
 func (a *wgS2sFirewallAdapter) IntegrationReady() bool {
@@ -192,7 +195,7 @@ func (a *wgS2sManifestAdapter) GetZone(tunnelID string) (service.ZoneInfo, bool)
 	if !ok {
 		return service.ZoneInfo{}, false
 	}
-	return service.ZoneInfo{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName}, true
+	return service.ZoneInfo{ZoneID: zm.ZoneID, ZoneName: zm.ZoneName, ChainPrefix: zm.ChainPrefix}, true
 }
 
 func (a *wgS2sManifestAdapter) GetZones() []service.WgS2sZoneEntry {
@@ -212,7 +215,7 @@ type wgS2sLogAdapter struct {
 }
 
 func (a *wgS2sLogAdapter) LogWarn(msg string) {
-	a.buf.Add(newLogEntry("warn", msg, "wgs2s"))
+	a.buf.Add(newLogEntry("warn", logredact.RedactString(msg), "wgs2s"))
 }
 
 // --- Notification adapters ---
@@ -235,12 +238,13 @@ func (a *settingsNotifierAdapter) OnDNSChanged(enabled bool) {
 }
 
 type integrationNotifierAdapter struct {
-	fw          FirewallService
-	fwOrch      *service.FirewallOrchestrator
-	health      *HealthTracker
-	state       *TailscaleState
-	broadcast   func()
-	openWanPort func(context.Context)
+	fw           FirewallService
+	fwOrch       *service.FirewallOrchestrator
+	guardedSetup func(ctx context.Context) (*service.SetupResult, bool)
+	health       *HealthTracker
+	state        *TailscaleState
+	broadcast    func()
+	openWanPort  func(context.Context)
 }
 
 func (a *integrationNotifierAdapter) OnBeforeKeyDelete(ctx context.Context) {
@@ -253,7 +257,11 @@ func (a *integrationNotifierAdapter) OnBeforeKeyDelete(ctx context.Context) {
 
 func (a *integrationNotifierAdapter) OnKeyConfigured(ctx context.Context, st *service.IntegrationStatus) {
 	if a.fwOrch != nil && st.SiteID != "" {
-		if result := a.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
+		result, ran := a.guardedSetup(ctx)
+		switch {
+		case !ran:
+			slog.Info("firewall setup after key save skipped: another reconcile in flight")
+		case result.Err() != nil:
 			slog.Warn("firewall setup after key save failed", "err", result.Err())
 		}
 		a.openWanPort(ctx)
@@ -282,11 +290,16 @@ func localSubnetProvider() []service.SubnetEntry {
 	return out
 }
 
+var collectSystemSubnetsHook = service.CollectSystemSubnets
+
 func subnetValidatorProvider(allowedIPs []string, excludeIfaces ...string) ([]service.SubnetConflict, []service.SubnetConflict) {
-	sys, err := service.CollectSystemSubnets(excludeIfaces...)
+	sys, err := collectSystemSubnetsHook(excludeIfaces...)
 	if err != nil {
-		slog.Warn("subnet collection failed, skipping validation", "err", err)
-		return nil, nil
+		slog.Warn("subnet collection failed; refusing tunnel creation (fail-closed)", "err", err)
+		return nil, []service.SubnetConflict{{
+			Severity: "block",
+			Message:  fmt.Sprintf("subnet validation unavailable: %v", err),
+		}}
 	}
 	vr := service.ValidateAllowedIPs(allowedIPs, sys)
 	return vr.Warnings, vr.Blocked

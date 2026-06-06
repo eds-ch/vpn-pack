@@ -36,6 +36,13 @@ type fakeIPRuleState struct {
 	rules     map[string][]string // family -> list of rule lines
 	cmds      []string
 	masqRules map[string]bool // "iptables" / "ip6tables" -> exists
+
+	// failOnNthAdd: if > 0, the Nth "add" call (ip rule add or iptables -A)
+	// returns an error. The state mutation is NOT applied for the failing call.
+	failOnNthAdd int
+	addCount     int
+	failIP6Add   bool // when true, ip6tables -A always returns ENOENT-style error
+	failOnDel    bool // when true, every "ip rule del" returns an error
 }
 
 func newFakeIPRuleState() *fakeIPRuleState {
@@ -72,11 +79,18 @@ func (f *fakeIPRuleState) runner() CmdRunner {
 			return []byte(strings.Join(lines, "\n") + "\n"), nil
 
 		case "add":
+			f.addCount++
+			if f.failOnNthAdd > 0 && f.addCount == f.failOnNthAdd {
+				return nil, fmt.Errorf("simulated ip rule add failure")
+			}
 			line := buildFakeRuleLine(args[3:])
 			f.rules[family] = append(f.rules[family], line)
 			return nil, nil
 
 		case "del":
+			if f.failOnDel {
+				return nil, fmt.Errorf("simulated ip rule del failure")
+			}
 			prio := extractPrio(args[3:])
 			var kept []string
 			for _, l := range f.rules[family] {
@@ -149,6 +163,14 @@ func (f *fakeIPRuleState) handleIptablesLocked(cmd string, args []string) ([]byt
 	}
 	switch action {
 	case "-A":
+		if cmd == "ip6tables" && f.failIP6Add {
+			// Matches the Go exec.LookPath error when the binary is missing.
+			return nil, fmt.Errorf("exec: \"ip6tables\": executable file not found in $PATH")
+		}
+		f.addCount++
+		if f.failOnNthAdd > 0 && f.addCount == f.failOnNthAdd {
+			return nil, fmt.Errorf("simulated iptables -A failure")
+		}
 		f.masqRules[cmd] = true
 		return nil, nil
 	case "-D":
@@ -375,6 +397,16 @@ func TestValidateExitNodePolicy(t *testing.T) {
 		{"too many clients", domain.ExitNodePolicy{
 			Mode:    domain.ExitNodeSelective,
 			Clients: make([]domain.ExitNodeClient, maxExitClients+1),
+		}, true},
+		// SEC-C19: selective mode must never silently accept a catch-all
+		// prefix; only mode=all is allowed to mean "every client".
+		{"selective catch-all v4", domain.ExitNodePolicy{
+			Mode:    domain.ExitNodeSelective,
+			Clients: []domain.ExitNodeClient{{IP: "0.0.0.0/0"}},
+		}, true},
+		{"selective catch-all v6", domain.ExitNodePolicy{
+			Mode:    domain.ExitNodeSelective,
+			Clients: []domain.ExitNodeClient{{IP: "::/0"}},
 		}, true},
 	}
 	for _, tt := range tests {
@@ -636,4 +668,178 @@ func TestReconcileOffNoopWhenClean(t *testing.T) {
 	err := svc.Reconcile(context.Background(), domain.ExitNodePolicy{})
 	require.NoError(t, err)
 	assert.Equal(t, flushBefore, state.conntrackFlushCount(), "should not flush conntrack when already clean")
+}
+
+// TestApply_PartialFailureRollsBackRulesAndMasq covers SEC-C10 / BUG-M1.
+// If a Do step fails mid-sequence, every prior step must be rolled back so
+// no leftover ip rule / MASQUERADE entries remain.
+func TestApply_PartialFailureRollsBackRulesAndMasq(t *testing.T) {
+	state := newFakeIPRuleState()
+	// Fail on the 3rd "add" (after first bridge's -4/-6 rules: 4th would be br1 -4).
+	state.failOnNthAdd = 3
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0", "br1")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.Error(t, err, "expected Apply to fail")
+	assert.Equal(t, 0, state.ruleCount(), "rules must be rolled back")
+	assert.Equal(t, 0, state.masqCount(), "masquerade must not be set")
+	assert.NotEqual(t, domain.ExitNodeAll, manifest.policy.Mode, "manifest must not be updated on failure")
+}
+
+// TestApply_RollsBackV4MasqueradeOnV6Failure covers SEC-C10/BUG-M1 follow-up:
+// if IPv4 MASQUERADE installs but ip6tables returns a non-tolerated error,
+// the IPv4 MASQUERADE must be rolled back. Previously the saga wrapped both
+// families in a single op and would only undo prior steps, leaving v4 stuck.
+func TestApply_RollsBackV4MasqueradeOnV6Failure(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: make(map[string]bool),
+	}
+	base := state.runner()
+	// Wrap so ip6tables -A returns a non-tolerated error AFTER v4 succeeded.
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-A" {
+					return []byte("ip6tables: kernel module overflow"), fmt.Errorf("rule rejected")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, runner)
+	stubBridges(svc, "br0")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.Error(t, err, "non-tolerated ip6tables failure must surface")
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.masqRules["iptables"] {
+		t.Fatal("IPv4 MASQUERADE must be rolled back when v6 unexpectedly fails")
+	}
+}
+
+// TestHasMasquerade_TolerantOnIP6Unavailable: on IPv6-disabled systems
+// where ip6tables returns family-unsupported error, hasMasquerade should
+// still report "present" if v4 is installed. Otherwise Reconcile would
+// see drift forever and re-apply continuously.
+func TestHasMasquerade_TolerantOnIP6Unavailable(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: map[string]bool{"iptables": true}, // only v4 installed
+	}
+	base := state.runner()
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-C" {
+					return nil, fmt.Errorf("ip6tables: executable file not found in $PATH")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	svc := NewExitNodeService(&mockExitManifest{}, runner)
+	if !svc.hasMasquerade(context.Background()) {
+		t.Fatal("hasMasquerade must report true when v4 present and ip6tables unavailable")
+	}
+}
+
+// TestHasMasquerade_DetectsRealDrift covers the inverse: a healthy
+// ip6tables that responds "no such rule" must be reported as drift so
+// Reconcile re-applies. The narrowed isIP6Unavailable must NOT match the
+// real UDM-SE error string "ip6tables: No chain/target/match by that name."
+func TestHasMasquerade_DetectsRealDrift(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: map[string]bool{"iptables": true}, // v4 installed, v6 missing
+	}
+	base := state.runner()
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-C" {
+					return []byte("ip6tables: No chain/target/match by that name."), fmt.Errorf("exit status 1")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	svc := NewExitNodeService(&mockExitManifest{}, runner)
+	if svc.hasMasquerade(context.Background()) {
+		t.Fatal("hasMasquerade must report false when v6 rule is genuinely missing on a healthy IPv6 stack")
+	}
+}
+
+// TestAddMasquerade_PropagatesUnexpectedIP6Error verifies that ip6tables
+// failures that are NOT "binary missing / family unsupported" propagate
+// outward instead of being silently swallowed.
+func TestAddMasquerade_PropagatesUnexpectedIP6Error(t *testing.T) {
+	state := &fakeIPRuleState{
+		rules:     map[string][]string{"-4": {}, "-6": {}},
+		masqRules: make(map[string]bool),
+	}
+	// Wrap the standard runner so ip6tables -A returns a non-tolerated error.
+	base := state.runner()
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "ip6tables" {
+			for _, a := range args {
+				if a == "-A" {
+					return []byte("RULE_REPLACE_FAILED"), fmt.Errorf("kernel module overflow")
+				}
+			}
+		}
+		return base(ctx, name, args...)
+	}
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, runner)
+	stubBridges(svc, "br0")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.Error(t, err, "unexpected ip6tables errors must propagate")
+	assert.Contains(t, err.Error(), "ip6tables masquerade add")
+}
+
+// TestAddMasquerade_TolerantToIP6Disabled covers SEC-C11 / BUG-M2.
+// If ip6tables is missing or disabled (returns "command not found"), the
+// IPv4 masquerade must still install and Apply must succeed.
+func TestAddMasquerade_TolerantToIP6Disabled(t *testing.T) {
+	state := newFakeIPRuleState()
+	state.failIP6Add = true
+	manifest := &mockExitManifest{}
+	svc := NewExitNodeService(manifest, state.runner())
+	stubBridges(svc, "br0")
+
+	err := svc.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll})
+	require.NoError(t, err, "Apply must tolerate ip6tables failure")
+	assert.Equal(t, 1, state.masqCount(), "exactly the IPv4 masquerade should be installed")
+	state.mu.Lock()
+	assert.True(t, state.masqRules["iptables"], "iptables masquerade must be installed")
+	assert.False(t, state.masqRules["ip6tables"], "ip6tables masquerade must NOT be installed")
+	state.mu.Unlock()
+}
+
+// TestApplySelectiveRejectsCatchAllPrefix covers SEC-C19 inline (apply-side).
+// A selective policy containing a 0.0.0.0/0 or ::/0 client must be refused
+// — the operator must explicitly opt into mode=all.
+func TestApplySelectiveRejectsCatchAllPrefix(t *testing.T) {
+	for _, cidr := range []string{"0.0.0.0/0", "::/0"} {
+		t.Run(cidr, func(t *testing.T) {
+			state := newFakeIPRuleState()
+			manifest := &mockExitManifest{}
+			svc := NewExitNodeService(manifest, state.runner())
+			policy := domain.ExitNodePolicy{
+				Mode:    domain.ExitNodeSelective,
+				Clients: []domain.ExitNodeClient{{IP: cidr}},
+			}
+			err := svc.Apply(context.Background(), policy)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "catch-all")
+			assert.Equal(t, 0, state.ruleCount(), "no rule must be installed")
+			assert.Equal(t, 0, state.masqCount(), "no masquerade must be installed")
+		})
+	}
 }

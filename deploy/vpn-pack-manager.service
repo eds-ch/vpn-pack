@@ -1,22 +1,56 @@
 [Unit]
 Description=VPN Pack Manager (UniFi)
-After=tailscaled.service ubios-udapi-server.service unifi-core.service
+After=tailscaled.service ubios-udapi-server.service unifi-core.service vpn-pack-manager.socket
 Wants=tailscaled.service
+Requires=vpn-pack-manager.socket
 
 [Service]
+# Socket activated: systemd opens /run/vpn-pack/manager.sock with the
+# right owner+mode and passes the fd via LISTEN_FDS. The manager picks
+# it up; --listen-socket flag is only used in dev/standalone mode.
 ExecStart=/persistent/vpn-pack/bin/vpn-pack-manager \
     --socket=/run/tailscale/tailscaled.sock
+# RuntimeDirectory= is intentionally NOT set here. systemd's documented
+# behavior for RuntimeDirectory= is "rm -rf and recreate the directory
+# at unit start, even if pre-existing" (verified on systemd 247 on
+# UDM-SE: service restart changes /run/vpn-pack inode and deletes the
+# socket file the .socket unit created inside). Owning the directory
+# from the .socket unit only avoids that wipeout — the .service unit
+# inherits access via the systemd-managed runtime-dir lifecycle on the
+# socket unit. Closes GAP-005.
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=78
+
+# ── Hardening (SEC-B2) ──────────────────────────────────────────────
+# CAP_CHOWN intentionally absent: socket activation removes the need
+# to chown the socket file at runtime (closes GAP-002).
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=yes
+ProtectSystem=strict
+# /data/unifi-core/config/http/ (parent dir, not the file) — manager
+# must be able to *recreate* the snippet after unifi-core restart or
+# any other process deletes it. File-level binding from Phase 8.6
+# only allowed in-place rewrites; the parent-dir bind is the
+# narrowest grant that still lets self-heal recreate the file
+# (closes GAP-004). The manager runs as uid 0 and is the only thing
+# on this device writing to that dir, so attack-surface widening
+# is negligible.
+ReadWritePaths=/persistent/vpn-pack /run/vpn-pack /proc/nf_dpi /data/unifi-core/config/http
 ProtectHome=yes
 PrivateTmp=yes
+PrivateDevices=no
 ProtectKernelTunables=yes
-ReadWritePaths=/proc/nf_dpi/
+ProtectKernelModules=yes
 ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
 RestrictSUIDSGID=yes
+LockPersonality=yes
 MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

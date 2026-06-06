@@ -99,8 +99,8 @@ func (m *mockFWManifest) RemoveWgS2sTunnel(tunnelID string) error {
 
 type mockFWOps struct {
 	discoverChainPrefix       func(ctx context.Context, zoneID string) string
-	ensureTailscaleRules      func(chainPrefix string) error
-	removeTailscaleIfaceRules func() error
+	ensureTailscaleRules      func(ctx context.Context, chainPrefix string) error
+	removeTailscaleIfaceRules func(ctx context.Context) error
 }
 
 func (m *mockFWOps) DiscoverChainPrefix(ctx context.Context, zoneID string) string {
@@ -109,15 +109,15 @@ func (m *mockFWOps) DiscoverChainPrefix(ctx context.Context, zoneID string) stri
 	}
 	return ""
 }
-func (m *mockFWOps) EnsureTailscaleRules(chainPrefix string) error {
+func (m *mockFWOps) EnsureTailscaleRules(ctx context.Context, chainPrefix string) error {
 	if m.ensureTailscaleRules != nil {
-		return m.ensureTailscaleRules(chainPrefix)
+		return m.ensureTailscaleRules(ctx, chainPrefix)
 	}
 	return nil
 }
-func (m *mockFWOps) RemoveTailscaleInterfaceRules() error {
+func (m *mockFWOps) RemoveTailscaleInterfaceRules(ctx context.Context) error {
 	if m.removeTailscaleIfaceRules != nil {
-		return m.removeTailscaleIfaceRules()
+		return m.removeTailscaleIfaceRules(ctx)
 	}
 	return nil
 }
@@ -210,6 +210,43 @@ func TestSetupTailscaleFirewall_PolicyFail_RollbackZone(t *testing.T) {
 	assert.Equal(t, "", mf.tailscaleZone.ZoneID, "manifest should not contain zone")
 }
 
+// TestSetupTailscaleFirewall_RestoresChainPrefixOnUDAPIFailure covers BUG-L16.
+// If EnsureTailscaleRules fails AFTER the manifest already persisted a new
+// chain prefix, the orchestrator must restore the prior prefix.
+func TestSetupTailscaleFirewall_RestoresChainPrefixOnUDAPIFailure(t *testing.T) {
+	ic := &mockFWIntegration{
+		hasAPIKey: true,
+		ensureZoneFn: func(_ context.Context, _, _ string) (ZoneInfo, error) {
+			return ZoneInfo{ZoneID: "zone-ts", ZoneName: "VPN Pack: Tailscale"}, nil
+		},
+		ensurePolicies: func(_ context.Context, _, _, _ string) ([]string, error) {
+			return []string{"pol-1"}, nil
+		},
+	}
+	mf := &mockFWManifest{
+		siteID: "site-1",
+		tailscaleZone: domain.ZoneManifest{
+			ZoneID: "zone-ts", ZoneName: "VPN Pack: Tailscale",
+			PolicyIDs: []string{"pol-1"}, ChainPrefix: "OLD",
+		},
+	}
+	ops := &mockFWOps{
+		discoverChainPrefix: func(_ context.Context, _ string) string { return "NEW" },
+		ensureTailscaleRules: func(_ context.Context, _ string) error {
+			return errors.New("udapi down")
+		},
+	}
+
+	result := newTestOrch(ic, mf, ops).SetupTailscaleFirewall(context.Background())
+
+	if !hasError(result, "udapi") {
+		t.Fatalf("expected udapi error in result; got %v", result.Errors)
+	}
+	if got := mf.GetTailscaleChainPrefix(); got != "OLD" {
+		t.Fatalf("chainPrefix not restored: got %q, want OLD", got)
+	}
+}
+
 func TestSetupTailscaleFirewall_UDAPIFail(t *testing.T) {
 	ic := &mockFWIntegration{
 		hasAPIKey: true,
@@ -222,7 +259,7 @@ func TestSetupTailscaleFirewall_UDAPIFail(t *testing.T) {
 	}
 	mf := &mockFWManifest{siteID: "site-1"}
 	ops := &mockFWOps{
-		ensureTailscaleRules: func(chainPrefix string) error {
+		ensureTailscaleRules: func(_ context.Context, chainPrefix string) error {
 			return errors.New("udapi error")
 		},
 	}

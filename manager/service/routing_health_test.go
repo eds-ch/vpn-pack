@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ func newTestChecker(opts ...func(*RoutingHealthChecker)) *RoutingHealthChecker {
 		ifaceExists:   func(string) bool { return true },
 		readRPFilter:  func(string) (int, error) { return 0, nil },
 		listFwRules:   func() ([]PBRInfo, error) { return nil, nil },
-		checkIP6Chain: func(string) bool { return true },
+		checkIP6Chain: func(context.Context, string) bool { return true },
 	}
 	for _, o := range opts {
 		o(c)
@@ -24,28 +25,28 @@ func newTestChecker(opts ...func(*RoutingHealthChecker)) *RoutingHealthChecker {
 
 func TestRoutingHealth_NilReceiver(t *testing.T) {
 	var c *RoutingHealthChecker
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_NoInterface(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
 		c.ifaceExists = func(string) bool { return false }
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_AllClean(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
 		c.readRPFilter = func(string) (int, error) { return 2, nil }
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_RPFilterStrict(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
 		c.readRPFilter = func(string) (int, error) { return 1, nil }
 	})
-	rh := c.Check()
+	rh := c.Check(context.Background())
 	require.NotNil(t, rh)
 	require.Len(t, rh.Warnings, 1)
 	w := rh.Warnings[0]
@@ -60,14 +61,14 @@ func TestRoutingHealth_RPFilterLoose(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
 		c.readRPFilter = func(string) (int, error) { return 2, nil }
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_RPFilterReadError(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
 		c.readRPFilter = func(string) (int, error) { return 0, errors.New("no such file") }
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_BypassMarkCollision(t *testing.T) {
@@ -78,7 +79,7 @@ func TestRoutingHealth_BypassMarkCollision(t *testing.T) {
 			}, nil
 		}
 	})
-	rh := c.Check()
+	rh := c.Check(context.Background())
 	require.NotNil(t, rh)
 	require.Len(t, rh.Warnings, 1)
 	w := rh.Warnings[0]
@@ -99,7 +100,7 @@ func TestRoutingHealth_BypassMarkNoCollision(t *testing.T) {
 			}, nil
 		}
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_BypassMarkSkipsTailscale(t *testing.T) {
@@ -110,21 +111,21 @@ func TestRoutingHealth_BypassMarkSkipsTailscale(t *testing.T) {
 			}, nil
 		}
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_BypassMarkListError(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
 		c.listFwRules = func() ([]PBRInfo, error) { return nil, errors.New("rtnetlink unavailable") }
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_IPv6ChainMissing(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
-		c.checkIP6Chain = func(string) bool { return false }
+		c.checkIP6Chain = func(context.Context, string) bool { return false }
 	})
-	rh := c.Check()
+	rh := c.Check(context.Background())
 	require.NotNil(t, rh)
 	require.Len(t, rh.Warnings, 1)
 	w := rh.Warnings[0]
@@ -135,17 +136,17 @@ func TestRoutingHealth_IPv6ChainMissing(t *testing.T) {
 
 func TestRoutingHealth_IPv6ChainPresent(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
-		c.checkIP6Chain = func(string) bool { return true }
+		c.checkIP6Chain = func(context.Context, string) bool { return true }
 	})
-	assert.Nil(t, c.Check())
+	assert.Nil(t, c.Check(context.Background()))
 }
 
 func TestRoutingHealth_MultipleWarnings(t *testing.T) {
 	c := newTestChecker(func(c *RoutingHealthChecker) {
 		c.readRPFilter = func(string) (int, error) { return 1, nil }
-		c.checkIP6Chain = func(string) bool { return false }
+		c.checkIP6Chain = func(context.Context, string) bool { return false }
 	})
-	rh := c.Check()
+	rh := c.Check(context.Background())
 	require.NotNil(t, rh)
 	assert.Len(t, rh.Warnings, 2)
 
@@ -166,11 +167,11 @@ func TestRoutingHealth_CacheTTL(t *testing.T) {
 		}
 	})
 
-	rh1 := c.Check()
+	rh1 := c.Check(context.Background())
 	require.NotNil(t, rh1)
 	assert.Equal(t, 1, calls)
 
-	rh2 := c.Check()
+	rh2 := c.Check(context.Background())
 	assert.Equal(t, rh1, rh2)
 	assert.Equal(t, 1, calls, "second call should return cache")
 
@@ -178,7 +179,7 @@ func TestRoutingHealth_CacheTTL(t *testing.T) {
 	c.cachedAt = time.Now().Add(-2 * routingHealthTTL)
 	c.mu.Unlock()
 
-	c.Check()
+	c.Check(context.Background())
 	assert.Equal(t, 2, calls, "call after TTL should re-check")
 }
 
@@ -191,11 +192,11 @@ func TestRoutingHealth_CacheHealthyState(t *testing.T) {
 		}
 	})
 
-	rh1 := c.Check()
+	rh1 := c.Check(context.Background())
 	assert.Nil(t, rh1)
 	assert.Equal(t, 1, calls)
 
-	rh2 := c.Check()
+	rh2 := c.Check(context.Background())
 	assert.Nil(t, rh2)
 	assert.Equal(t, 1, calls, "healthy result should be cached too")
 
@@ -203,6 +204,40 @@ func TestRoutingHealth_CacheHealthyState(t *testing.T) {
 	c.cachedAt = time.Now().Add(-2 * routingHealthTTL)
 	c.mu.Unlock()
 
-	c.Check()
+	c.Check(context.Background())
 	assert.Equal(t, 2, calls, "call after TTL should re-check")
+}
+
+// TestRoutingHealth_CacheClearedOnInterfaceFlap covers BUG-L13: when
+// tailscale0 disappears the cache must be cleared so the next Check() after
+// the interface comes back recomputes warnings instead of serving the stale
+// snapshot from before the flap.
+func TestRoutingHealth_CacheClearedOnInterfaceFlap(t *testing.T) {
+	exists := true
+	c := newTestChecker(func(c *RoutingHealthChecker) {
+		c.ifaceExists = func(string) bool { return exists }
+		c.readRPFilter = func(string) (int, error) { return 1, nil } // populates a warning so cache is non-nil
+	})
+
+	first := c.Check(context.Background())
+	require.NotNil(t, first, "first call must populate cache with a warning")
+	c.mu.Lock()
+	had := c.hasCache
+	c.mu.Unlock()
+	require.True(t, had, "first call must mark hasCache")
+
+	exists = false
+	if got := c.Check(context.Background()); got != nil {
+		t.Fatalf("Check() with absent interface must return nil; got %v", got)
+	}
+	c.mu.Lock()
+	stillCached := c.hasCache
+	c.mu.Unlock()
+	if stillCached {
+		t.Fatal("cache must be cleared when tailscale0 disappears")
+	}
+
+	exists = true
+	second := c.Check(context.Background())
+	require.NotNil(t, second, "Check() after re-appearance must recompute, not return stale nil")
 }

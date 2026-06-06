@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"unifi-tailscale/manager/logredact"
 )
 
 func TestBufferHandlerEnabled(t *testing.T) {
@@ -54,4 +57,24 @@ func TestBufferHandlerHandleSkipsDebug(t *testing.T) {
 		t.Fatal("Debug should not be enabled")
 	}
 	assert.Empty(t, buf.Snapshot())
+}
+
+// Verifies that wrapping bufferHandler with logredact.Wrap causes the
+// LogBuffer (the source for /api/logs) to store redacted text, not raw
+// secrets. Catches the regression where wiring puts logredact behind the
+// bufferHandler and only the stderr chain gets sanitised.
+func TestBufferHandlerThroughLogredactRedactsLogBuffer(t *testing.T) {
+	buf := NewLogBuffer(10)
+	h := logredact.Wrap(newBufferHandler(buf, "test", nil))
+	l := slog.New(h)
+	l.Info("login url tskey-auth-kFoo123-CafeDeadBeef", "key", "tskey-auth-kFoo123-CafeDeadBeef")
+
+	snap := buf.Snapshot()
+	require.Len(t, snap, 1)
+	if strings.Contains(snap[0].Message, "CafeDeadBeef") {
+		t.Fatalf("LogBuffer leaked secret: %q", snap[0].Message)
+	}
+	if !strings.Contains(snap[0].Message, "tskey-auth-***") {
+		t.Fatalf("LogBuffer missing redaction marker: %q", snap[0].Message)
+	}
 }

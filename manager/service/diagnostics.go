@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 
 	"tailscale.com/tailcfg"
@@ -25,12 +27,18 @@ type DiagnosticsTailscale interface {
 }
 
 type DiagnosticsFirewall interface {
-	CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool
+	CheckWgS2sRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool
 }
 
 type DiagnosticsWgS2s interface {
 	GetTunnels() []wgs2s.TunnelConfig
 	GetStatuses() []wgs2s.WgS2sStatus
+}
+
+// DiagnosticsZoneLookup resolves a tunnel's chain prefix from the manifest so
+// ipset membership checks can target the correct UBIOS4*_subnets set.
+type DiagnosticsZoneLookup interface {
+	GetWgS2sChainPrefix(tunnelID string) string
 }
 
 type DiagnosticsResponse struct {
@@ -72,8 +80,9 @@ type NetcheckResult struct {
 }
 
 type DiagnosticsService struct {
-	ts DiagnosticsTailscale
-	fw DiagnosticsFirewall
+	ts     DiagnosticsTailscale
+	fw     DiagnosticsFirewall
+	zones  DiagnosticsZoneLookup
 
 	wgMu sync.RWMutex
 	wg   DiagnosticsWgS2s
@@ -85,6 +94,10 @@ type DiagnosticsService struct {
 
 func NewDiagnosticsService(ts DiagnosticsTailscale, fw DiagnosticsFirewall, wg DiagnosticsWgS2s) *DiagnosticsService {
 	return &DiagnosticsService{ts: ts, fw: fw, wg: wg}
+}
+
+func (svc *DiagnosticsService) SetZoneLookup(zones DiagnosticsZoneLookup) {
+	svc.zones = zones
 }
 
 func (svc *DiagnosticsService) SetWgS2s(wg DiagnosticsWgS2s) {
@@ -223,16 +236,21 @@ func (svc *DiagnosticsService) gatherWgS2sDiagnostics(ctx context.Context, wgSvc
 		statusMap[statuses[i].ID] = i
 	}
 
-	var enabledIfaces []string
+	var specs []domain.WgS2sCheckSpec
 	for _, t := range tunnels {
-		if t.Enabled {
-			enabledIfaces = append(enabledIfaces, t.InterfaceName)
+		if !t.Enabled {
+			continue
 		}
+		spec := domain.WgS2sCheckSpec{InterfaceName: t.InterfaceName, Subnets: t.AllowedIPs}
+		if svc.zones != nil {
+			spec.ChainPrefix = svc.zones.GetWgS2sChainPrefix(t.ID)
+		}
+		specs = append(specs, spec)
 	}
 
 	var fwPresent map[string]bool
 	if svc.fw != nil {
-		fwPresent = svc.fw.CheckWgS2sRulesPresent(ctx, enabledIfaces)
+		fwPresent = svc.fw.CheckWgS2sRulesPresent(ctx, specs)
 	}
 
 	diags := make([]WgS2sTunnelDiag, 0, len(tunnels))
@@ -250,7 +268,7 @@ func (svc *DiagnosticsService) gatherWgS2sDiagnostics(ctx context.Context, wgSvc
 		_, ifErr := net.InterfaceByName(t.InterfaceName)
 		d.InterfaceUp = ifErr == nil
 		d.ForwardINOk = fwPresent[t.InterfaceName]
-		d.RoutesOk = CheckRoutesInstalled(t.InterfaceName, t.AllowedIPs)
+		d.RoutesOk = CheckRoutesInstalled(ctx, t.InterfaceName, t.AllowedIPs)
 
 		if idx, ok := statusMap[t.ID]; ok {
 			d.Connected = statuses[idx].Connected
@@ -309,12 +327,22 @@ func BuildDERPRegions(derpMap *tailcfg.DERPMap, derpErr error, regionLatencyNs m
 	return regions
 }
 
-func CheckRoutesInstalled(iface string, expectedCIDRs []string) bool {
+// ipRouteShowDev runs `ip -j route show dev <iface>`. Swapped in tests to
+// exercise context cancellation / timeout paths without spawning a real
+// process.
+var ipRouteShowDev = func(ctx context.Context, iface string) ([]byte, error) {
+	return exec.CommandContext(ctx, "ip", "-j", "route", "show", "dev", iface).Output()
+}
+
+func CheckRoutesInstalled(ctx context.Context, iface string, expectedCIDRs []string) bool {
 	if len(expectedCIDRs) == 0 {
 		return true
 	}
 
-	out, err := exec.Command("ip", "-j", "route", "show", "dev", iface).Output()
+	cctx, cancel := config.WithTimeout(ctx, config.SubprocessTimeout)
+	defer cancel()
+
+	out, err := ipRouteShowDev(cctx, iface)
 	if err != nil {
 		return false
 	}

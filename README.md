@@ -36,6 +36,20 @@ curl -fsSL https://raw.githubusercontent.com/eds-ch/vpn-pack/main/get.sh | bash
 
 The script checks for an existing installation, downloads the latest release from GitHub, verifies the SHA256 checksum, and runs the installer. On upgrade, auth state and config are preserved.
 
+### Verifying release signatures
+
+Starting with v1.6.0, release artifacts are signed with [cosign](https://docs.sigstore.dev/cosign/installation) (keyless OIDC). The signing identity is documented in `CHANGELOG.md` for each release line; verify before installing manually:
+
+```bash
+cosign verify-blob \
+  --certificate-identity 'eduard.chesnokov@gmail.com' \
+  --certificate-oidc-issuer 'https://github.com/login/oauth' \
+  --bundle vpn-pack-<version>.tar.gz.cosign.bundle \
+  vpn-pack-<version>.tar.gz
+```
+
+The `get.sh` installer enforces this check automatically; there is no silent fallback if `cosign` is missing or the bundle fails to verify.
+
 After installation:
 
 1. Log in to your gateway at `https://<gateway-ip>` (establishes a UniFi auth session)
@@ -113,7 +127,7 @@ make package                    # create vpn-pack-<version>.tar.gz
 make deploy HOST=<gateway-ip>   # deploy via SSH
 ```
 
-The build applies six patches to upstream Tailscale v1.96.4 and strips 38 unused modules to cut total binary size from 62 MB to 28 MB (–55%). See the [Custom Tailscale Build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) wiki page for full details, or `patches/README.md` for patch mechanics.
+The build applies six patches to upstream Tailscale v1.98.5 and strips 38 unused modules to cut total binary size from 62 MB to 28 MB (–55%). See the [Custom Tailscale Build](https://github.com/eds-ch/vpn-pack/wiki/Custom-Tailscale-Build) wiki page for full details, or `patches/README.md` for patch mechanics.
 
 ## How It Works
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 
 	"github.com/stretchr/testify/assert"
@@ -42,12 +44,12 @@ func (m *mockDiagnosticsTailscale) BugReport(ctx context.Context, note string) (
 }
 
 type mockDiagnosticsFirewall struct {
-	checkWgS2sRulesPresentFn func(ctx context.Context, ifaces []string) map[string]bool
+	checkWgS2sRulesPresentFn func(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool
 }
 
-func (m *mockDiagnosticsFirewall) CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
+func (m *mockDiagnosticsFirewall) CheckWgS2sRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
 	if m.checkWgS2sRulesPresentFn != nil {
-		return m.checkWgS2sRulesPresentFn(ctx, ifaces)
+		return m.checkWgS2sRulesPresentFn(ctx, specs)
 	}
 	return nil
 }
@@ -145,7 +147,7 @@ func TestGetDiagnostics_WithWgManager(t *testing.T) {
 			},
 		}
 		s.fw = &mockDiagnosticsFirewall{
-			checkWgS2sRulesPresentFn: func(ctx context.Context, ifaces []string) map[string]bool {
+			checkWgS2sRulesPresentFn: func(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
 				return map[string]bool{"wg0": true}
 			},
 		}
@@ -238,6 +240,45 @@ func TestBuildDERPRegions_NilMap(t *testing.T) {
 func TestBuildDERPRegions_Error(t *testing.T) {
 	regions := BuildDERPRegions(&tailcfg.DERPMap{}, errors.New("fail"), nil, 0)
 	assert.Empty(t, regions)
+}
+
+func TestCheckRoutesInstalled_AcceptsContextAndPreservesEmptyFastPath(t *testing.T) {
+	// BUG-L2: subprocess must be ctx-bounded so a hung `ip route show` cannot
+	// hang the caller. The empty-CIDR fast path is preserved.
+	require.True(t, CheckRoutesInstalled(context.Background(), "any-iface", nil))
+	require.True(t, CheckRoutesInstalled(context.Background(), "any-iface", []string{}))
+}
+
+// BUG-L2: a hanging `ip route show` invocation must be bounded by the
+// effective per-call timeout — either the caller-supplied ctx deadline or
+// config.SubprocessTimeout, whichever fires first (Go honors the earliest
+// deadline). Task 10.13 reverted SubprocessTimeout to const, so the test
+// supplies its own 50ms ctx to exercise the bounded path without waiting
+// the production 15s. The hook stays in place so we exercise the real
+// CheckRoutesInstalled ctx propagation.
+func TestCheckRoutesInstalled_HangingSubprocessReturnsWithinTimeout(t *testing.T) {
+	origHook := ipRouteShowDev
+	ipRouteShowDev = func(ctx context.Context, _ string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { ipRouteShowDev = origHook })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	done := make(chan bool, 1)
+	start := time.Now()
+	go func() { done <- CheckRoutesInstalled(ctx, "x", []string{"1.2.3.4/32"}) }()
+
+	select {
+	case ok := <-done:
+		require.False(t, ok, "hung subprocess returns ctx.Err(); fn returns false")
+		require.Less(t, time.Since(start), 500*time.Millisecond,
+			"caller deadline (50ms) must propagate through CheckRoutesInstalled")
+	case <-time.After(2 * time.Second):
+		t.Fatal("CheckRoutesInstalled never returned: ctx deadline not honored (BUG-L2)")
+	}
 }
 
 func TestGetDiagnostics_WgNilFirewall(t *testing.T) {

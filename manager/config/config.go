@@ -18,6 +18,7 @@ const (
 	NginxConfigDir  = "/data/unifi-core/config/http"
 	NginxConfigDest = NginxConfigDir + "/shared-runnable-vpnpack.conf"
 	NginxConfigFile = "shared-runnable-vpnpack.conf"
+	UniFiCertPath   = "/data/unifi-core/config/unifi-core.crt"
 )
 
 const (
@@ -48,6 +49,7 @@ const (
 	UpdateCheckPeriod  = 24 * time.Hour
 	UpdateInitialDelay = 30 * time.Second
 	GithubAPITimeout   = 15 * time.Second
+	UpdateFailCacheTTL = 30 * time.Minute
 )
 
 const (
@@ -101,9 +103,10 @@ const (
 )
 
 const (
-	DirPerm    = 0755
-	SecretPerm = 0600
-	ConfigPerm = 0644
+	DirPerm       = 0755
+	SecretDirPerm = 0700
+	SecretPerm    = 0600
+	ConfigPerm    = 0644
 )
 
 // Set via -ldflags at build time.

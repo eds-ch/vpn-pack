@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
 
+	"golang.org/x/mod/semver"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -19,13 +19,17 @@ func githubReleasesURL() string {
 	return "https://api.github.com/repos/" + config.GithubRepo + "/releases/latest"
 }
 
+// githubReleasesURLHook is overridden in tests to point at httptest.Server.
+var githubReleasesURLHook = githubReleasesURL
+
 type updateChecker struct {
-	mu         sync.Mutex
-	info       *UpdateInfo
-	checkedAt  time.Time
-	current    string
-	httpClient *http.Client
-	sf         singleflight.Group
+	mu          sync.Mutex
+	info        *UpdateInfo
+	checkedAt   time.Time
+	failedAt    time.Time
+	current     string
+	httpClient  *http.Client
+	sf          singleflight.Group
 }
 
 func newUpdateChecker() *updateChecker {
@@ -55,68 +59,66 @@ func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 		uc.mu.Unlock()
 		return info
 	}
+	// BUG-L6: if the last attempt failed within the fail-cache TTL,
+	// short-circuit so a 5xx storm cannot stampede GitHub's rate limit.
+	if !uc.failedAt.IsZero() && time.Since(uc.failedAt) < config.UpdateFailCacheTTL {
+		uc.mu.Unlock()
+		return &UpdateInfo{Available: false, CurrentVersion: uc.current}
+	}
 	uc.mu.Unlock()
 
 	v, _, _ := uc.sf.Do("check", func() (any, error) {
 		info := uc.fetchLatest(ctx)
 		uc.mu.Lock()
-		uc.info = info
-		uc.checkedAt = time.Now()
+		if info == nil {
+			uc.failedAt = time.Now()
+		} else {
+			uc.info = info
+			uc.checkedAt = time.Now()
+			uc.failedAt = time.Time{}
+		}
 		uc.mu.Unlock()
 		return info, nil
 	})
 
 	info, _ := v.(*UpdateInfo)
+	if info == nil {
+		return &UpdateInfo{Available: false, CurrentVersion: uc.current}
+	}
 	return info
 }
 
-func splitPreRelease(v string) (base, pre string) {
-	if i := strings.IndexByte(v, '-'); i >= 0 {
-		return v[:i], v[i+1:]
-	}
-	return v, ""
-}
-
+// compareVersions returns -1, 0, +1 for a<b, a==b, a>b. Sentinel inputs
+// ("", "dev") compare as equal so the updater never proposes a "downgrade"
+// from a local dev build. Otherwise we delegate to golang.org/x/mod/semver
+// which implements full SemVer 2.0 pre-release ordering (1.5.0-beta.3 <
+// 1.5.0-beta.4 < 1.5.0-rc.1 < 1.5.0).
 func compareVersions(a, b string) int {
 	if a == "" || b == "" || a == "dev" || b == "dev" {
 		return 0
 	}
-	baseA, preA := splitPreRelease(a)
-	baseB, preB := splitPreRelease(b)
+	return semver.Compare(canonSemver(a), canonSemver(b))
+}
 
-	partsA := strings.Split(baseA, ".")
-	partsB := strings.Split(baseB, ".")
-	maxLen := len(partsA)
-	if len(partsB) > maxLen {
-		maxLen = len(partsB)
+// canonSemver prefixes the leading "v" expected by golang.org/x/mod/semver.
+// If the input has fewer than 3 dotted base components (e.g. "1.5"), pad
+// with ".0" so semver.IsValid accepts it; otherwise semver.Compare returns 0
+// for every comparison.
+func canonSemver(v string) string {
+	v = strings.TrimPrefix(v, "v")
+	base, pre, _ := strings.Cut(v, "-")
+	dots := strings.Count(base, ".")
+	for ; dots < 2; dots++ {
+		base += ".0"
 	}
-	for i := 0; i < maxLen; i++ {
-		var na, nb int
-		if i < len(partsA) {
-			na, _ = strconv.Atoi(partsA[i])
-		}
-		if i < len(partsB) {
-			nb, _ = strconv.Atoi(partsB[i])
-		}
-		if na < nb {
-			return -1
-		}
-		if na > nb {
-			return 1
-		}
+	if pre != "" {
+		return "v" + base + "-" + pre
 	}
-	// Base versions equal: stable > pre-release
-	if preA == "" && preB != "" {
-		return 1
-	}
-	if preA != "" && preB == "" {
-		return -1
-	}
-	return 0
+	return "v" + base
 }
 
 func (uc *updateChecker) fetchLatest(ctx context.Context) *UpdateInfo {
-	req, err := http.NewRequestWithContext(ctx, "GET", githubReleasesURL(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", githubReleasesURLHook(), nil)
 	if err != nil {
 		return nil
 	}

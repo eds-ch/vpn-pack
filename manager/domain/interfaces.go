@@ -13,6 +13,7 @@ import (
 type SSEHub interface {
 	Subscribe() (chan SSEMessage, func(), error)
 	Broadcast(data []byte)
+	BroadcastIfChanged(data []byte)
 	BroadcastNamed(event string, data []byte)
 	CurrentState() []byte
 }
@@ -105,10 +106,11 @@ type FirewallService interface {
 	RestoreRulesWithRetry(ctx context.Context, retries int, delay time.Duration)
 	WaitBackground()
 	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
-	CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool
+	AuditAndFixTsForwardOrder(ctx context.Context) error
+	CheckWgS2sRulesPresent(ctx context.Context, specs []WgS2sCheckSpec) map[string]bool
 	DiscoverChainPrefix(ctx context.Context, zoneID string) string
-	EnsureTailscaleRules(chainPrefix string) error
-	RemoveTailscaleInterfaceRules() error
+	EnsureTailscaleRules(ctx context.Context, chainPrefix string) error
+	RemoveTailscaleInterfaceRules(ctx context.Context) error
 	IntegrationReady() bool
 }
 

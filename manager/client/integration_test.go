@@ -1,10 +1,14 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"unifi-tailscale/manager/config"
@@ -14,12 +18,167 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// placeholderPin is accepted by NewIntegrationClient (length-checked) but
+// never matched against any real cert — use in tests that exercise plain
+// HTTP servers where VerifyPeerCertificate is never invoked.
+func placeholderPin() []byte { return bytes.Repeat([]byte{0}, sha256.Size) }
+
 func newTestIntegrationClient(t *testing.T, handler http.HandlerFunc) *IntegrationClient {
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	ic := NewIntegrationClient("test-api-key")
-	ic.baseURL = ts.URL
+	ic, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: ts.URL,
+		APIKey:   "test-api-key",
+		SPKIPin:  placeholderPin(),
+	})
+	if err != nil {
+		t.Fatalf("NewIntegrationClient: %v", err)
+	}
 	return ic
+}
+
+// TestIntegrationClient_AcceptsPinnedCert verifies that a leaf cert
+// whose SPKI matches the pin is accepted through Validate over TLS.
+// Closes SEC-C5 (positive path).
+func TestIntegrationClient_AcceptsPinnedCert(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"applicationVersion":"9.0.1"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	pin := sha256.Sum256(srv.Certificate().RawSubjectPublicKeyInfo)
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: srv.URL,
+		APIKey:   "test",
+		SPKIPin:  pin[:],
+	})
+	require.NoError(t, err)
+
+	info, err := cli.Validate(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, info)
+	assert.Equal(t, "9.0.1", info.ApplicationVersion)
+}
+
+// TestIntegrationClient_RejectsUnpinnedCert verifies that a leaf cert
+// whose SPKI does NOT match the pin is rejected — the Validate call
+// must error out, with no integration request reaching the server.
+// Closes SEC-C5 (negative path, primary).
+func TestIntegrationClient_RejectsUnpinnedCert(t *testing.T) {
+	var serverHit bool
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		serverHit = true
+		_, _ = w.Write([]byte(`{"applicationVersion":"9.0.1"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	wrongPin := bytes.Repeat([]byte{0xaa}, sha256.Size)
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: srv.URL,
+		APIKey:   "test",
+		SPKIPin:  wrongPin,
+	})
+	require.NoError(t, err)
+
+	_, err = cli.Validate(context.Background())
+	require.Error(t, err, "expected pin mismatch")
+	assert.False(t, serverHit, "request must not be sent if pin verification fails")
+}
+
+// TestIntegrationClient_RefusesWithoutPin verifies fail-closed behaviour
+// when no pin material is provided — the constructor returns an error
+// and a nil client, so the integration features are simply disabled.
+// Closes SEC-C5 (boot fail-closed).
+func TestIntegrationClient_RefusesWithoutPin(t *testing.T) {
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: "https://127.0.0.1/",
+		APIKey:   "test",
+		SPKIPin:  nil,
+	})
+	require.Error(t, err, "expected fail-closed when pin material absent")
+	assert.Nil(t, cli, "client must be nil on fail-closed")
+}
+
+// TestIntegrationClient_RejectsWrongPinLength verifies that a pin of
+// the wrong size is rejected at construction. This guards against a
+// silent truncation/extension bug in LoadSPKIPin or its callers.
+func TestIntegrationClient_RejectsWrongPinLength(t *testing.T) {
+	cli, err := NewIntegrationClient(IntegrationConfig{
+		Endpoint: "https://127.0.0.1/",
+		APIKey:   "test",
+		SPKIPin:  []byte{0x01, 0x02, 0x03},
+	})
+	require.Error(t, err)
+	assert.Nil(t, cli)
+}
+
+// TestLoadSPKIPin_MissingFile asserts the fail-closed boot path:
+// a missing /data/unifi-core/config/unifi-core.crt returns an error
+// (callers fall through to NoopIntegrationAPI rather than constructing
+// a real client without a pin — SEC-C5).
+func TestLoadSPKIPin_MissingFile(t *testing.T) {
+	pin, err := LoadSPKIPin("/nonexistent/unifi-core.crt")
+	require.Error(t, err)
+	assert.Nil(t, pin)
+}
+
+// TestLoadSPKIPin_InvalidPEM asserts that a non-PEM file fails closed.
+func TestLoadSPKIPin_InvalidPEM(t *testing.T) {
+	tmp := t.TempDir()
+	bad := tmp + "/bad.crt"
+	if err := os.WriteFile(bad, []byte("not a PEM cert"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	pin, err := LoadSPKIPin(bad)
+	require.Error(t, err)
+	assert.Nil(t, pin)
+}
+
+// TestNoopIntegrationAPI_FailsClosed asserts the no-op surface used at
+// boot when the SPKI pin is unavailable: HasAPIKey() is permanently
+// false (so FirewallManager.IntegrationReady() short-circuits) and
+// every other method returns ErrIntegrationDisabled. Closes SEC-C5
+// boot-path coverage and the "no panic when pin missing" assertion
+// from Task 8.8 Step 5a.
+func TestNoopIntegrationAPI_FailsClosed(t *testing.T) {
+	api := NoopIntegrationAPI()
+	require.NotNil(t, api)
+
+	assert.False(t, api.HasAPIKey(), "no-op must never report a configured API key")
+
+	// SetAPIKey is intentionally a no-op (mid-flight rotation calls
+	// through this path); calling it must not panic.
+	api.SetAPIKey("anything")
+	assert.False(t, api.HasAPIKey(), "SetAPIKey on noop must not alter HasAPIKey")
+
+	ctx := context.Background()
+	checks := []struct {
+		name string
+		fn   func() error
+	}{
+		{"Validate", func() error { _, err := api.Validate(ctx); return err }},
+		{"DiscoverSiteID", func() error { _, err := api.DiscoverSiteID(ctx); return err }},
+		{"CreateZone", func() error { _, err := api.CreateZone(ctx, "s", "n"); return err }},
+		{"EnsureZone", func() error { _, err := api.EnsureZone(ctx, "s", "n"); return err }},
+		{"EnsurePolicies", func() error { _, err := api.EnsurePolicies(ctx, "s", "n", "z"); return err }},
+		{"ListPolicies", func() error { _, err := api.ListPolicies(ctx, "s"); return err }},
+		{"DeletePolicy", func() error { return api.DeletePolicy(ctx, "s", "p") }},
+		{"DeleteZone", func() error { return api.DeleteZone(ctx, "s", "z") }},
+		{"FindInternalZoneID", func() error { _, err := api.FindInternalZoneID(ctx, "s"); return err }},
+		{"ListZones", func() error { _, err := api.ListZones(ctx, "s"); return err }},
+		{"FindSystemZoneIDs", func() error { _, _, err := api.FindSystemZoneIDs(ctx, "s"); return err }},
+		{"EnsureWanPortPolicy", func() error { _, err := api.EnsureWanPortPolicy(ctx, "s", 1, "n", "e", "g"); return err }},
+		{"EnsureDNSForwardDomain", func() error { _, err := api.EnsureDNSForwardDomain(ctx, "s", "d", "ip"); return err }},
+		{"DeleteDNSPolicy", func() error { return api.DeleteDNSPolicy(ctx, "s", "p") }},
+		{"ListDNSPolicies", func() error { _, err := api.ListDNSPolicies(ctx, "s"); return err }},
+	}
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.fn()
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrIntegrationDisabled, "%s must return ErrIntegrationDisabled", c.name)
+		})
+	}
 }
 
 func TestIntegrationValidate(t *testing.T) {
@@ -79,8 +238,14 @@ func TestIntegrationValidate(t *testing.T) {
 			ts := httptest.NewServer(handler)
 			t.Cleanup(ts.Close)
 
-			ic := NewIntegrationClient(tt.apiKey)
-			ic.baseURL = ts.URL
+			ic, err := NewIntegrationClient(IntegrationConfig{
+				Endpoint: ts.URL,
+				APIKey:   tt.apiKey,
+				SPKIPin:  placeholderPin(),
+			})
+			if err != nil {
+				t.Fatalf("NewIntegrationClient: %v", err)
+			}
 
 			info, err := ic.Validate(context.Background())
 
@@ -244,4 +409,108 @@ func TestIntegrationValidateResponseParsing(t *testing.T) {
 	info, err := ic.Validate(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "9.0.1", info.ApplicationVersion)
+}
+
+// SEC-C7: error messages from non-2xx upstream responses must not include
+// the raw response body. The body can carry session tokens, stack traces,
+// or other sensitive data and propagates into operator-visible logs and
+// /api/* responses through error wrapping.
+func TestIntegrationErrorsOmitUpstreamBody(t *testing.T) {
+	const secret = "INTERNAL_SECRET_TOKEN_xyz_12345"
+
+	cases := []struct {
+		name   string
+		call   func(ic *IntegrationClient) error
+		method string
+		path   string
+	}{
+		{
+			name:   "Validate",
+			method: "GET",
+			path:   "/v1/info",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.Validate(context.Background())
+				return err
+			},
+		},
+		{
+			name:   "ListZones",
+			method: "GET",
+			path:   "/v1/sites/s1/firewall/zones",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.ListZones(context.Background(), "s1")
+				return err
+			},
+		},
+		{
+			name:   "CreateZone",
+			method: "POST",
+			path:   "/v1/sites/s1/firewall/zones",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.CreateZone(context.Background(), "s1", "z")
+				return err
+			},
+		},
+		{
+			name:   "CreatePolicy",
+			method: "POST",
+			path:   "/v1/sites/s1/firewall/policies",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.CreatePolicy(context.Background(), "s1", CreatePolicyRequest{Name: "x"})
+				return err
+			},
+		},
+		{
+			name:   "DeletePolicy",
+			method: "DELETE",
+			path:   "/v1/sites/s1/firewall/policies/p1",
+			call: func(ic *IntegrationClient) error {
+				return ic.DeletePolicy(context.Background(), "s1", "p1")
+			},
+		},
+		{
+			name:   "DeleteZone",
+			method: "DELETE",
+			path:   "/v1/sites/s1/firewall/zones/z1",
+			call: func(ic *IntegrationClient) error {
+				return ic.DeleteZone(context.Background(), "s1", "z1")
+			},
+		},
+		{
+			name:   "CreateDNSPolicy",
+			method: "POST",
+			path:   "/v1/sites/s1/dns/policies",
+			call: func(ic *IntegrationClient) error {
+				_, err := ic.CreateDNSPolicy(context.Background(), "s1", createDNSPolicyRequest{Domain: "x"})
+				return err
+			},
+		},
+		{
+			name:   "DeleteDNSPolicy",
+			method: "DELETE",
+			path:   "/v1/sites/s1/dns/policies/p1",
+			call: func(ic *IntegrationClient) error {
+				return ic.DeleteDNSPolicy(context.Background(), "s1", "p1")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ic := newTestIntegrationClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(500)
+				_, _ = w.Write([]byte(secret))
+			})
+
+			err := tc.call(ic)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, domain.ErrIntegrationAPI)
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("error message leaked upstream body %q: %v", secret, err)
+			}
+			if !strings.Contains(err.Error(), "500") {
+				t.Fatalf("error message must include status code; got: %v", err)
+			}
+		})
+	}
 }

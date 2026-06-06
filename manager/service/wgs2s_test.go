@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/internal/wgs2s"
 )
 
@@ -221,7 +222,7 @@ type mockWgS2sFirewall struct {
 	teardownZoneFn     func(context.Context, string)
 	openWanPortFn      func(context.Context, int, string)
 	closeWanPortFn     func(context.Context, int, string)
-	checkRulesFn       func(context.Context, []string) map[string]bool
+	checkRulesFn       func(context.Context, []domain.WgS2sCheckSpec) map[string]bool
 	integrationReadyFn func() bool
 }
 
@@ -262,9 +263,9 @@ func (m *mockWgS2sFirewall) CloseWanPort(ctx context.Context, port int, iface st
 		m.closeWanPortFn(ctx, port, iface)
 	}
 }
-func (m *mockWgS2sFirewall) CheckRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
+func (m *mockWgS2sFirewall) CheckRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
 	if m.checkRulesFn != nil {
-		return m.checkRulesFn(ctx, ifaces)
+		return m.checkRulesFn(ctx, specs)
 	}
 	return nil
 }
@@ -389,6 +390,56 @@ func TestDeleteTunnelNotFound(t *testing.T) {
 	assert.Equal(t, ErrNotFound, se.Kind)
 }
 
+// TestDeleteTunnel_FirewallBeforeWgDelete covers the BUG-L10 service-level
+// ordering: firewall teardown must happen BEFORE the low-level wg.DeleteTunnel
+// (which removes the kernel interface + disk entry + keys). Removing firewall
+// rules referencing a still-existing iface is safe; removing rules referencing
+// a gone iface can leak stale UDAPI state.
+func TestDeleteTunnel_FirewallBeforeWgDelete(t *testing.T) {
+	tunnel := wgs2s.TunnelConfig{
+		ID: "t1", InterfaceName: "wg-s2s0",
+		ListenPort: 51820, AllowedIPs: []string{"10.0.0.0/24"},
+	}
+	var order []string
+	wg := &mockWgS2sWireGuard{
+		getTunnelsFn:   func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{tunnel} },
+		deleteTunnelFn: func(string) error { order = append(order, "wg-delete"); return nil },
+	}
+	fw := &mockWgS2sFirewall{
+		removeFirewallFn: func(_ context.Context, _, _ string, _ []string) {
+			order = append(order, "fw-remove")
+		},
+		closeWanPortFn: func(_ context.Context, _ int, _ string) {
+			order = append(order, "fw-close-wan")
+		},
+		teardownZoneFn: func(_ context.Context, _ string) {
+			order = append(order, "fw-teardown-zone")
+		},
+	}
+	svc := newTestWgS2sService(wg, func(s *WgS2sService) { s.fw = fw })
+	require.NoError(t, svc.DeleteTunnel(context.Background(), "t1"))
+
+	// Firewall removal (rules + WAN port + zone) must precede wg-delete.
+	wgIdx := -1
+	for i, c := range order {
+		if c == "wg-delete" {
+			wgIdx = i
+			break
+		}
+	}
+	if wgIdx < 0 {
+		t.Fatalf("wg-delete missing from %v", order)
+	}
+	for i, c := range order {
+		if i < wgIdx {
+			continue
+		}
+		if c == "fw-remove" || c == "fw-close-wan" || c == "fw-teardown-zone" {
+			t.Fatalf("firewall step %q came after wg-delete; order=%v", c, order)
+		}
+	}
+}
+
 func TestDeleteTunnelSuccess(t *testing.T) {
 	tunnel := wgs2s.TunnelConfig{
 		ID: "t1", InterfaceName: "wg-s2s0",
@@ -453,7 +504,61 @@ func TestDeleteTunnelWgError(t *testing.T) {
 	var se *Error
 	require.True(t, errors.As(err, &se))
 	assert.Equal(t, ErrUpstream, se.Kind)
-	assert.False(t, fwCalled, "firewall should NOT be called when wg.DeleteTunnel fails")
+	// New contract (BUG-L10): firewall teardown runs BEFORE wg.DeleteTunnel.
+	// On wg-delete failure the saga restores firewall + WAN port so the
+	// operator can safely retry without dangling state.
+	assert.True(t, fwCalled, "firewall teardown must precede wg.DeleteTunnel")
+}
+
+// TestDeleteTunnel_WgFailureRestoresFirewall covers the BUG-L10 service-level
+// rollback contract: if wg.DeleteTunnel fails after the firewall has been
+// torn down, the saga must re-install firewall rules + WAN port so the
+// system isn't left with a live tunnel and no firewall.
+func TestDeleteTunnel_WgFailureRestoresFirewall(t *testing.T) {
+	tunnel := wgs2s.TunnelConfig{
+		ID: "t1", InterfaceName: "wg-s2s0",
+		ListenPort: 51820, AllowedIPs: []string{"10.0.0.0/24"},
+	}
+	var order []string
+	wg := &mockWgS2sWireGuard{
+		getTunnelsFn:   func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{tunnel} },
+		deleteTunnelFn: func(string) error { order = append(order, "wg-delete-fail"); return fmt.Errorf("wg: busy") },
+	}
+	fw := &mockWgS2sFirewall{
+		removeFirewallFn: func(_ context.Context, _, _ string, _ []string) { order = append(order, "fw-remove") },
+		closeWanPortFn:   func(_ context.Context, _ int, _ string) { order = append(order, "fw-close-wan") },
+		teardownZoneFn:   func(_ context.Context, _ string) { order = append(order, "fw-teardown-zone") },
+		setupFirewallFn: func(_ context.Context, _, _ string, _ []string) error {
+			order = append(order, "fw-setup-restore")
+			return nil
+		},
+		openWanPortFn: func(_ context.Context, _ int, _ string) { order = append(order, "fw-open-wan-restore") },
+	}
+	svc := newTestWgS2sService(wg, func(s *WgS2sService) { s.fw = fw })
+	if err := svc.DeleteTunnel(context.Background(), "t1"); err == nil {
+		t.Fatal("expected error from wg.DeleteTunnel failure")
+	}
+
+	// "wg-delete-fail" must precede the restore-side firewall calls.
+	wgIdx := -1
+	for i, c := range order {
+		if c == "wg-delete-fail" {
+			wgIdx = i
+			break
+		}
+	}
+	if wgIdx < 0 {
+		t.Fatalf("wg-delete-fail missing from %v", order)
+	}
+	sawRestore := false
+	for _, c := range order[wgIdx+1:] {
+		if c == "fw-setup-restore" || c == "fw-open-wan-restore" {
+			sawRestore = true
+		}
+	}
+	if !sawRestore {
+		t.Fatalf("firewall restore did not run after wg failure; order=%v", order)
+	}
 }
 
 func TestEnableTunnelFirewallPartial(t *testing.T) {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -11,8 +12,15 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 
+	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/ops"
 )
+
+// ErrPartialDisable indicates EditPrefs succeeded but a subsequent step
+// (local rules cleanup or manifest clear) failed. Callers must surface
+// this to the operator — exit-node is off, but local state may be stale.
+var ErrPartialDisable = errors.New("exit-node disabled with cleanup errors")
 
 type RemoteExitManifest interface {
 	GetRemoteExitNode() *domain.RemoteExitNode
@@ -134,25 +142,11 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 	svc.applying.Store(true)
 	defer svc.applying.Store(false)
 
-	if err := svc.manifest.SetRemoteExitNode(&domain.RemoteExitNode{
+	prevRemote := svc.manifest.GetRemoteExitNode()
+	newRemote := &domain.RemoteExitNode{
 		PeerID:  req.PeerID,
 		Mode:    mode,
 		Clients: req.Clients,
-	}); err != nil {
-		return nil, internalError(fmt.Sprintf("persist remote exit node: %v", err), err)
-	}
-
-	if wasAdvertising {
-		if err := svc.manifest.SetAdvertiseExitNode(false); err != nil {
-			slog.Warn("failed to clear advertise exit node in manifest", "err", err)
-		}
-	}
-
-	if svc.exitSvc != nil {
-		if err := svc.exitSvc.Apply(ctx, policy); err != nil {
-			_ = svc.manifest.SetRemoteExitNode(nil)
-			return nil, internalError(fmt.Sprintf("apply exit node rules: %v", err), err)
-		}
 	}
 
 	mp := &ipn.MaskedPrefs{
@@ -168,20 +162,59 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 		mp.AdvertiseRoutesSet = true
 	}
 
-	_, err = svc.ts.EditPrefs(ctx, mp)
-	if err != nil {
-		if ctx.Err() != nil {
-			slog.Warn("exit node enable: context cancelled after EditPrefs",
-				"peer", req.PeerID, "err", err)
-			return &EnableRemoteExitResult{
-				OK:      true,
-				Message: fmt.Sprintf("Traffic routed through %s.", peer.HostName),
-			}, nil
-		}
-		_ = svc.manifest.SetRemoteExitNode(nil)
-		if svc.exitSvc != nil {
-			_ = svc.exitSvc.Cleanup(ctx)
-		}
+	// Restore-prefs for EditPrefs undo. Captures the pre-Enable state so a
+	// later failure can revert in a single masked-prefs round-trip.
+	restorePrefs := &ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{
+			ExitNodeID:             prefs.ExitNodeID,
+			ExitNodeAllowLANAccess: prefs.ExitNodeAllowLANAccess,
+		},
+		ExitNodeIDSet:             true,
+		ExitNodeAllowLANAccessSet: true,
+	}
+	if wasAdvertising {
+		restorePrefs.AdvertiseRoutes = prefs.AdvertiseRoutes
+		restorePrefs.AdvertiseRoutesSet = true
+	}
+
+	steps := []ops.Op{
+		{
+			Name: "persist manifest with new peer",
+			Do:   func(_ context.Context) error { return svc.manifest.SetRemoteExitNode(newRemote) },
+			Undo: func(_ context.Context) error { return svc.manifest.SetRemoteExitNode(prevRemote) },
+		},
+	}
+	if wasAdvertising {
+		steps = append(steps, ops.Op{
+			Name: "clear advertise-exit-node in manifest",
+			Do:   func(_ context.Context) error { return svc.manifest.SetAdvertiseExitNode(false) },
+			Undo: func(_ context.Context) error { return svc.manifest.SetAdvertiseExitNode(true) },
+		})
+	}
+	if svc.exitSvc != nil {
+		steps = append(steps, ops.Op{
+			Name: "apply local exit-node rules",
+			Do:   func(ctx context.Context) error { return svc.exitSvc.Apply(ctx, policy) },
+			Undo: func(ctx context.Context) error { return svc.exitSvc.Cleanup(ctx) },
+		})
+	}
+	steps = append(steps, ops.Op{
+		Name: "set Tailscale prefs",
+		Do: func(ctx context.Context) error {
+			cctx, cancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+			defer cancel()
+			_, err := svc.ts.EditPrefs(cctx, mp)
+			return err
+		},
+		Undo: func(ctx context.Context) error {
+			cctx, cancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+			defer cancel()
+			_, err := svc.ts.EditPrefs(cctx, restorePrefs)
+			return err
+		},
+	})
+
+	if err := ops.Run(ctx, steps); err != nil {
 		return nil, upstreamError(humanizeLocalAPIError(err), err)
 	}
 
@@ -192,7 +225,8 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 }
 
 func (svc *RemoteExitService) Disable(ctx context.Context) error {
-	_, err := svc.ts.EditPrefs(ctx, &ipn.MaskedPrefs{
+	ectx, ecancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
+	_, err := svc.ts.EditPrefs(ectx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			ExitNodeID:             "",
 			ExitNodeAllowLANAccess: false,
@@ -200,20 +234,26 @@ func (svc *RemoteExitService) Disable(ctx context.Context) error {
 		ExitNodeIDSet:             true,
 		ExitNodeAllowLANAccessSet: true,
 	})
+	ecancel()
 	if err != nil {
 		return upstreamError(humanizeLocalAPIError(err), err)
 	}
 
+	var partial []error
 	if svc.exitSvc != nil {
 		if err := svc.exitSvc.Cleanup(ctx); err != nil {
 			slog.Warn("exit node rules cleanup failed", "err", err)
+			partial = append(partial, fmt.Errorf("cleanup local rules: %w", err))
 		}
 	}
-
 	if err := svc.manifest.SetRemoteExitNode(nil); err != nil {
 		slog.Warn("failed to clear remote exit node from manifest", "err", err)
+		partial = append(partial, fmt.Errorf("clear manifest: %w", err))
 	}
 
+	if len(partial) > 0 {
+		return errors.Join(append([]error{ErrPartialDisable}, partial...)...)
+	}
 	return nil
 }
 

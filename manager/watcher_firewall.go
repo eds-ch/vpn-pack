@@ -52,7 +52,11 @@ func (s *Server) runFirewallWatcher(ctx context.Context) {
 
 		case <-sighup:
 			slog.Info("SIGHUP received, forcing reapply")
-			if result := s.fwOrch.SetupTailscaleFirewall(ctx); result.Err() != nil {
+			result, ran := s.guardedSetupTailscaleFirewall(ctx)
+			switch {
+			case !ran:
+				slog.Info("SIGHUP reapply skipped: another reconcile in flight")
+			case result.Err() != nil:
 				slog.Warn("SIGHUP reapply failed", "err", result.Err())
 			}
 		}
@@ -198,6 +202,13 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 		return
 	}
 
+	// SEC-C15: ts-forward may be present but at the wrong position relative
+	// to UBIOS_FORWARD_JUMP after manual flushes or restore-from-save. Audit
+	// the order on every tick; the call is idempotent when ordering is sane.
+	if err := s.fw.AuditAndFixTsForwardOrder(ctx); err != nil {
+		slog.Warn("ts-forward order audit failed", "err", err)
+	}
+
 	forward, input, output, ipset := s.fw.CheckTailscaleRulesPresent(ctx)
 
 	ts := s.manifest.GetTailscaleZone()
@@ -249,17 +260,22 @@ func (s *Server) restoreWgS2sRules(ctx context.Context) {
 	s.wgS2sSvc.ReconcileZones(ctx)
 
 	tunnels := s.wgManager.GetTunnels()
-	var ifaces []string
+	var specs []domain.WgS2sCheckSpec
 	for _, t := range tunnels {
-		if t.Enabled {
-			ifaces = append(ifaces, t.InterfaceName)
+		if !t.Enabled {
+			continue
 		}
+		specs = append(specs, domain.WgS2sCheckSpec{
+			InterfaceName: t.InterfaceName,
+			ChainPrefix:   s.manifest.GetWgS2sChainPrefix(t.ID),
+			Subnets:       t.AllowedIPs,
+		})
 	}
-	if len(ifaces) == 0 {
+	if len(specs) == 0 {
 		return
 	}
 
-	present := s.fw.CheckWgS2sRulesPresent(ctx, ifaces)
+	present := s.fw.CheckWgS2sRulesPresent(ctx, specs)
 	for _, t := range tunnels {
 		if !t.Enabled {
 			continue

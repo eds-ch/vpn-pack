@@ -42,6 +42,7 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) er
 	}
 
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {

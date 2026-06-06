@@ -27,12 +27,16 @@ import type {
 const API_BASE = '/vpn-pack/api';
 const DEFAULT_TIMEOUT_MS = 30000;
 
-let csrfToken: string | null = null;
 let lastRequestTime = 0;
 
 interface ApiFetchOpts {
     timeout?: number;
     _isRetry?: boolean;
+}
+
+function csrfToken(): string {
+    const m = document.cookie.match(/(?:^|; )vp_csrf=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
 }
 
 function extractError(data: Record<string, unknown>, status: number): string {
@@ -47,8 +51,13 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
         const headers: Record<string, string> = {};
+        const isMutation = method !== 'GET' && method !== 'HEAD';
         if (body !== undefined) headers['Content-Type'] = 'application/json';
-        if (csrfToken && method !== 'GET') headers['X-Csrf-Token'] = csrfToken;
+        else if (isMutation) headers['Content-Type'] = 'application/json';
+        if (isMutation) {
+            const tok = csrfToken();
+            if (tok) headers['X-Csrf-Token'] = tok;
+        }
 
         const opts: RequestInit = { method, headers, signal: controller.signal };
         if (body !== undefined) opts.body = JSON.stringify(body);
@@ -56,15 +65,12 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
         const res = await fetch(path, opts);
         clearTimeout(timer);
 
-        const newCsrf = res.headers.get('X-Csrf-Token');
-        if (newCsrf) csrfToken = newCsrf;
-
         if (res.status === 401 || res.status === 403) {
             if (!_isRetry) {
                 try {
+                    // Re-prime the vp_csrf cookie by hitting a safe endpoint;
+                    // the Set-Cookie response will populate document.cookie.
                     const refreshRes = await fetch(`${API_BASE}/status`);
-                    const refreshCsrf = refreshRes.headers.get('X-Csrf-Token');
-                    if (refreshCsrf) csrfToken = refreshCsrf;
                     if (refreshRes.ok) {
                         return apiFetch<T>(method, path, body, { timeout, _isRetry: true });
                     }

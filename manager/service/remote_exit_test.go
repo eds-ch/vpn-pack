@@ -624,30 +624,107 @@ func TestEnable_EditPrefsFails_RollsBack(t *testing.T) {
 }
 
 func TestEnable_ContextCancelled_NoRollback(t *testing.T) {
+	t.Skip("Replaced by TestEnable_CancelledEditPrefsIsFailure: cancelled context " +
+		"is now a failure (SEC-C12/BUG-M3); ExitNodeService.Apply correctly returns " +
+		"an error on cancelled ctx via ops.Run.")
+}
+
+// TestEnable_RollsBackAdvertiseExitNodeOnLaterFailure covers BUG-L14.
+// If a later saga step fails (EditPrefs), the SetAdvertiseExitNode(false)
+// step's Undo must restore the original advertising state.
+func TestEnable_RollsBackAdvertiseExitNodeOnLaterFailure(t *testing.T) {
 	ts := &mockRoutingTailscale{
-		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+		statusFn: func(_ context.Context) (*ipnstate.Status, error) {
 			return testStatusWithPeers(
 				testPeerStatus("stable-1", "exit-server", true, true, false),
 			), nil
 		},
-		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+		getPrefsFn: func(_ context.Context) (*ipn.Prefs, error) {
+			return &ipn.Prefs{AdvertiseRoutes: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}}, nil
+		},
+		editPrefsFn: func(_ context.Context, _ *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			return nil, fmt.Errorf("upstream down")
+		},
+	}
+	manifest := &mockRemoteExitManifest{advertiseEnabled: true}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	_, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: true,
+	})
+	require.Error(t, err)
+	assert.True(t, manifest.advertiseEnabled,
+		"AdvertiseExitNode flag must be restored to true after rollback")
+}
+
+// TestDisable_SurfacesCleanupError covers SEC-C13 / BUG-L15.
+// If exitSvc.Cleanup fails AFTER EditPrefs already succeeded, Disable must
+// report the cleanup error via ErrPartialDisable instead of swallowing it.
+func TestDisable_SurfacesCleanupError(t *testing.T) {
+	state := newFakeIPRuleState()
+	exit := NewExitNodeService(&mockExitManifest{}, state.runner())
+	stubBridges(exit, "br0")
+	require.NoError(t, exit.Apply(context.Background(), domain.ExitNodePolicy{Mode: domain.ExitNodeAll}))
+
+	state.mu.Lock()
+	state.failOnDel = true
+	state.mu.Unlock()
+
+	ts := &mockRoutingTailscale{}
+	manifest := &mockRemoteExitManifest{}
+	svc := NewRemoteExitService(ts, exit, manifest)
+
+	err := svc.Disable(context.Background())
+	require.Error(t, err, "Disable must surface Cleanup failures")
+	assert.ErrorIs(t, err, ErrPartialDisable, "error must wrap ErrPartialDisable")
+}
+
+// TestDisable_SurfacesManifestError covers SEC-C13 / BUG-L15 (manifest leg).
+// If manifest clear fails AFTER EditPrefs already succeeded, Disable must
+// report the manifest error via ErrPartialDisable.
+func TestDisable_SurfacesManifestError(t *testing.T) {
+	state := newFakeIPRuleState()
+	exit := NewExitNodeService(&mockExitManifest{}, state.runner())
+	ts := &mockRoutingTailscale{}
+	manifest := &mockRemoteExitManifest{setRemoteErr: fmt.Errorf("manifest write failed")}
+	svc := NewRemoteExitService(ts, exit, manifest)
+
+	err := svc.Disable(context.Background())
+	require.Error(t, err, "Disable must surface manifest failures")
+	assert.ErrorIs(t, err, ErrPartialDisable, "error must wrap ErrPartialDisable")
+}
+
+// TestEnable_CancelledEditPrefsIsFailure covers SEC-C12 / BUG-M3.
+// If EditPrefs gets cancelled, Enable must report a failure — never OK.
+// The prior bug: ctx.Err() != nil after EditPrefs returned OK=true to caller.
+func TestEnable_CancelledEditPrefsIsFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ts := &mockRoutingTailscale{
+		statusFn: func(_ context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		editPrefsFn: func(_ context.Context, _ *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			cancel()
 			return nil, context.Canceled
 		},
 	}
 	manifest := &mockRemoteExitManifest{}
 	svc := newTestRemoteExitService(ts, manifest)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
 	result, err := svc.Enable(ctx, &EnableRemoteExitRequest{
 		PeerID:  "stable-1",
 		Mode:    domain.ExitNodeAll,
 		Confirm: true,
 	})
-	require.NoError(t, err)
-	assert.True(t, result.OK)
-	assert.NotNil(t, manifest.remoteExitNode, "manifest should NOT be rolled back on context cancellation")
+	require.Error(t, err, "cancelled EditPrefs must report failure")
+	if result != nil {
+		assert.False(t, result.OK, "result.OK must not be true on cancellation")
+	}
+	assert.Nil(t, manifest.remoteExitNode, "manifest must be rolled back on EditPrefs cancellation")
 }
 
 // --- Mutual exclusion tests ---

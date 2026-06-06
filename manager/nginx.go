@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"unifi-tailscale/manager/config"
 )
 
@@ -32,10 +31,12 @@ func (m *NginxManager) EnsureConfig() error {
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(m.configDest), config.DirPerm); err != nil {
-		return err
-	}
-
+	// Parent directory is install-time responsibility (deploy/install.sh).
+	// Under the systemd hardening introduced for SEC-B2 the manager
+	// holds a file-level bind mount on configDest only, so the parent
+	// is read-only and MkdirAll would fail. unifi-core re-creates the
+	// directory itself on startup; there is no scenario at runtime
+	// where the parent legitimately needs to be created by us.
 	if err := os.WriteFile(m.configDest, src, config.ConfigPerm); err != nil {
 		return err
 	}

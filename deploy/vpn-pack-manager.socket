@@ -1,0 +1,25 @@
+[Unit]
+Description=VPN Pack Manager API socket
+# Created and chowned by systemd before the service starts. The manager
+# process therefore does not need CAP_CHOWN to grant nginx group access
+# (closes GAP-002 from RELEASE-CHECKLIST.md).
+
+[Socket]
+ListenStream=/run/vpn-pack/manager.sock
+SocketUser=root
+SocketGroup=nginx
+SocketMode=0660
+# /run is tmpfs on UDM-SE; without RuntimeDirectory= on the socket unit
+# itself, the parent dir is gone after every reboot and ListenStream=
+# fails with ENOENT before the service ever gets a chance to start
+# (closes GAP-002b). The .service also declares this directory — that's
+# fine, systemd refcounts the references.
+RuntimeDirectory=vpn-pack
+RuntimeDirectoryMode=0755
+# Surface activation cleanly: never auto-restart the listener on remove;
+# if the socket file goes missing we want the failure visible, not papered
+# over by a respawn.
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

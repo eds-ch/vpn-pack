@@ -17,6 +17,7 @@ import (
 type Manifest struct {
 	mu             sync.RWMutex                       `json:"-"`
 	path           string                             `json:"-"`
+	recovered      bool                               `json:"-"`
 	Version        int                                `json:"version"`
 	CreatedAt      time.Time                          `json:"createdAt"`
 	UpdatedAt      time.Time                          `json:"updatedAt"`
@@ -38,6 +39,18 @@ func NewManifest(path string) *Manifest {
 
 func (m *Manifest) Path() string { return m.path }
 
+// Recovered reports whether the manifest could not be parsed at load time
+// and a fresh empty instance was returned. Callers can use this to warn the
+// operator and schedule downstream cleanup (e.g. orphan integration zones).
+func (m *Manifest) Recovered() bool { return m.recovered }
+
+// recoverFromCorrupt writes a timestamped copy of the raw bytes alongside
+// the original path so the operator can inspect the prior state.
+func recoverFromCorrupt(path string, data []byte) {
+	quarantine := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	_ = os.WriteFile(quarantine, data, config.SecretPerm)
+}
+
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -49,20 +62,29 @@ func LoadManifest(path string) (*Manifest, error) {
 
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
+		recoverFromCorrupt(path, data)
+		m := NewManifest(path)
+		m.recovered = true
+		return m, nil
 	}
 
 	var version int
 	if v, ok := raw["version"]; ok {
 		if err := json.Unmarshal(v, &version); err != nil {
-			return nil, fmt.Errorf("parse manifest version: %w", err)
+			recoverFromCorrupt(path, data)
+			m := NewManifest(path)
+			m.recovered = true
+			return m, nil
 		}
 	}
 
 	if version <= 1 {
 		m, err := migrateV1(data)
 		if err != nil {
-			return nil, err
+			recoverFromCorrupt(path, data)
+			m = NewManifest(path)
+			m.recovered = true
+			return m, nil
 		}
 		m.path = path
 		return m, nil
@@ -70,7 +92,10 @@ func LoadManifest(path string) (*Manifest, error) {
 
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
+		recoverFromCorrupt(path, data)
+		m2 := NewManifest(path)
+		m2.recovered = true
+		return m2, nil
 	}
 	m.path = path
 	return &m, nil
@@ -116,13 +141,8 @@ func (m *Manifest) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(m.path), config.DirPerm); err != nil {
 		return fmt.Errorf("manifest dir create: %w", err)
 	}
-	tmpPath := m.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, config.SecretPerm); err != nil {
-		return fmt.Errorf("manifest write tmp: %w", err)
-	}
-	if err := os.Rename(tmpPath, m.path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("manifest rename: %w", err)
+	if err := WriteFile(m.path, data, config.SecretPerm); err != nil {
+		return fmt.Errorf("manifest save: %w", err)
 	}
 	return nil
 }

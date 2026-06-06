@@ -3,6 +3,7 @@
     import StatusPill from './StatusPill.svelte';
     import WgS2sPill from './WgS2sPill.svelte';
     import { REPO_INSTALL_URL } from '../constants.js';
+    import { safeHref } from '../safeHref.ts';
 
     let { hostname = '', status, onThemeToggle, onNavigateIntegration = null, updateInfo = null, onDismissUpdate = null } = $props();
     let isLight = $state(document.documentElement.classList.contains('light'));
@@ -110,7 +111,7 @@
         </div>
         <div class="flex items-center gap-2 shrink-0">
             {#if updateInfo.changelogURL}
-                <a href={updateInfo.changelogURL} target="_blank" rel="noopener"
+                <a href={safeHref(updateInfo.changelogURL)} target="_blank" rel="noopener"
                    class="text-caption font-bold text-info hover:text-info/80 underline underline-offset-2 whitespace-nowrap transition-colors">
                     Release notes
                 </a>

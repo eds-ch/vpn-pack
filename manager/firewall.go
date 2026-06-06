@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/ops"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
 )
@@ -24,7 +27,7 @@ var errIntegrationNotConfigured = errors.New("integration API not configured")
 
 type FirewallManager struct {
 	udapi    *udapi.UDAPIClient
-	ic       *IntegrationClient
+	ic       IntegrationAPI
 	manifest ManifestStore
 	bgWg     sync.WaitGroup
 
@@ -42,18 +45,45 @@ type FirewallManager struct {
 	mongoMu    sync.Mutex
 	mongoCache map[string]string
 	mongoTime  time.Time
+
+	// chainProbe / ipsetProbe are overridable seams so unit tests can drive
+	// the rule-presence checks without shelling out to iptables/ipset.
+	chainProbe func(chain, match string) bool
+	ipsetProbe func(setName, match string) bool
+
+	// UDAPI write-side seams. Tests substitute fakes; production wires them
+	// to the real udapi.* helpers in NewFirewallManager.
+	addInterfaceRules    func(ctx context.Context, iface, marker, chainPrefix string) error
+	removeInterfaceRules func(ctx context.Context, iface, marker string) error
+	ensureZoneSubnets    func(ctx context.Context, setName string, cidrs []string) error
+	removeZoneSubnet     func(ctx context.Context, setName, cidr string) error
 }
 
 func (fm *FirewallManager) IntegrationReady() bool {
 	return fm.ic != nil && fm.ic.HasAPIKey() && fm.manifest != nil && fm.manifest.HasSiteID()
 }
 
-func NewFirewallManager(socketPath string, ic *IntegrationClient, manifest ManifestStore) *FirewallManager {
-	return &FirewallManager{
+func NewFirewallManager(socketPath string, ic IntegrationAPI, manifest ManifestStore) *FirewallManager {
+	fm := &FirewallManager{
 		udapi:    udapi.NewClient(socketPath),
 		ic:       ic,
 		manifest: manifest,
 	}
+	fm.chainProbe = fm.hasChainRule
+	fm.ipsetProbe = fm.hasIPSetEntry
+	fm.addInterfaceRules = func(ctx context.Context, iface, marker, chainPrefix string) error {
+		return udapi.AddInterfaceRulesForZone(ctx, fm.udapi, iface, marker, chainPrefix)
+	}
+	fm.removeInterfaceRules = func(ctx context.Context, iface, marker string) error {
+		return udapi.RemoveInterfaceRules(ctx, fm.udapi, iface, marker)
+	}
+	fm.ensureZoneSubnets = func(ctx context.Context, setName string, cidrs []string) error {
+		return udapi.EnsureZoneSubnets(ctx, fm.udapi, setName, cidrs)
+	}
+	fm.removeZoneSubnet = func(ctx context.Context, setName, cidr string) error {
+		return udapi.RemoveZoneSubnet(ctx, fm.udapi, setName, cidr)
+	}
+	return fm
 }
 
 func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) error {
@@ -66,36 +96,51 @@ func (fm *FirewallManager) SetupWgS2sFirewall(ctx context.Context, tunnelID, ifa
 	}
 
 	marker := wgS2sMarkerPrefix + iface
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, iface, marker, chainPrefix); err != nil {
-		return err
-	}
+	ipsetName := zoneIPSetName(chainPrefix)
 
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
+	filtered := fm.filterBlockedAllowedIPs(iface, allowedIPs)
 
-	if len(allowedIPs) > 0 {
-		ipsetName := zoneIPSetName(chainPrefix)
-		blocked := make(map[string]bool)
-		if sys, err := service.CollectSystemSubnets(iface); err == nil {
-			result := service.ValidateAllowedIPs(allowedIPs, sys)
-			for _, b := range result.Blocked {
-				slog.Warn("skipping conflicting ipset entry", "cidr", b.CIDR, "conflictsWith", b.ConflictsWith, "iface", b.Interface)
-				blocked[b.CIDR] = true
-			}
-		}
-		filtered := make([]string, 0, len(allowedIPs))
-		for _, cidr := range allowedIPs {
-			if !blocked[cidr] {
-				filtered = append(filtered, cidr)
-			}
-		}
-		if err := udapi.EnsureZoneSubnets(fm.udapi, ipsetName, filtered); err != nil {
-			slog.Warn("wg-s2s zone ipset failed", "ipset", ipsetName, "err", err)
+	steps := []ops.Op{
+		{
+			Name: "install wg-s2s chain rules",
+			Do:   func(ctx context.Context) error { return fm.addInterfaceRules(ctx, iface, marker, chainPrefix) },
+			Undo: func(ctx context.Context) error { return fm.removeInterfaceRules(ctx, iface, marker) },
+		},
+	}
+	if len(filtered) > 0 {
+		steps = append(steps, ops.Op{
+			Name: "fill wg-s2s ipset",
+			Do:   func(ctx context.Context) error { return fm.ensureZoneSubnets(ctx, ipsetName, filtered) },
+			Undo: func(ctx context.Context) error {
+				for _, cidr := range filtered {
+					_ = fm.removeZoneSubnet(ctx, ipsetName, cidr)
+				}
+				return nil
+			},
+		})
+	}
+	return ops.Run(ctx, steps)
+}
+
+func (fm *FirewallManager) filterBlockedAllowedIPs(iface string, allowedIPs []string) []string {
+	if len(allowedIPs) == 0 {
+		return nil
+	}
+	blocked := make(map[string]bool)
+	if sys, err := service.CollectSystemSubnets(iface); err == nil {
+		result := service.ValidateAllowedIPs(allowedIPs, sys)
+		for _, b := range result.Blocked {
+			slog.Warn("skipping conflicting ipset entry", "cidr", b.CIDR, "conflictsWith", b.ConflictsWith, "iface", b.Interface)
+			blocked[b.CIDR] = true
 		}
 	}
-
-	return nil
+	filtered := make([]string, 0, len(allowedIPs))
+	for _, cidr := range allowedIPs {
+		if !blocked[cidr] {
+			filtered = append(filtered, cidr)
+		}
+	}
+	return filtered
 }
 
 func (fm *FirewallManager) rediscoverAndSaveWgS2s(ctx context.Context, tunnelID string, zm ZoneManifest, current string) string {
@@ -111,7 +156,7 @@ func (fm *FirewallManager) rediscoverAndSaveWgS2s(ctx context.Context, tunnelID 
 
 func (fm *FirewallManager) RemoveWgS2sFirewall(ctx context.Context, tunnelID, iface string, allowedIPs []string) {
 	marker := wgS2sMarkerPrefix + iface
-	if err := udapi.RemoveInterfaceRules(fm.udapi, iface, marker); err != nil {
+	if err := udapi.RemoveInterfaceRules(ctx, fm.udapi, iface, marker); err != nil {
 		slog.Warn("wg-s2s firewall rule removal failed", "iface", iface, "err", err)
 	}
 	fm.RemoveWgS2sIPSetEntries(ctx, tunnelID, allowedIPs)
@@ -124,7 +169,7 @@ func (fm *FirewallManager) RemoveWgS2sIPSetEntries(ctx context.Context, tunnelID
 	}
 	ipsetName := zoneIPSetName(chainPrefix)
 	for _, cidr := range cidrs {
-		if err := udapi.RemoveZoneSubnet(fm.udapi, ipsetName, cidr); err != nil {
+		if err := udapi.RemoveZoneSubnet(ctx, fm.udapi, ipsetName, cidr); err != nil {
 			slog.Warn("wg-s2s ipset entry removal failed", "ipset", ipsetName, "cidr", cidr, "err", err)
 		}
 	}
@@ -296,7 +341,7 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 	ts := fm.manifest.GetTailscaleZone()
 	if chainPrefix == config.DefaultChainPrefix && ts.ZoneID != "" {
 		if rediscovered := fm.DiscoverChainPrefix(ctx, ts.ZoneID); rediscovered != "" {
-			_ = udapi.RemoveInterfaceRules(fm.udapi, config.TailscaleInterface, marker)
+			_ = udapi.RemoveInterfaceRules(ctx, fm.udapi, config.TailscaleInterface, marker)
 			chainPrefix = rediscovered
 			if err := fm.manifest.SetTailscaleZone(ts.ZoneID, ts.ZoneName, ts.PolicyIDs, rediscovered); err != nil {
 				slog.Warn("manifest save failed", "err", err)
@@ -305,14 +350,14 @@ func (fm *FirewallManager) RestoreTailscaleRules(ctx context.Context) error {
 		}
 	}
 
-	return fm.EnsureTailscaleRules(chainPrefix)
+	return fm.EnsureTailscaleRules(ctx, chainPrefix)
 }
 
-func (fm *FirewallManager) RemoveTailscaleInterfaceRules() error {
-	return udapi.RemoveInterfaceRules(fm.udapi, config.TailscaleInterface, config.FirewallMarker)
+func (fm *FirewallManager) RemoveTailscaleInterfaceRules(ctx context.Context) error {
+	return udapi.RemoveInterfaceRules(ctx, fm.udapi, config.TailscaleInterface, config.FirewallMarker)
 }
 
-func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
+func (fm *FirewallManager) EnsureTailscaleRules(ctx context.Context, chainPrefix string) error {
 	if chainPrefix != config.DefaultChainPrefix {
 		fwd := fm.hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface)
 		inp := fm.hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface)
@@ -324,12 +369,12 @@ func (fm *FirewallManager) EnsureTailscaleRules(chainPrefix string) error {
 	}
 
 	marker := config.FirewallMarker
-	if err := udapi.AddInterfaceRulesForZone(fm.udapi, config.TailscaleInterface, marker, chainPrefix); err != nil {
+	if err := udapi.AddInterfaceRulesForZone(ctx, fm.udapi, config.TailscaleInterface, marker, chainPrefix); err != nil {
 		return err
 	}
 
 	ipsetName := zoneIPSetName(chainPrefix)
-	if err := udapi.EnsureZoneSubnet(fm.udapi, ipsetName, config.TailscaleCGNAT); err != nil {
+	if err := udapi.EnsureZoneSubnet(ctx, fm.udapi, ipsetName, config.TailscaleCGNAT); err != nil {
 		return fmt.Errorf("zone ipset %s: %w", ipsetName, err)
 	}
 	return nil
@@ -348,13 +393,24 @@ func (fm *FirewallManager) CheckTailscaleRulesPresent(ctx context.Context) (forw
 	return
 }
 
-func (fm *FirewallManager) CheckWgS2sRulesPresent(ctx context.Context, ifaces []string) map[string]bool {
-	result := make(map[string]bool, len(ifaces))
-	for _, iface := range ifaces {
-		forward := fm.hasChainRule(config.ChainForwardInUser, "-i "+iface)
-		input := fm.hasChainRule(config.ChainInputUserHook, "-i "+iface)
-		output := fm.hasChainRule(config.ChainOutputUserHook, "-o "+iface)
-		result[iface] = forward && input && output
+func (fm *FirewallManager) CheckWgS2sRulesPresent(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool {
+	result := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		forward := fm.chainProbe(config.ChainForwardInUser, "-i "+spec.InterfaceName)
+		input := fm.chainProbe(config.ChainInputUserHook, "-i "+spec.InterfaceName)
+		output := fm.chainProbe(config.ChainOutputUserHook, "-o "+spec.InterfaceName)
+
+		ipsetOK := true
+		if spec.ChainPrefix != "" && len(spec.Subnets) > 0 {
+			setName := fmt.Sprintf("UBIOS4%s_subnets", spec.ChainPrefix)
+			for _, cidr := range spec.Subnets {
+				if !fm.ipsetProbe(setName, cidr) {
+					ipsetOK = false
+					break
+				}
+			}
+		}
+		result[spec.InterfaceName] = forward && input && output && ipsetOK
 	}
 	return result
 }
@@ -417,6 +473,86 @@ func stripUUIDWrapper(s string) string {
 
 func zoneIPSetName(chainPrefix string) string {
 	return chainPrefix + "_subnets"
+}
+
+// auditTsForwardOrderResult describes the FORWARD-chain order between
+// tailscaled's `-j ts-forward` hook and UniFi's `-j UBIOS_FORWARD_JUMP`.
+// SEC-C15: patch 005 sets the right order once at AddHooks time, but only
+// the firewall-watcher can catch a later regression (manual flush, restore
+// from save). Misplaced => ts-forward appears BEFORE UBIOS_FORWARD_JUMP,
+// which means Tailscale's fallback ACCEPT runs before UniFi zone policies.
+type auditTsForwardOrderResult struct {
+	HasUBIOS     bool
+	HasTSForward bool
+	TSForwardPos int // 1-based, 0 if missing
+	UBIOSPos     int // 1-based, 0 if missing
+}
+
+func (r auditTsForwardOrderResult) Misplaced() bool {
+	return r.HasUBIOS && r.HasTSForward && r.TSForwardPos < r.UBIOSPos
+}
+
+// auditTsForwardOrder walks the FORWARD chain rules in iptables-save
+// output. The input is the raw output of `iptables-save -t filter`.
+func auditTsForwardOrder(rulesText string) auditTsForwardOrderResult {
+	var res auditTsForwardOrderResult
+	pos := 0
+	prefix := "-A FORWARD "
+	for _, line := range strings.Split(rulesText, "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		pos++
+		if strings.Contains(line, "-j ts-forward") && !res.HasTSForward {
+			res.HasTSForward = true
+			res.TSForwardPos = pos
+		}
+		if strings.Contains(line, "-j UBIOS_FORWARD_JUMP") && !res.HasUBIOS {
+			res.HasUBIOS = true
+			res.UBIOSPos = pos
+		}
+	}
+	return res
+}
+
+// iptablesRunHook is the seam the audit/repair path uses to invoke
+// iptables. Overridable in tests so the seam can record arguments
+// without actually mutating the host's firewall.
+var iptablesRunHook = func(ctx context.Context, args ...string) error {
+	return exec.CommandContext(ctx, "iptables", args...).Run()
+}
+
+// AuditAndFixTsForwardOrder verifies the FORWARD-chain ordering and, when
+// ts-forward is misplaced, removes the rule and re-inserts it immediately
+// after UBIOS_FORWARD_JUMP. Idempotent: no-op when ordering is correct.
+func (fm *FirewallManager) AuditAndFixTsForwardOrder(ctx context.Context) error {
+	rules := fm.cachedFilterRules()
+	if rules == "" {
+		return nil
+	}
+	res := auditTsForwardOrder(rules)
+	if !res.Misplaced() {
+		return nil
+	}
+	slog.Warn("ts-forward chain order regressed; restoring after UBIOS_FORWARD_JUMP",
+		"tsForwardPos", res.TSForwardPos, "ubiosPos", res.UBIOSPos)
+	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-D", "FORWARD", "-j", "ts-forward"); err != nil {
+		return fmt.Errorf("delete misplaced ts-forward: %w", err)
+	}
+	// After deletion the rule above UBIOS shifts up by one; the new slot
+	// directly after UBIOS_FORWARD_JUMP is at position UBIOSPos (1-based).
+	insertAt := res.UBIOSPos
+	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-I", "FORWARD", strconv.Itoa(insertAt), "-j", "ts-forward"); err != nil {
+		return fmt.Errorf("reinsert ts-forward at %d: %w", insertAt, err)
+	}
+	fm.invalidateFilterCache()
+	return nil
+}
+
+func (fm *FirewallManager) invalidateFilterCache() {
+	fm.filterMu.Lock()
+	fm.filterCache = ""
+	fm.filterMu.Unlock()
 }
 
 func (fm *FirewallManager) cachedFilterRules() string {

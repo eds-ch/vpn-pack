@@ -255,10 +255,21 @@ func LoadAPIKey() string {
 
 // SaveAPIKey persists the API key to disk. Exported for use by fileKeyStore adapter in main package.
 func SaveAPIKey(key string) error {
-	if err := os.MkdirAll(filepath.Dir(config.APIKeyPath), config.DirPerm); err != nil {
+	return saveAPIKeyAt(config.APIKeyPath, key)
+}
+
+// saveAPIKeyAt is the testable core of SaveAPIKey. The parent directory
+// is created and re-stamped 0700 even when it already exists with a
+// wider mode (legacy installs created it 0755 — SEC-C9).
+func saveAPIKeyAt(path, key string) error {
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, config.SecretDirPerm); err != nil {
 		return err
 	}
-	return os.WriteFile(config.APIKeyPath, []byte(key), config.SecretPerm)
+	if err := os.Chmod(parent, config.SecretDirPerm); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(key), config.SecretPerm)
 }
 
 func DeleteAPIKey() error {

@@ -12,13 +12,74 @@
 set -euo pipefail
 
 REPO="eds-ch/vpn-pack"
+# Pinned per release line; rotate together with the signing identity
+# in CHANGELOG.md. No override flag — verification either succeeds
+# against this identity or the install aborts.
+COSIGN_IDENTITY="eduard.chesnokov@gmail.com"
+COSIGN_ISSUER="https://github.com/login/oauth"
+
+# Pinned cosign for bootstrap. Refreshing this pin: download the new
+# cosign-linux-arm64 from
+# https://github.com/sigstore/cosign/releases/download/<ver>/cosign-linux-arm64,
+# verify its sha256 against the upstream cosign_checksums.txt at the
+# same release, then update both lines. CI guard (.github/workflows)
+# should also fail if these drift from the pinned upstream.
+COSIGN_VERSION="v2.4.1"
+COSIGN_SHA256_ARM64="3b2e2e3854d0356c45fe6607047526ccd04742d20bd44afb5be91fa2a6e7cb4a"
+
+# COSIGN_BIN is the path to a verified cosign binary. It is set after
+# either find-existing or bootstrap, and used by verify_signature.
+COSIGN_BIN=""
+
+ensure_cosign() {
+    if command -v cosign >/dev/null 2>&1; then
+        COSIGN_BIN=$(command -v cosign)
+        return 0
+    fi
+    if [ "$(uname -m)" != "aarch64" ]; then
+        echo "FATAL: cosign bootstrap is currently arm64-only; install cosign manually." >&2
+        exit 1
+    fi
+    local cosign_url="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-arm64"
+    local tmp_bin="${TMPDIR}/cosign"
+    info "Bootstrapping cosign ${COSIGN_VERSION} (no persistent install)..."
+    curl -fSL --progress-bar -o "$tmp_bin" "$cosign_url" \
+        || die "Failed to download cosign from ${cosign_url}"
+    local got
+    got=$(sha256sum "$tmp_bin" | awk '{print $1}')
+    if [ "$got" != "$COSIGN_SHA256_ARM64" ]; then
+        die "cosign sha256 mismatch (got ${got}, want ${COSIGN_SHA256_ARM64}); refusing to use untrusted binary"
+    fi
+    chmod 0700 "$tmp_bin"
+    COSIGN_BIN="$tmp_bin"
+}
+
+verify_signature() {
+    local file=$1
+    local bundle=$2
+    if [ -z "$COSIGN_BIN" ]; then
+        echo "FATAL: ensure_cosign() must run before verify_signature()" >&2
+        exit 1
+    fi
+    if ! "$COSIGN_BIN" verify-blob \
+        --certificate-identity "$COSIGN_IDENTITY" \
+        --certificate-oidc-issuer "$COSIGN_ISSUER" \
+        --bundle "$bundle" \
+        "$file" >/dev/null 2>&1; then
+        echo "FATAL: signature verification failed for $file" >&2
+        exit 1
+    fi
+}
+
+
 if [ -n "${VERSION_PIN:-}" ]; then
     PIN_TAG="${VERSION_PIN#v}"
     API_URL="https://api.github.com/repos/${REPO}/releases/tags/v${PIN_TAG}"
 else
     API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 fi
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d -t vpn-pack-install.XXXXXX)
+chmod 700 "$TMPDIR"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 if [ -t 1 ]; then
@@ -110,6 +171,19 @@ curl -fSL --progress-bar -o "${TMPDIR}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" || d
 
 info "Downloading checksums..."
 curl -fsSL -o "${TMPDIR}/checksums.txt" "${BASE_URL}/checksums.txt" || die "Checksums download failed"
+
+info "Downloading cosign bundles..."
+curl -fsSL -o "${TMPDIR}/${ARCHIVE}.cosign.bundle" "${BASE_URL}/${ARCHIVE}.cosign.bundle" \
+    || die "cosign bundle for archive missing — refusing to install unsigned release"
+curl -fsSL -o "${TMPDIR}/checksums.txt.cosign.bundle" "${BASE_URL}/checksums.txt.cosign.bundle" \
+    || die "cosign bundle for checksums missing — refusing to install unsigned release"
+
+ensure_cosign
+
+info "Verifying cosign signature on archive..."
+verify_signature "${TMPDIR}/${ARCHIVE}" "${TMPDIR}/${ARCHIVE}.cosign.bundle"
+info "Verifying cosign signature on checksums..."
+verify_signature "${TMPDIR}/checksums.txt" "${TMPDIR}/checksums.txt.cosign.bundle"
 
 info "Verifying SHA256 checksum..."
 (cd "$TMPDIR" && sha256sum -c checksums.txt) || die "Checksum verification failed! Archive may be corrupted."
