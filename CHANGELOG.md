@@ -49,10 +49,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compiles unchanged against v1.98.5 — no API breaks. `go test -race
   -shuffle=on ./...`, `golangci-lint`, `svelte-check`, and `vitest`
   (220/220) all green on the dev host. Full ARM64 cross-build clean.
-- Soak required before stable: patches 005 (`util/linuxfw`) and 006
-  (`wgengine/router/osrouter`) sit in the most-changed upstream zones
-  for this range (+80 / +68 LoC respectively). Device verification on
-  UDM-SE recommended before promoting to `[1.5.2]`.
+- 24h idle soak passed on UDM-SE (firmware 5.1.15, UniFi Network
+  10.4.57) starting 2026-06-05 12:06Z. 13 checkpoints at 2h cadence,
+  zero NRestarts on `tailscaled` and `vpn-pack-manager`, zero
+  `journalctl -p warning` entries across the run, zero `journalctl -k`
+  events after the post-OTA boot window, manager `/api/health`
+  `reconnects=0` throughout. RSS reached plateau after ~14h
+  (tailscaled ~40.5 MB, manager ~19.2 MB); FD and thread counts flat
+  after T+6h. `ts-*` chain count (19) and route tables 52/30 / 53/0
+  identical at T+0 and T+24h. Full trend per-checkpoint kept in the
+  gitignored `docs/soak-1.5.2-beta.8-notes.md`. This was an
+  observation soak (no synthetic API traffic, no peer-change events);
+  it validates background watcher and Tailscale steady-state on the
+  patched code, not per-request paths.
+- Earlier note about patch surface in this Tailscale range: patches
+  005 (`util/linuxfw`) and 006 (`wgengine/router/osrouter`) sit in
+  the most-changed upstream zones (+80 / +68 LoC respectively); the
+  soak above is the gate that closes that risk for the patched code's
+  idle behavior.
 
 ## [1.5.2-beta.7] - 2026-06-05
 
