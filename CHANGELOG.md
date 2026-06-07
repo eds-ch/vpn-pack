@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-06-07
+
+Stable release of the cosign signing migration. See `[1.5.3-beta.1]`
+below for the full change set; beta verified end-to-end on UDM-SE
+(signature pass, services healthy after upgrade-in-place from 1.5.2).
+
 ## [1.5.3-beta.1] - 2026-06-07
 
 ### Security
@@ -491,7 +497,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3-beta.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3...HEAD
+[1.5.3]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3-beta.1...v1.5.3
 [1.5.3-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2...v1.5.3-beta.1
 [1.5.2]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2
 [1.5.2-beta.8]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.7...v1.5.2-beta.8
