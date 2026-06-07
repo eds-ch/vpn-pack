@@ -4,14 +4,13 @@
 #   make build              — fetch source + patch + cross-compile for ARM64
 #   make package            — create deployment archive
 #   make deploy HOST=<ip>   — deploy to device via SSH
-#   make release            — create GitHub release (requires gh CLI + git tag)
+#   make release            — tag HEAD and push; .github/workflows/release.yml takes over (build + sign + gh release create)
 #   make clean              — remove build artifacts
 #   make patch              — apply patches only (no build)
 #   make verify-patches     — dry-run patch application
 #   make fetch-tailscale    — clone/checkout Tailscale source
 
 VPNPACK_VERSION   := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
-PRERELEASE_FLAG   := $(if $(findstring -,$(VPNPACK_VERSION)),--prerelease,)
 TAILSCALE_VERSION := 1.98.5
 
 TAILSCALE_SRC     := reference/tailscale
@@ -47,7 +46,7 @@ MANAGER_LDFLAGS   := -s -w -X unifi-tailscale/manager/config.Version=$(VPNPACK_V
                      -X unifi-tailscale/manager/config.BuildDate=$(BUILD_DATE) \
                      -X unifi-tailscale/manager/config.GithubRepo=$(GITHUB_REPO)
 
-.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums sign release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning check-no-key-leak hardening-smoke
+.PHONY: build patch package deploy clean verify-patches fetch-tailscale ui-build manager-build checksums release check check-go check-ui ui-stub check-nginx-symmetry check-tls-pinning check-no-key-leak hardening-smoke
 
 # ── Checks (lint + test) ──────────────────────────────────────────
 
@@ -210,17 +209,11 @@ checksums: package
 	cd $(DIST_DIR) && sha256sum $(ARCHIVE_NAME).tar.gz > checksums.txt
 	@cat $(DIST_DIR)/checksums.txt
 
-# ── Sign ───────────────────────────────────────────────────────────
-
-sign: checksums
-	@echo "==> Signing release artifacts (cosign keyless OIDC)..."
-	./scripts/cosign-sign.sh \
-		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz \
-		$(DIST_DIR)/checksums.txt
-
 # ── Release ────────────────────────────────────────────────────────
+# Build + sign + gh release create live in .github/workflows/release.yml.
+# This target only tags HEAD and pushes; the tag push triggers the workflow.
 
-release: sign
+release:
 	@if git rev-parse "v$(VPNPACK_VERSION)" >/dev/null 2>&1; then \
 		echo "ERROR: tag v$(VPNPACK_VERSION) already exists locally (HEAD=$$(git rev-parse --short HEAD)). Refusing to re-release."; \
 		exit 1; \
@@ -232,19 +225,8 @@ release: sign
 	@echo "==> Tagging v$(VPNPACK_VERSION) at $$(git rev-parse --short HEAD) on $$(git rev-parse --abbrev-ref HEAD)..."
 	git tag -a "v$(VPNPACK_VERSION)" -m "vpn-pack v$(VPNPACK_VERSION)"
 	git push origin "v$(VPNPACK_VERSION)"
-	@echo "==> Creating GitHub release v$(VPNPACK_VERSION)..."
-	@printf 'Tailscale %s for UniFi Cloud Gateway devices.\n\n## Install\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/%s/main/get.sh | bash\n```\n' \
-		"$(TAILSCALE_VERSION)" "$(GITHUB_REPO)" > $(DIST_DIR)/release-notes.md
-	gh release create "v$(VPNPACK_VERSION)" \
-		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz \
-		$(DIST_DIR)/$(ARCHIVE_NAME).tar.gz.cosign.bundle \
-		$(DIST_DIR)/checksums.txt \
-		$(DIST_DIR)/checksums.txt.cosign.bundle \
-		get.sh \
-		--title "vpn-pack v$(VPNPACK_VERSION)" \
-		--notes-file $(DIST_DIR)/release-notes.md \
-		$(PRERELEASE_FLAG)
-	@echo "==> Release v$(VPNPACK_VERSION) created."
+	@echo "==> Tag pushed. GitHub Actions release workflow now builds, signs, and publishes."
+	@echo "    Watch: gh run watch --workflow=release.yml"
 
 # ── Deploy ─────────────────────────────────────────────────────────
 
