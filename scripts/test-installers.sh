@@ -349,7 +349,7 @@ verb=\$1; shift
 bundle=""; file=""
 while [ \$# -gt 0 ]; do
   case "\$1" in
-    --certificate-identity|--certificate-oidc-issuer) shift 2 ;;
+    --certificate-identity-regexp|--certificate-oidc-issuer) shift 2 ;;
     --bundle) bundle=\$2; shift 2 ;;
     *) file=\$1; shift ;;
   esac

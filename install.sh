@@ -18,11 +18,12 @@ set -eu
 REPO="eds-ch/vpn-pack"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 
-# Pinned per release line; rotate together with the signing identity
-# in CHANGELOG.md. No override flag — verification either succeeds
-# against this identity or the install aborts.
-COSIGN_IDENTITY="eduard.chesnokov@gmail.com"
-COSIGN_ISSUER="https://github.com/login/oauth"
+# Releases are signed in GitHub Actions via keyless OIDC. The
+# certificate identity is the workflow URL @ tag ref; the OIDC issuer
+# is GitHub's Actions token endpoint. No override flag — verification
+# either succeeds against these pins or the install aborts.
+COSIGN_IDENTITY_REGEXP='^https://github\.com/eds-ch/vpn-pack/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
+COSIGN_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 # Pinned cosign for bootstrap. Refreshing this pin: download the new
 # cosign-linux-arm64 from
@@ -70,8 +71,8 @@ verify_signature() {
         exit 1
     fi
     if ! "$COSIGN_BIN" verify-blob \
-        --certificate-identity "$COSIGN_IDENTITY" \
-        --certificate-oidc-issuer "$COSIGN_ISSUER" \
+        --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+        --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
         --bundle "$bundle" \
         "$file" >/dev/null 2>&1; then
         printf 'FATAL: signature verification failed for %s\n' "$file" >&2

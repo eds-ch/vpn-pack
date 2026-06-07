@@ -4,11 +4,12 @@
 # verify_signature code path shipped in get.sh and install.sh
 # (SEC-B4 follow-up Pp3).
 #
-# The shipped verify_signature uses keyless OIDC pinned to
-# eduard.chesnokov@gmail.com / https://github.com/login/oauth.
-# A keyless cert is only minted at signing time by the production
-# release pipeline, so this test cannot reproduce that exact identity
-# locally. Instead it exercises the cosign verify-blob *mechanics*
+# The shipped verify_signature uses keyless OIDC pinned to the
+# GitHub Actions release workflow URL @ tag ref, issuer
+# https://token.actions.githubusercontent.com. A keyless cert is
+# only minted at signing time by the production release pipeline,
+# so this test cannot reproduce that exact identity locally.
+# Instead it exercises the cosign verify-blob *mechanics*
 # (signature + bundle binding) with an ephemeral asymmetric keypair,
 # and pairs that with a static guard that asserts the shipped
 # installers still embed the keyless call pattern. The end-to-end
@@ -20,7 +21,8 @@
 #   2. Tampered artifact verify-blob fails (no false-positive).
 #   3. Wrong public key verify-blob fails (no key confusion).
 #   4. get.sh and install.sh still call
-#      cosign verify-blob --certificate-identity --certificate-oidc-issuer --bundle.
+#      cosign verify-blob --certificate-identity-regexp
+#      --certificate-oidc-issuer --bundle.
 #
 set -euo pipefail
 
@@ -115,7 +117,7 @@ else
 fi
 
 # Case 3: wrong public key verify-blob fails. Stands in for the
-# production 'wrong --certificate-identity' check: different trust
+# production 'wrong --certificate-identity-regexp' check: different trust
 # anchor, must reject.
 mkdir -p "$SANDBOX/other"
 ( cd "$SANDBOX/other" && cosign generate-key-pair >/dev/null 2>&1 ) \
@@ -130,17 +132,17 @@ else
 fi
 
 # Case 4: call-pattern guard against silent regression to --key mode
-# (or a missing --certificate-identity / --certificate-oidc-issuer)
+# (or a missing --certificate-identity-regexp / --certificate-oidc-issuer)
 # in the shipped installers. Without this the roundtrip above would
 # still pass even if production stopped binding to a Fulcio identity.
 assert_call_pattern() {
     local installer=$1
     local src="$ROOT/$installer"
     local missing=""
-    grep -q 'cosign verify-blob' "$src" || missing+=" verify-blob"
-    grep -q -- '--certificate-identity'    "$src" || missing+=" --certificate-identity"
-    grep -q -- '--certificate-oidc-issuer' "$src" || missing+=" --certificate-oidc-issuer"
-    grep -q -- '--bundle'                  "$src" || missing+=" --bundle"
+    grep -Eq '(\$COSIGN_BIN["]*[[:space:]]+|cosign[[:space:]]+)verify-blob' "$src" || missing+=" verify-blob"
+    grep -q -- '--certificate-identity-regexp' "$src" || missing+=" --certificate-identity-regexp"
+    grep -q -- '--certificate-oidc-issuer'     "$src" || missing+=" --certificate-oidc-issuer"
+    grep -q -- '--bundle'                      "$src" || missing+=" --bundle"
     if [[ -n "$missing" ]]; then
         red "$installer: production verify missing:$missing"
     else

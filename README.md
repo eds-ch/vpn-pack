@@ -38,11 +38,11 @@ The script checks for an existing installation, downloads the latest release fro
 
 ### Verifying release signatures
 
-Starting with v1.5.2, release artifacts are signed with [cosign](https://docs.sigstore.dev/cosign/installation) (keyless OIDC). The pinned signing identity and OIDC issuer are defined in [`get.sh`](get.sh) (`COSIGN_IDENTITY` / `COSIGN_OIDC_ISSUER`); use those exact values when verifying manually:
+Starting with v1.5.3, release artifacts are signed with [cosign](https://docs.sigstore.dev/cosign/installation) inside GitHub Actions via keyless OIDC. The pinned identity regexp and OIDC issuer are defined in [`get.sh`](get.sh) (`COSIGN_IDENTITY_REGEXP` / `COSIGN_OIDC_ISSUER`); use those exact values when verifying manually:
 
 ```bash
 cosign verify-blob \
-  --certificate-identity "$COSIGN_IDENTITY" \
+  --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
   --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
   --bundle vpn-pack-<version>.tar.gz.cosign.bundle \
   vpn-pack-<version>.tar.gz

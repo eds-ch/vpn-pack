@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.3-beta.1] - 2026-06-07
+
+### Security
+- Release signing migrated from a maintainer-pinned keyless OIDC
+  identity to GitHub Actions OIDC. Signatures are now produced
+  inside `.github/workflows/release.yml` and bind to the workflow
+  URL @ tag ref (issuer `https://token.actions.githubusercontent.com`).
+  `get.sh` / `install.sh` verify against this identity via
+  `--certificate-identity-regexp` and reject artifacts signed under
+  the legacy identity. Local `make sign` / `scripts/cosign-sign.sh`
+  removed; releases are tag-triggered only.
+- The legacy v1.5.2 GitHub release will be withdrawn after v1.5.3
+  stable ships; the `v1.5.2` git tag remains for reproducibility.
+
+### Changed
+- `make release` now only tags HEAD and pushes; the tag push starts
+  the release workflow, which builds, signs, and publishes assets.
+
 ## [1.5.2] - 2026-06-06
 
 Stable release rolling up `1.5.2-beta.1..8`. See per-beta sections
@@ -15,10 +33,11 @@ below for full detail.
 ### Security
 - Release artifacts (`vpn-pack-<ver>.tar.gz`, `checksums.txt`) are now
   signed with cosign keyless OIDC; `get.sh` and `install.sh` enforce
-  signature verification fail-closed (pin identity
-  `eduard.chesnokov@gmail.com`, issuer
-  `https://github.com/login/oauth`). `get.sh` bootstraps a pinned
+  signature verification fail-closed. `get.sh` bootstraps a pinned
   cosign binary when one is missing on the device.
+  *Note: v1.5.2 was signed under a legacy keyless identity that has
+  since been retired; v1.5.2 is superseded by v1.5.3, which signs via
+  GitHub Actions OIDC. Upgrade via `curl ... main/get.sh | bash`.*
 - Tailscale baseline bumped from 1.96.4 to 1.98.5 (two-minor jump;
   upstream skipped a stable 1.97).
 - Go toolchain bumped to 1.26.4 (transitive `crypto/x509`,
@@ -472,7 +491,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3-beta.1...HEAD
+[1.5.3-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2...v1.5.3-beta.1
 [1.5.2]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2
 [1.5.2-beta.8]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2-beta.7...v1.5.2-beta.8
 [1.5.2-beta.7]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2-beta.7
