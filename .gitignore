@@ -43,7 +43,6 @@ wiki/
 
 # Scripts — local/dev tools are ignored; security-relevant scripts opted in explicitly
 scripts/*
-!scripts/cosign-sign.sh
 !scripts/test-installers.sh
 !scripts/test-deploy-symlink.sh
 !scripts/test-uninstall-integrity.sh
