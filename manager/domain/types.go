@@ -56,7 +56,22 @@ type Policy struct {
 	Destination     PolicyEndpoint  `json:"destination"`
 	IPProtocolScope IPProtocolScope `json:"ipProtocolScope,omitempty"`
 	LoggingEnabled  bool            `json:"loggingEnabled"`
+	Metadata        *PolicyMetadata `json:"metadata,omitempty"`
 }
+
+// PolicyMetadata carries the read-only origin the Integration API reports for
+// a policy. Network 10.3+ materializes a DERIVED return policy for every
+// USER_DEFINED policy with allowReturnTraffic; it is owned and reaped by the
+// API, not by us. Pointer + omitempty keeps it absent from create requests.
+type PolicyMetadata struct {
+	Origin string `json:"origin,omitempty"`
+}
+
+const (
+	PolicyOriginUserDefined   = "USER_DEFINED"
+	PolicyOriginDerived       = "DERIVED"
+	PolicyOriginSystemDefined = "SYSTEM_DEFINED"
+)
 
 type PolicyAction struct {
 	Type               string `json:"type"`
@@ -183,26 +198,26 @@ type HealthSnapshot struct {
 }
 
 type StateData struct {
-	BackendState      string               `json:"backendState"`
-	TailscaleIPs      []string             `json:"tailscaleIPs"`
-	TailnetName       string               `json:"tailnetName"`
-	AuthURL           string               `json:"authURL"`
-	ControlURL        string               `json:"controlURL"`
-	Version           string               `json:"version"`
-	Self              *SelfNode            `json:"self,omitempty"`
-	Health            []string             `json:"health,omitempty"`
-	ExitNode          bool                 `json:"exitNode"`
-	ExitNodeMode      ExitNodeMode         `json:"exitNodeMode,omitempty"`
-	ExitNodeClients   []ExitNodeClient     `json:"exitNodeClients,omitempty"`
-	Routes            []RouteStatus        `json:"routes"`
-	Peers             []PeerInfo           `json:"peers"`
-	DERP              []DERPInfo           `json:"derp,omitempty"`
-	FirewallHealth    *FirewallHealth      `json:"firewallHealth,omitempty"`
-	RoutingHealth     *RoutingHealth       `json:"routingHealth,omitempty"`
+	BackendState      string                `json:"backendState"`
+	TailscaleIPs      []string              `json:"tailscaleIPs"`
+	TailnetName       string                `json:"tailnetName"`
+	AuthURL           string                `json:"authURL"`
+	ControlURL        string                `json:"controlURL"`
+	Version           string                `json:"version"`
+	Self              *SelfNode             `json:"self,omitempty"`
+	Health            []string              `json:"health,omitempty"`
+	ExitNode          bool                  `json:"exitNode"`
+	ExitNodeMode      ExitNodeMode          `json:"exitNodeMode,omitempty"`
+	ExitNodeClients   []ExitNodeClient      `json:"exitNodeClients,omitempty"`
+	Routes            []RouteStatus         `json:"routes"`
+	Peers             []PeerInfo            `json:"peers"`
+	DERP              []DERPInfo            `json:"derp,omitempty"`
+	FirewallHealth    *FirewallHealth       `json:"firewallHealth,omitempty"`
+	RoutingHealth     *RoutingHealth        `json:"routingHealth,omitempty"`
 	UsingExitNode     *RemoteExitNodeStatus `json:"usingExitNode,omitempty"`
-	DPIFingerprinting *bool                `json:"dpiFingerprinting,omitempty"`
-	IntegrationStatus *IntegrationStatus   `json:"integrationStatus,omitempty"`
-	WgS2sTunnels      []WgS2sStatus       `json:"wgS2sTunnels,omitempty"`
+	DPIFingerprinting *bool                 `json:"dpiFingerprinting,omitempty"`
+	IntegrationStatus *IntegrationStatus    `json:"integrationStatus,omitempty"`
+	WgS2sTunnels      []WgS2sStatus         `json:"wgS2sTunnels,omitempty"`
 
 	SettingsFields
 }
@@ -329,10 +344,10 @@ func (ts *TailscaleState) SetAcceptDNS(v bool) {
 
 // AdvertiseRoutes and AllowedIPs are called within Update() closures (watcher.go).
 // Clone on read to prevent callers from mutating internal state.
-func (ts *TailscaleState) AdvertiseRoutes() []netip.Prefix { return slices.Clone(ts.advertiseRoutes) }
+func (ts *TailscaleState) AdvertiseRoutes() []netip.Prefix     { return slices.Clone(ts.advertiseRoutes) }
 func (ts *TailscaleState) SetAdvertiseRoutes(r []netip.Prefix) { ts.advertiseRoutes = r }
-func (ts *TailscaleState) AllowedIPs() []netip.Prefix        { return slices.Clone(ts.allowedIPs) }
-func (ts *TailscaleState) SetAllowedIPs(ips []netip.Prefix)  { ts.allowedIPs = ips }
+func (ts *TailscaleState) AllowedIPs() []netip.Prefix          { return slices.Clone(ts.allowedIPs) }
+func (ts *TailscaleState) SetAllowedIPs(ips []netip.Prefix)    { ts.allowedIPs = ips }
 
 func NewTailscaleState() *TailscaleState {
 	return &TailscaleState{

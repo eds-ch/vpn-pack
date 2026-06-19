@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/domain"
 	"unifi-tailscale/manager/service"
 	"unifi-tailscale/manager/udapi"
 )
@@ -257,6 +258,9 @@ func removeIntegrationResourcesByDiscovery(ic IntegrationAPI) {
 			if !strings.HasPrefix(p.Name, vpnPackResourceNamePrefix) {
 				continue
 			}
+			if p.Metadata != nil && p.Metadata.Origin == domain.PolicyOriginDerived {
+				continue
+			}
 			pid := p.ID
 			deleteResourceBestEffort("policy (discovered)", p.Name, func() error {
 				return ic.DeletePolicy(ctx, siteID, pid)
@@ -313,8 +317,8 @@ func removeExitNodeRules() {
 	}
 
 	masqRules := []struct {
-		cmd  string
-		src  string
+		cmd string
+		src string
 	}{
 		{"iptables", config.TailscaleCGNAT},
 		{"ip6tables", "fd7a:115c:a1e0::/48"},

@@ -1,11 +1,58 @@
 package domain
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 
 	"unifi-tailscale/manager/internal/stress"
 )
+
+func TestPolicyUnmarshalParsesDerivedOrigin(t *testing.T) {
+	const body = `{"id":"e7e860e3","name":"VPN Pack: Allow Tailscale to Internal (Return)","metadata":{"origin":"DERIVED"}}`
+
+	var p Policy
+	if err := json.Unmarshal([]byte(body), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if p.Metadata == nil {
+		t.Fatalf("Metadata not parsed; got nil")
+	}
+	if p.Metadata.Origin != "DERIVED" {
+		t.Fatalf("Origin = %q, want %q", p.Metadata.Origin, "DERIVED")
+	}
+}
+
+func TestPolicyUnmarshalNoMetadataLeavesNil(t *testing.T) {
+	const body = `{"id":"abc","name":"VPN Pack: WAN port"}`
+
+	var p Policy
+	if err := json.Unmarshal([]byte(body), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if p.Metadata != nil {
+		t.Fatalf("Metadata = %+v, want nil", p.Metadata)
+	}
+}
+
+func TestPolicyMarshalOmitsMetadataWhenNil(t *testing.T) {
+	b, err := json.Marshal(Policy{ID: "x", Name: "VPN Pack: test"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if got := string(b); contains(got, "metadata") {
+		t.Fatalf("create request must not emit metadata; got %s", got)
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
 
 func TestSnapshotDeepCopiesSelf(t *testing.T) {
 	ts := NewTailscaleState()

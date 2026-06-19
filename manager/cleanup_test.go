@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -113,5 +114,60 @@ func TestRemoveIntegrationResources_DiscoveryFallback(t *testing.T) {
 	}
 	if got := deletedZones.Load(); got != 2 {
 		t.Fatalf("expected 2 VPN-Pack zones deleted, got %d", got)
+	}
+}
+
+// Network 10.3+ materializes a DERIVED "(Return)" policy for each of our
+// USER_DEFINED policies; it shares our "VPN Pack: " name prefix but is owned
+// and cascade-deleted by the API when its parent goes. The discovery fallback
+// must NOT issue its own DeletePolicy for DERIVED entries — doing so produces
+// 4 deletes (2 parents + 2 children) and 404 noise after the cascade.
+func TestRemoveIntegrationResources_DiscoverySkipsDerivedPolicies(t *testing.T) {
+	t.Cleanup(func() {
+		loadAPIKeyHook = service.LoadAPIKey
+		LoadManifest = state.LoadManifest
+		buildIntegrationAPIHook = buildIntegrationAPI
+	})
+
+	loadAPIKeyHook = func() string { return "fake-key" }
+	LoadManifest = func(string) (*state.Manifest, error) {
+		return nil, errors.New("manifest unreadable")
+	}
+
+	var mu sync.Mutex
+	var deletedIDs []string
+	ic := &mockIntegrationAPI{
+		hasAPIKeyFn:      func() bool { return true },
+		discoverSiteIDFn: func(context.Context) (string, error) { return "site-x", nil },
+		listPoliciesFn: func(context.Context, string) ([]domain.Policy, error) {
+			derived := &domain.PolicyMetadata{Origin: domain.PolicyOriginDerived}
+			user := &domain.PolicyMetadata{Origin: domain.PolicyOriginUserDefined}
+			return []domain.Policy{
+				{ID: "u1", Name: "VPN Pack: Allow Tailscale to Internal", Metadata: user},
+				{ID: "d1", Name: "VPN Pack: Allow Tailscale to Internal (Return)", Metadata: derived},
+				{ID: "u2", Name: "VPN Pack: Allow Internal to Tailscale", Metadata: user},
+				{ID: "d2", Name: "VPN Pack: Allow Internal to Tailscale (Return)", Metadata: derived},
+			}, nil
+		},
+		deletePolicyFn: func(_ context.Context, _ string, policyID string) error {
+			mu.Lock()
+			deletedIDs = append(deletedIDs, policyID)
+			mu.Unlock()
+			return nil
+		},
+	}
+	buildIntegrationAPIHook = func(string) IntegrationAPI { return ic }
+
+	removeIntegrationResources()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(deletedIDs) != 2 {
+		t.Fatalf("expected 2 deletes (USER_DEFINED only), got %d: %v", len(deletedIDs), deletedIDs)
+	}
+	for _, id := range deletedIDs {
+		if id == "d1" || id == "d2" {
+			t.Errorf("deleted DERIVED policy %q; cascade should handle it", id)
+		}
 	}
 }
