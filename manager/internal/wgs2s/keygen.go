@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"unifi-tailscale/manager/state"
 )
 
 func generateKeypair(configDir, id string) (wgtypes.Key, error) {
@@ -30,12 +32,12 @@ func saveKeyFiles(configDir, id string, privKey wgtypes.Key) (wgtypes.Key, error
 		return wgtypes.Key{}, fmt.Errorf("invalid tunnel ID: %q", id)
 	}
 	keyPath := filepath.Join(configDir, id+".key")
-	if err := os.WriteFile(keyPath, []byte(privKey.String()), 0600); err != nil {
+	if err := state.WriteFile(keyPath, []byte(privKey.String()), 0600); err != nil {
 		return wgtypes.Key{}, fmt.Errorf("write private key: %w", err)
 	}
 
 	pubPath := filepath.Join(configDir, id+".pub")
-	if err := os.WriteFile(pubPath, []byte(privKey.PublicKey().String()), 0600); err != nil {
+	if err := state.WriteFile(pubPath, []byte(privKey.PublicKey().String()), 0600); err != nil {
 		return wgtypes.Key{}, fmt.Errorf("write public key: %w", err)
 	}
 

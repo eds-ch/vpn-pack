@@ -1,6 +1,7 @@
 // Package logredact provides a slog.Handler wrapper that redacts secrets
-// (Tailscale auth/client keys, WireGuard public keys, bearer tokens) from
-// log records before they reach the inner handler.
+// (Tailscale auth/client/api keys, WireGuard public keys, bearer tokens,
+// URL query tokens, X-API-Key header values) from log records before they
+// reach the inner handler.
 package logredact
 
 import (
@@ -16,8 +17,15 @@ type rule struct {
 }
 
 var rules = []rule{
-	{regexp.MustCompile(`(tskey-(?:auth|client)-)[A-Za-z0-9-]+`), "${1}***"},
+	{regexp.MustCompile(`(tskey-(?:auth|client|api)-)[A-Za-z0-9-]+`), "${1}***"},
 	{regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+`), "${1}***"},
+	// Tokens carried in URL query strings: ?token=…, &api_key=…, &access_token=…
+	{regexp.MustCompile(`(?i)([?&](?:token|api[_-]?key|access[_-]?token)=)[^&\s]+`), "${1}***"},
+	// UniFi Integration API key when logged as an X-API-Key header. The key
+	// itself has no stable prefix, so header context is the only reliable
+	// anchor; a bare key appearing without this header cannot be matched
+	// heuristically without unacceptable false positives.
+	{regexp.MustCompile(`(?i)(x-api-key["']?\s*[:=]\s*["']?)[^\s"',}]+`), "${1}***"},
 	{regexp.MustCompile(`[A-Za-z0-9+/]{43}=`), "***"},
 }
 

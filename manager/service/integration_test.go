@@ -46,6 +46,55 @@ func TestSaveAPIKeyAt_DirectoryMode0700(t *testing.T) {
 	}
 }
 
+// TestSaveAPIKeyAt_AtomicWriteTightensPerm proves saveAPIKeyAt writes the
+// key through the atomic state.WriteFile path (tmp+chmod+rename) rather than
+// os.WriteFile. os.WriteFile leaves the perms of a pre-existing destination
+// untouched, so a key file previously created 0666 would keep leaking to
+// every local UID on the next rotation. The atomic path renames a fresh
+// 0600 temp over it. This test fails if saveAPIKeyAt is reverted to
+// os.WriteFile (the 0666 mode would survive the rewrite).
+func TestSaveAPIKeyAt_AtomicWriteTightensPerm(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	keyPath := filepath.Join(cfgDir, "api-key")
+	// Seed a pre-existing key file with a lax mode.
+	if err := os.WriteFile(keyPath, []byte("stale"), 0o666); err != nil { //nolint:gosec // G306: deliberately lax to prove the rewrite tightens it
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := saveAPIKeyAt(keyPath, "fresh-key"); err != nil {
+		t.Fatalf("saveAPIKeyAt: %v", err)
+	}
+
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("key file mode after rewrite: got %o, want 0600", mode)
+	}
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "fresh-key" {
+		t.Fatalf("key content: got %q, want %q", data, "fresh-key")
+	}
+	// The atomic path must not leave orphan temp files behind.
+	entries, err := os.ReadDir(cfgDir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" {
+			t.Fatalf("orphan tmp file left behind: %s", e.Name())
+		}
+	}
+}
+
 // --- Mocks ---
 
 type mockIntegrationIC struct {

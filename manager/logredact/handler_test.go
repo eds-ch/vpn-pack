@@ -200,3 +200,63 @@ func TestRedactStringMatchesHandler(t *testing.T) {
 		t.Fatalf("RedactString missing marker: %q", got)
 	}
 }
+
+// Catches a Tailscale API key (tskey-api-*) leaking. Before the rule was
+// widened from `(?:auth|client)` to include `api`, this secret passed
+// through verbatim.
+func TestRedactStringApiKey(t *testing.T) {
+	got := RedactString("using tskey-api-kFoo123-CafeDeadBeef to authenticate")
+	if strings.Contains(got, "CafeDeadBeef") {
+		t.Fatalf("api-key leaked: %q", got)
+	}
+	if !strings.Contains(got, "tskey-api-***") {
+		t.Fatalf("expected `tskey-api-***`: %q", got)
+	}
+}
+
+// Catches tokens carried in URL query strings. Without the query rule the
+// token value after `?token=`/`&api_key=`/`&access_token=` was logged raw.
+func TestRedactStringQueryTokens(t *testing.T) {
+	cases := []struct{ in, secret string }{
+		{"GET https://api.example.com/v1/x?token=SuperSecretValue123 done", "SuperSecretValue123"},
+		{"url=https://h/p?foo=1&api_key=AbCdSecretKey987&bar=2", "AbCdSecretKey987"},
+		{"redirect to /cb?access_token=OpaqueTok_456&state=z", "OpaqueTok_456"},
+		{"legacy /cb?api-key=DashVariant789&x=1", "DashVariant789"},
+	}
+	for _, c := range cases {
+		got := RedactString(c.in)
+		if strings.Contains(got, c.secret) {
+			t.Fatalf("query token leaked (%q): %q", c.secret, got)
+		}
+		if !strings.Contains(got, "=***") {
+			t.Fatalf("expected `=***` marker for %q: %q", c.in, got)
+		}
+	}
+}
+
+// Catches the UniFi Integration API key when logged as an X-API-Key header.
+// The key has no stable prefix so the header name is the anchor; without the
+// rule the value was logged verbatim.
+func TestRedactStringApiKeyHeader(t *testing.T) {
+	cases := []string{
+		"X-API-Key: rawUniFiIntegrationKeyValue",
+		`{"headers":{"X-API-Key":"rawUniFiIntegrationKeyValue"}}`,
+		"x-api-key=rawUniFiIntegrationKeyValue",
+	}
+	for _, in := range cases {
+		got := RedactString(in)
+		if strings.Contains(got, "rawUniFiIntegrationKeyValue") {
+			t.Fatalf("X-API-Key value leaked (%q): %q", in, got)
+		}
+	}
+}
+
+// Guards the existing rules against regressions from the added ones:
+// clean, non-secret text must survive untouched.
+func TestRedactStringPreservesCleanText(t *testing.T) {
+	in := "GET https://api.example.com/v1/status?page=2&limit=50 -> 200 OK"
+	got := RedactString(in)
+	if got != in {
+		t.Fatalf("clean text altered:\n in: %q\nout: %q", in, got)
+	}
+}
