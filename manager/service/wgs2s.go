@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -17,7 +18,26 @@ import (
 	"unifi-tailscale/manager/ops"
 )
 
-const wgMaxPort = 65535
+const (
+	wgMaxPort = 65535
+
+	// wgMinMTU / wgMaxMTU bound the WireGuard interface MTU. MTU=0 means
+	// "unset" and is filled with the built-in default downstream, so it is
+	// always accepted. Without the lower bound a negative MTU wraps to a huge
+	// uint32 at the netlink layer and the kernel rejects it with EINVAL
+	// (self-DoS: the tunnel never comes up).
+	wgMinMTU = 576
+	wgMaxMTU = 65535
+
+	// wgMaxKeepalive caps PersistentKeepalive (seconds). Keepalive=0 means
+	// "unset"/default. An unbounded value overflows time.Duration
+	// (seconds * 1e9) when handed to wgctrl. 86400s = 24h is a generous ceiling.
+	wgMaxKeepalive = 86400
+
+	// wgMaxNameLen bounds the tunnel display name. Without it a multi-KB name
+	// is persisted and echoed back on every list call (self-DoS).
+	wgMaxNameLen = 128
+)
 
 // --- Interfaces ---
 
@@ -665,8 +685,17 @@ func validateCreateRequest(req *WgS2sCreateRequest) error {
 	if cfg.Name == "" {
 		return fmt.Errorf("name is required")
 	}
+	if err := validateName(cfg.Name); err != nil {
+		return err
+	}
 	if cfg.ListenPort < 1 || cfg.ListenPort > wgMaxPort {
 		return fmt.Errorf("listenPort must be between 1 and 65535")
+	}
+	if err := validateMTU(cfg.MTU); err != nil {
+		return err
+	}
+	if err := validateKeepalive(cfg.PersistentKeepalive); err != nil {
+		return err
 	}
 	if err := validateCIDR(cfg.TunnelAddress); err != nil {
 		return fmt.Errorf("invalid tunnelAddress: %s", err)
@@ -684,8 +713,18 @@ func validateCreateRequest(req *WgS2sCreateRequest) error {
 }
 
 func validateUpdateRequest(updates *wgs2s.TunnelConfig) error {
+	// On update an empty Name means "keep existing"; validateName allows it.
+	if err := validateName(updates.Name); err != nil {
+		return err
+	}
 	if updates.ListenPort < 0 || updates.ListenPort > wgMaxPort {
 		return fmt.Errorf("listenPort must be between 0 and 65535")
+	}
+	if err := validateMTU(updates.MTU); err != nil {
+		return err
+	}
+	if err := validateKeepalive(updates.PersistentKeepalive); err != nil {
+		return err
 	}
 	if updates.TunnelAddress != "" {
 		if err := validateCIDR(updates.TunnelAddress); err != nil {
@@ -711,6 +750,37 @@ func validateCIDRList(cidrs []string, fieldName string) error {
 		if err := validateCIDR(cidr); err != nil {
 			return fmt.Errorf("invalid %s %q: %s", fieldName, cidr, err)
 		}
+	}
+	return nil
+}
+
+// validateName bounds the tunnel display name length. An empty name is
+// accepted here (create enforces non-empty separately; update treats empty as
+// "keep existing"). Length is counted in runes to honour a character limit.
+func validateName(name string) error {
+	if utf8.RuneCountInString(name) > wgMaxNameLen {
+		return fmt.Errorf("name must be at most %d characters", wgMaxNameLen)
+	}
+	return nil
+}
+
+// validateMTU accepts 0 (unset → default applied downstream); any other value
+// must fall within [wgMinMTU, wgMaxMTU].
+func validateMTU(mtu int) error {
+	if mtu == 0 {
+		return nil
+	}
+	if mtu < wgMinMTU || mtu > wgMaxMTU {
+		return fmt.Errorf("mtu must be between %d and %d (0 = default)", wgMinMTU, wgMaxMTU)
+	}
+	return nil
+}
+
+// validateKeepalive accepts 0 (unset/default); any other value must fall
+// within [0, wgMaxKeepalive] seconds. Negatives are rejected.
+func validateKeepalive(seconds int) error {
+	if seconds < 0 || seconds > wgMaxKeepalive {
+		return fmt.Errorf("persistentKeepalive must be between 0 and %d seconds", wgMaxKeepalive)
 	}
 	return nil
 }

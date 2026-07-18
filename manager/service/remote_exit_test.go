@@ -727,6 +727,118 @@ func TestEnable_CancelledEditPrefsIsFailure(t *testing.T) {
 	assert.Nil(t, manifest.remoteExitNode, "manifest must be rolled back on EditPrefs cancellation")
 }
 
+// --- Saga serialization (sagaMu) tests ---
+
+// TestEnableDisable_SerializedByMutex proves the Enable/Disable sagas are
+// serialized by a real lock, not a fast-fail CAS. While an Enable saga holds
+// sagaMu (parked inside EditPrefs), a concurrent Disable must be rejected with
+// a conflict (HTTP 409) and must not interleave its own EditPrefs/manifest
+// writes with the running saga.
+//
+// Bug it catches: without sagaMu, the concurrent Disable proceeds — its
+// EditPrefs and manifest clear race the Enable saga (fires -race) and wipe the
+// manifest entry the Enable saga just wrote. Either the ErrConflict assertion
+// fails (Disable returns nil) or the -race detector trips on manifest access.
+func TestEnableDisable_SerializedByMutex(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	targetID := tailcfg.StableNodeID("stable-1")
+
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			// Only the Enable saga sets a non-empty ExitNodeID; park there so
+			// sagaMu stays held while the concurrent Disable executes.
+			if mp.ExitNodeID == targetID {
+				close(entered)
+				<-release
+			}
+			return &ipn.Prefs{}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	enableErr := make(chan error, 1)
+	go func() {
+		_, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+			PeerID:  "stable-1",
+			Mode:    domain.ExitNodeAll,
+			Confirm: true,
+		})
+		enableErr <- err
+	}()
+
+	<-entered // Enable now holds sagaMu, parked inside EditPrefs.
+
+	disErr := svc.Disable(context.Background())
+	require.Error(t, disErr, "concurrent Disable must be rejected while Enable saga holds the lock")
+	var se *Error
+	require.ErrorAs(t, disErr, &se)
+	assert.Equal(t, ErrConflict, se.Kind, "busy Disable must map to HTTP 409")
+
+	close(release)
+	require.NoError(t, <-enableErr, "Enable saga must complete")
+
+	// State reflects the Enable saga only — Disable never mutated anything.
+	require.NotNil(t, manifest.remoteExitNode, "Enable's manifest entry must survive the rejected Disable")
+	assert.Equal(t, "stable-1", manifest.remoteExitNode.PeerID)
+}
+
+// TestEnable_SecondConcurrentEnableRejected proves two overlapping Enable
+// calls serialize: the second gets ErrConflict rather than interleaving.
+func TestEnable_SecondConcurrentEnableRejected(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	targetID := tailcfg.StableNodeID("stable-1")
+
+	ts := &mockRoutingTailscale{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return testStatusWithPeers(
+				testPeerStatus("stable-1", "exit-server", true, true, false),
+			), nil
+		},
+		editPrefsFn: func(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+			if mp.ExitNodeID == targetID {
+				close(entered)
+				<-release
+			}
+			return &ipn.Prefs{}, nil
+		},
+	}
+	manifest := &mockRemoteExitManifest{}
+	svc := newTestRemoteExitService(ts, manifest)
+
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+			PeerID:  "stable-1",
+			Mode:    domain.ExitNodeAll,
+			Confirm: true,
+		})
+		firstErr <- err
+	}()
+
+	<-entered
+
+	_, err := svc.Enable(context.Background(), &EnableRemoteExitRequest{
+		PeerID:  "stable-1",
+		Mode:    domain.ExitNodeAll,
+		Confirm: true,
+	})
+	require.Error(t, err, "second concurrent Enable must be rejected")
+	var se *Error
+	require.ErrorAs(t, err, &se)
+	assert.Equal(t, ErrConflict, se.Kind)
+
+	close(release)
+	require.NoError(t, <-firstErr)
+}
+
 // --- Mutual exclusion tests ---
 
 func TestEnable_ConfirmRequired_WhenAdvertising(t *testing.T) {

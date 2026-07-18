@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -59,6 +60,18 @@ func TestValidateCreateRequest(t *testing.T) {
 		{"routeMetric at max", func(r *WgS2sCreateRequest) { r.RouteMetric = 9999 }, false, ""},
 		{"negative routeMetric", func(r *WgS2sCreateRequest) { r.RouteMetric = -1 }, true, "routeMetric"},
 		{"routeMetric exceeds max", func(r *WgS2sCreateRequest) { r.RouteMetric = 10000 }, true, "routeMetric"},
+		{"name at 128 chars", func(r *WgS2sCreateRequest) { r.Name = strings.Repeat("a", 128) }, false, ""},
+		{"name exceeds 128 chars", func(r *WgS2sCreateRequest) { r.Name = strings.Repeat("a", 129) }, true, "name"},
+		{"zero MTU (default)", func(r *WgS2sCreateRequest) { r.MTU = 0 }, false, ""},
+		{"negative MTU", func(r *WgS2sCreateRequest) { r.MTU = -1 }, true, "mtu"},
+		{"MTU below min", func(r *WgS2sCreateRequest) { r.MTU = 575 }, true, "mtu"},
+		{"MTU at min", func(r *WgS2sCreateRequest) { r.MTU = 576 }, false, ""},
+		{"MTU at max", func(r *WgS2sCreateRequest) { r.MTU = 65535 }, false, ""},
+		{"MTU exceeds max", func(r *WgS2sCreateRequest) { r.MTU = 65536 }, true, "mtu"},
+		{"zero keepalive (default)", func(r *WgS2sCreateRequest) { r.PersistentKeepalive = 0 }, false, ""},
+		{"negative keepalive", func(r *WgS2sCreateRequest) { r.PersistentKeepalive = -1 }, true, "persistentKeepalive"},
+		{"keepalive at max", func(r *WgS2sCreateRequest) { r.PersistentKeepalive = 86400 }, false, ""},
+		{"keepalive exceeds max", func(r *WgS2sCreateRequest) { r.PersistentKeepalive = 86401 }, true, "persistentKeepalive"},
 	}
 
 	for _, tt := range tests {
@@ -126,6 +139,18 @@ func TestValidateUpdateRequest(t *testing.T) {
 		{"valid routeMetric", func(c *wgs2s.TunnelConfig) { c.RouteMetric = 500 }, false, ""},
 		{"negative routeMetric", func(c *wgs2s.TunnelConfig) { c.RouteMetric = -1 }, true, "routeMetric"},
 		{"routeMetric exceeds max", func(c *wgs2s.TunnelConfig) { c.RouteMetric = 10000 }, true, "routeMetric"},
+		{"empty name (keep existing)", func(c *wgs2s.TunnelConfig) { c.Name = "" }, false, ""},
+		{"name at 128 chars", func(c *wgs2s.TunnelConfig) { c.Name = strings.Repeat("a", 128) }, false, ""},
+		{"name exceeds 128 chars", func(c *wgs2s.TunnelConfig) { c.Name = strings.Repeat("a", 129) }, true, "name"},
+		{"zero MTU (no change)", func(c *wgs2s.TunnelConfig) { c.MTU = 0 }, false, ""},
+		{"negative MTU", func(c *wgs2s.TunnelConfig) { c.MTU = -1 }, true, "mtu"},
+		{"MTU below min", func(c *wgs2s.TunnelConfig) { c.MTU = 575 }, true, "mtu"},
+		{"MTU at min", func(c *wgs2s.TunnelConfig) { c.MTU = 576 }, false, ""},
+		{"MTU exceeds max", func(c *wgs2s.TunnelConfig) { c.MTU = 65536 }, true, "mtu"},
+		{"zero keepalive (no change)", func(c *wgs2s.TunnelConfig) { c.PersistentKeepalive = 0 }, false, ""},
+		{"negative keepalive", func(c *wgs2s.TunnelConfig) { c.PersistentKeepalive = -1 }, true, "persistentKeepalive"},
+		{"keepalive at max", func(c *wgs2s.TunnelConfig) { c.PersistentKeepalive = 86400 }, false, ""},
+		{"keepalive exceeds max", func(c *wgs2s.TunnelConfig) { c.PersistentKeepalive = 86401 }, true, "persistentKeepalive"},
 	}
 
 	for _, tt := range tests {
