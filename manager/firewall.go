@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -625,6 +626,27 @@ func (fm *FirewallManager) cachedFilterRules() string {
 	return v.(string)
 }
 
+// lineContainsTokens reports whether the whitespace-separated tokens of match
+// occur as a contiguous run inside line's tokens. This is anchored matching:
+// the caller passes "-i wg-s2s1" (two tokens), which matches a line carrying
+// `-i wg-s2s1` but NOT one carrying `-i wg-s2s10`, because "wg-s2s1" and
+// "wg-s2s10" are distinct tokens. A raw strings.Contains would conflate them
+// (BUG-M2): a failed restore of wg-s2s1 would be masked by wg-s2s10's rules
+// and never retried.
+func lineContainsTokens(line, match string) bool {
+	mf := strings.Fields(match)
+	if len(mf) == 0 {
+		return false
+	}
+	lf := strings.Fields(line)
+	for i := 0; i+len(mf) <= len(lf); i++ {
+		if slices.Equal(lf[i:i+len(mf)], mf) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasChainRuleIn(rules, chain, match string) bool {
 	if match == "" {
 		return strings.Contains(rules, "\n:"+chain+" ") ||
@@ -632,7 +654,7 @@ func hasChainRuleIn(rules, chain, match string) bool {
 	}
 	prefix := "-A " + chain + " "
 	for _, line := range strings.Split(rules, "\n") {
-		if strings.HasPrefix(line, prefix) && strings.Contains(line, match) {
+		if strings.HasPrefix(line, prefix) && lineContainsTokens(line, match) {
 			return true
 		}
 	}
@@ -650,7 +672,26 @@ func (fm *FirewallManager) hasChainRule(chain, match string) bool {
 	if match == "" {
 		return true
 	}
-	return strings.Contains(string(out), match)
+	for _, line := range strings.Split(string(out), "\n") {
+		if lineContainsTokens(line, match) {
+			return true
+		}
+	}
+	return false
+}
+
+// ipsetHasMember reports whether the ipset-list output lists member as an
+// entry. Each member sits on its own line as the first token, so equality on
+// the first field is anchored: member "10.0.0.0/8" does NOT match a listed
+// "110.0.0.0/8" (BUG-M2 — a substring scan would treat the two as the same
+// entry and skip restoring the real one).
+func ipsetHasMember(output, member string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 && fields[0] == member {
+			return true
+		}
+	}
+	return false
 }
 
 func (fm *FirewallManager) hasIPSetEntry(setName, match string) bool {
@@ -658,7 +699,7 @@ func (fm *FirewallManager) hasIPSetEntry(setName, match string) bool {
 	if fm.ipsetSet == setName && fm.ipsetCache != "" && time.Since(fm.ipsetTime) < time.Second {
 		c := fm.ipsetCache
 		fm.ipsetMu.Unlock()
-		return strings.Contains(c, match)
+		return ipsetHasMember(c, match)
 	}
 	fm.ipsetMu.Unlock()
 
@@ -676,5 +717,5 @@ func (fm *FirewallManager) hasIPSetEntry(setName, match string) bool {
 		fm.ipsetMu.Unlock()
 		return result, nil
 	})
-	return strings.Contains(v.(string), match)
+	return ipsetHasMember(v.(string), match)
 }
