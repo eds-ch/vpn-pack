@@ -217,7 +217,7 @@ COMMIT
 	if !res.Misplaced() {
 		t.Fatalf("expected Misplaced=true for %+v", res)
 	}
-	if res.TSForwardPos != 1 || res.UBIOSPos != 2 {
+	if res.TargetPos != 1 || res.UBIOSPos != 2 {
 		t.Fatalf("positions wrong: %+v", res)
 	}
 
@@ -232,7 +232,7 @@ COMMIT
 	if res.Misplaced() {
 		t.Fatalf("expected Misplaced=false for %+v", res)
 	}
-	if res.TSForwardPos != 3 || res.UBIOSPos != 2 {
+	if res.TargetPos != 3 || res.UBIOSPos != 2 {
 		t.Fatalf("positions wrong: %+v", res)
 	}
 
@@ -326,6 +326,95 @@ COMMIT
 	}
 	if calls != 0 {
 		t.Fatalf("expected 0 iptables calls on correct ordering, got %d", calls)
+	}
+}
+
+// M5: ts-input must run AFTER UBIOS_INPUT_JUMP, otherwise its terminal
+// `-i tailscale0 -j ACCEPT` shadows the UniFi zone policies and a
+// "Tailscale -> Gateway = BLOCK" policy silently becomes a no-op.
+//
+// This test fails against the pre-fix code where the auditor only understood
+// the FORWARD chain: auditTsChainOrder(_, "INPUT", "ts-input") would scan for
+// `-A FORWARD ` lines, match nothing in an INPUT dump, and never flag the
+// misplacement (Misplaced()==false on the misplaced fixture below).
+//
+// It also pins the exact-token match: the ts-input-guard hook (which sits at
+// INPUT position 1 by design) must NOT be counted as the ts-input hook. A
+// naive strings.Contains(line, "-j ts-input") would match ts-input-guard at
+// position 1 and wrongly report the correct fixture as misplaced.
+func TestAuditTsInputOrder_M5(t *testing.T) {
+	misplaced := `*filter
+:INPUT ACCEPT [0:0]
+-A INPUT -j ts-input
+-A INPUT -j UBIOS_INPUT_JUMP
+COMMIT
+`
+	res := auditTsChainOrder(misplaced, "INPUT", "ts-input")
+	if !res.Misplaced() {
+		t.Fatalf("expected Misplaced=true for M5 fixture, got %+v", res)
+	}
+	if res.TargetPos != 1 || res.UBIOSPos != 2 {
+		t.Fatalf("positions wrong: %+v", res)
+	}
+
+	// Correct order with the guard chain present. Exact-token matching must
+	// skip ts-input-guard and locate ts-input at position 3 (after UBIOS).
+	correct := `*filter
+:INPUT ACCEPT [0:0]
+-A INPUT -j ts-input-guard
+-A INPUT -j UBIOS_INPUT_JUMP
+-A INPUT -j ts-input
+COMMIT
+`
+	res = auditTsChainOrder(correct, "INPUT", "ts-input")
+	if res.Misplaced() {
+		t.Fatalf("expected Misplaced=false for correct fixture, got %+v", res)
+	}
+	if res.TargetPos != 3 || res.UBIOSPos != 2 {
+		t.Fatalf("positions wrong (guard likely conflated with ts-input): %+v", res)
+	}
+}
+
+// M5: when ts-input is misplaced, AuditAndFixTsInputOrder must delete it and
+// re-insert it right after UBIOS_INPUT_JUMP, targeting the INPUT chain (not
+// FORWARD). Locks the exact iptables command shape.
+func TestAuditAndFixTsInputOrder_DeletesAndReinsertsAtCorrectPosition(t *testing.T) {
+	misplaced := `*filter
+:INPUT ACCEPT [0:0]
+-A INPUT -j ts-input-guard
+-A INPUT -j ts-input
+-A INPUT -j UBIOS_INPUT_JUMP
+-A INPUT -j SOME_OTHER
+COMMIT
+`
+	fm := &FirewallManager{}
+	fm.filterCache = misplaced
+	fm.filterTime = time.Now()
+
+	var calls [][]string
+	orig := iptablesRunHook
+	iptablesRunHook = func(_ context.Context, args ...string) error {
+		calls = append(calls, append([]string(nil), args...))
+		return nil
+	}
+	t.Cleanup(func() { iptablesRunHook = orig })
+
+	if err := fm.AuditAndFixTsInputOrder(context.Background()); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 iptables calls (delete then insert); got %d: %+v", len(calls), calls)
+	}
+	wantDel := []string{"-w", "2", "-t", "filter", "-D", "INPUT", "-j", "ts-input"}
+	if !equalArgs(calls[0], wantDel) {
+		t.Fatalf("delete args wrong:\nwant %q\ngot  %q", wantDel, calls[0])
+	}
+	// guard=1, ts-input=2, UBIOS=3. After deleting ts-input, UBIOS shifts to
+	// position 2; inserting at UBIOSPos (3) puts ts-input right after it.
+	wantIns := []string{"-w", "2", "-t", "filter", "-I", "INPUT", "3", "-j", "ts-input"}
+	if !equalArgs(calls[1], wantIns) {
+		t.Fatalf("insert args wrong:\nwant %q\ngot  %q", wantIns, calls[1])
 	}
 }
 

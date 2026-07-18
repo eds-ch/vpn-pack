@@ -384,6 +384,11 @@ func (fm *FirewallManager) CheckTailscaleRulesPresent(ctx context.Context) (forw
 	prefix := fm.manifest.GetTailscaleChainPrefix()
 	forward = fm.hasChainRule(config.ChainForwardInUser, "-i "+config.TailscaleInterface) ||
 		fm.hasChainRule(fmt.Sprintf("UBIOS_%s_IN", prefix), "-i "+config.TailscaleInterface)
+	// Presence of the INPUT zone-binding rule only means it exists, not that
+	// it is reachable: finding M5 showed ts-input's terminal ACCEPT can shadow
+	// it when ts-input sits before UBIOS_INPUT_JUMP. Reachability (correct
+	// ordering) is enforced separately by AuditAndFixTsInputOrder, invoked on
+	// every watcher tick, so a "green" here is not a green over a dead control.
 	input = fm.hasChainRule(config.ChainInputUserHook, "-i "+config.TailscaleInterface) ||
 		fm.hasChainRule(fmt.Sprintf("UBIOS_%s_LOCAL", prefix), "-i "+config.TailscaleInterface)
 	output = fm.hasChainRule(config.ChainOutputUserHook, "-o "+config.TailscaleInterface) ||
@@ -475,44 +480,67 @@ func zoneIPSetName(chainPrefix string) string {
 	return chainPrefix + "_subnets"
 }
 
-// auditTsForwardOrderResult describes the FORWARD-chain order between
-// tailscaled's `-j ts-forward` hook and UniFi's `-j UBIOS_FORWARD_JUMP`.
-// SEC-C15: patch 005 sets the right order once at AddHooks time, but only
-// the firewall-watcher can catch a later regression (manual flush, restore
-// from save). Misplaced => ts-forward appears BEFORE UBIOS_FORWARD_JUMP,
-// which means Tailscale's fallback ACCEPT runs before UniFi zone policies.
-type auditTsForwardOrderResult struct {
-	HasUBIOS     bool
-	HasTSForward bool
-	TSForwardPos int // 1-based, 0 if missing
-	UBIOSPos     int // 1-based, 0 if missing
+// tsChainOrderResult describes the order between a tailscale hook (`-j
+// <target>`, e.g. ts-forward / ts-input) and the matching UniFi jump
+// (`-j UBIOS_<parent>_JUMP`) inside a base chain (FORWARD / INPUT).
+// SEC-C15 (FORWARD) / M5 (INPUT): patch 005 sets the right order once at
+// AddHooks time, but only the firewall-watcher can catch a later regression
+// (manual flush, restore from save). Misplaced => the tailscale hook appears
+// BEFORE the UBIOS jump, so Tailscale's terminal ACCEPT runs before UniFi
+// zone policies (the M5 fail-open: a "Tailscale -> Gateway = BLOCK" policy
+// becomes unenforceable while health stays green).
+type tsChainOrderResult struct {
+	Parent    string // "FORWARD" or "INPUT"
+	Target    string // "ts-forward" or "ts-input"
+	HasUBIOS  bool
+	HasTarget bool
+	TargetPos int // 1-based, 0 if missing
+	UBIOSPos  int // 1-based, 0 if missing
 }
 
-func (r auditTsForwardOrderResult) Misplaced() bool {
-	return r.HasUBIOS && r.HasTSForward && r.TSForwardPos < r.UBIOSPos
+func (r tsChainOrderResult) Misplaced() bool {
+	return r.HasUBIOS && r.HasTarget && r.TargetPos < r.UBIOSPos
 }
 
-// auditTsForwardOrder walks the FORWARD chain rules in iptables-save
-// output. The input is the raw output of `iptables-save -t filter`.
-func auditTsForwardOrder(rulesText string) auditTsForwardOrderResult {
-	var res auditTsForwardOrderResult
+// lineJumpsTo reports whether an iptables-save rule line's terminal target is
+// exactly `-j <target>`. Exact-token matching is required so that, for INPUT,
+// the guard hook `-A INPUT -j ts-input-guard` is NOT mistaken for the
+// `-A INPUT -j ts-input` hook (substring matching would conflate them).
+func lineJumpsTo(line, target string) bool {
+	fields := strings.Fields(line)
+	n := len(fields)
+	return n >= 2 && fields[n-2] == "-j" && fields[n-1] == target
+}
+
+// auditTsChainOrder walks the given base chain in iptables-save output
+// (raw output of `iptables-save -t filter`), locating the tailscale target
+// hook and the matching UBIOS_<parent>_JUMP.
+func auditTsChainOrder(rulesText, parent, target string) tsChainOrderResult {
+	res := tsChainOrderResult{Parent: parent, Target: target}
+	ubiosTarget := "UBIOS_" + parent + "_JUMP"
 	pos := 0
-	prefix := "-A FORWARD "
+	prefix := "-A " + parent + " "
 	for _, line := range strings.Split(rulesText, "\n") {
 		if !strings.HasPrefix(line, prefix) {
 			continue
 		}
 		pos++
-		if strings.Contains(line, "-j ts-forward") && !res.HasTSForward {
-			res.HasTSForward = true
-			res.TSForwardPos = pos
+		if lineJumpsTo(line, target) && !res.HasTarget {
+			res.HasTarget = true
+			res.TargetPos = pos
 		}
-		if strings.Contains(line, "-j UBIOS_FORWARD_JUMP") && !res.HasUBIOS {
+		if lineJumpsTo(line, ubiosTarget) && !res.HasUBIOS {
 			res.HasUBIOS = true
 			res.UBIOSPos = pos
 		}
 	}
 	return res
+}
+
+// auditTsForwardOrder is the FORWARD-chain specialisation, preserved for
+// existing callers.
+func auditTsForwardOrder(rulesText string) tsChainOrderResult {
+	return auditTsChainOrder(rulesText, "FORWARD", "ts-forward")
 }
 
 // iptablesRunHook is the seam the audit/repair path uses to invoke
@@ -522,31 +550,48 @@ var iptablesRunHook = func(ctx context.Context, args ...string) error {
 	return exec.CommandContext(ctx, "iptables", args...).Run()
 }
 
-// AuditAndFixTsForwardOrder verifies the FORWARD-chain ordering and, when
-// ts-forward is misplaced, removes the rule and re-inserts it immediately
-// after UBIOS_FORWARD_JUMP. Idempotent: no-op when ordering is correct.
-func (fm *FirewallManager) AuditAndFixTsForwardOrder(ctx context.Context) error {
+// auditAndFixTsChainOrder verifies the ordering of `-j <target>` relative to
+// `-j UBIOS_<parent>_JUMP` and, when the target is misplaced (before UBIOS),
+// removes it and re-inserts it immediately after the UBIOS jump. Idempotent:
+// no-op when ordering is correct.
+func (fm *FirewallManager) auditAndFixTsChainOrder(ctx context.Context, parent, target string) error {
 	rules := fm.cachedFilterRules()
 	if rules == "" {
 		return nil
 	}
-	res := auditTsForwardOrder(rules)
+	res := auditTsChainOrder(rules, parent, target)
 	if !res.Misplaced() {
 		return nil
 	}
-	slog.Warn("ts-forward chain order regressed; restoring after UBIOS_FORWARD_JUMP",
-		"tsForwardPos", res.TSForwardPos, "ubiosPos", res.UBIOSPos)
-	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-D", "FORWARD", "-j", "ts-forward"); err != nil {
-		return fmt.Errorf("delete misplaced ts-forward: %w", err)
+	slog.Warn("ts chain order regressed; restoring after UBIOS jump",
+		"parent", parent, "target", target, "targetPos", res.TargetPos, "ubiosPos", res.UBIOSPos)
+	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-D", parent, "-j", target); err != nil {
+		return fmt.Errorf("delete misplaced %s: %w", target, err)
 	}
 	// After deletion the rule above UBIOS shifts up by one; the new slot
-	// directly after UBIOS_FORWARD_JUMP is at position UBIOSPos (1-based).
+	// directly after UBIOS_<parent>_JUMP is at position UBIOSPos (1-based).
 	insertAt := res.UBIOSPos
-	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-I", "FORWARD", strconv.Itoa(insertAt), "-j", "ts-forward"); err != nil {
-		return fmt.Errorf("reinsert ts-forward at %d: %w", insertAt, err)
+	if err := iptablesRunHook(ctx, "-w", "2", "-t", "filter", "-I", parent, strconv.Itoa(insertAt), "-j", target); err != nil {
+		return fmt.Errorf("reinsert %s at %d: %w", target, insertAt, err)
 	}
 	fm.invalidateFilterCache()
 	return nil
+}
+
+// AuditAndFixTsForwardOrder verifies the FORWARD-chain ordering and, when
+// ts-forward is misplaced, removes the rule and re-inserts it immediately
+// after UBIOS_FORWARD_JUMP. Idempotent: no-op when ordering is correct.
+func (fm *FirewallManager) AuditAndFixTsForwardOrder(ctx context.Context) error {
+	return fm.auditAndFixTsChainOrder(ctx, "FORWARD", "ts-forward")
+}
+
+// AuditAndFixTsInputOrder verifies the INPUT-chain ordering and, when
+// ts-input is misplaced (before UBIOS_INPUT_JUMP), removes the rule and
+// re-inserts it immediately after UBIOS_INPUT_JUMP. This is the runtime guard
+// for finding M5: without it, ts-input's terminal `-i tailscale0 -j ACCEPT`
+// shadows the UniFi zone policies. Idempotent: no-op when ordering is correct.
+func (fm *FirewallManager) AuditAndFixTsInputOrder(ctx context.Context) error {
+	return fm.auditAndFixTsChainOrder(ctx, "INPUT", "ts-input")
 }
 
 func (fm *FirewallManager) invalidateFilterCache() {
