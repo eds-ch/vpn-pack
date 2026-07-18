@@ -558,6 +558,13 @@ var iptablesRunHook = func(ctx context.Context, args ...string) error {
 func (fm *FirewallManager) auditAndFixTsChainOrder(ctx context.Context, parent, target string) error {
 	rules := fm.cachedFilterRules()
 	if rules == "" {
+		// iptables-save yielded nothing (broken/unavailable): the ordering
+		// audit cannot run. Warn rather than silently no-op — a healthy host
+		// always has filter rules, so an empty result means this M5 guard is
+		// off while presence checks (which fall back to `iptables -S`) stay
+		// green. Do not report a working control we cannot actually verify.
+		slog.Warn("ts chain order audit skipped: iptables-save returned no filter rules",
+			"parent", parent, "target", target)
 		return nil
 	}
 	res := auditTsChainOrder(rules, parent, target)

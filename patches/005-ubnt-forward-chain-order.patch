@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.98.5
+# Tailscale-Version: 1.98.9
 # Description: Fix ts-forward/ts-input chain order on UBNT: ts-forward after UBIOS_FORWARD_JUMP (ts-mark guard), ts-input after UBIOS_INPUT_JUMP (ts-input-guard anti-spoof)
 --- a/util/linuxfw/iptables_runner.go
 +++ b/util/linuxfw/iptables_runner.go
@@ -10,24 +10,31 @@
  )
  
  // isNotExistError needs to be overridden in tests that rely on distinguishing
-@@ -94,6 +95,144 @@
+@@ -94,6 +95,158 @@
  	return "ts-" + strings.ToLower(chain)
  }
  
 +// ubntFindForwardInsertPos returns the iptables position number at which
 +// a rule should be inserted in the FORWARD chain on UBNT devices — immediately
-+// after UBIOS_FORWARD_JUMP. If UBIOS_FORWARD_JUMP is not found, returns 1.
++// after UBIOS_FORWARD_JUMP. On List error returns -1 (caller appends); if
++// UBIOS_FORWARD_JUMP is absent, appends at the end rather than position 1, so
++// ts-forward never shadows the UniFi zone chains (mirror of the INPUT path).
 +func ubntFindForwardInsertPos(ipt iptablesInterface) int {
 +	rules, err := ipt.List("filter", "FORWARD")
 +	if err != nil {
-+		return 1
++		log.Printf("[unexpected] ubnt: listing filter/FORWARD failed (%v); appending ts-forward at end", err)
++		return -1
 +	}
 +	for idx, rule := range rules {
 +		if strings.Contains(rule, "-j UBIOS_FORWARD_JUMP") {
 +			return idx + 1
 +		}
 +	}
-+	return 1
++	log.Printf("[unexpected] ubnt: UBIOS_FORWARD_JUMP not found in filter/FORWARD; appending ts-forward at end to avoid fail-open")
++	// len(rules) counts the chain-policy line plus each rule, which equals
++	// (ruleCount + 1) — exactly the 1-based position that appends after the
++	// last rule via Insert.
++	return len(rules)
 +}
 +
 +// ubntEnsureForwardHook ensures -j ts-forward is in FORWARD after
@@ -50,6 +57,13 @@
 +	}
 +
 +	pos := ubntFindForwardInsertPos(ipt)
++	if pos < 1 {
++		// List failed; fall back to a plain append so the hook still exists.
++		if err := ipt.Append("filter", "FORWARD", args...); err != nil {
++			return fmt.Errorf("appending ts-forward in filter/FORWARD: %w", err)
++		}
++		return nil
++	}
 +	if err := ipt.Insert("filter", "FORWARD", pos, args...); err != nil {
 +		return fmt.Errorf("adding ts-forward in filter/FORWARD: %w", err)
 +	}
@@ -155,7 +169,7 @@
  // DelLoopbackRule removes the iptables rule permitting loopback
  // traffic to a Tailscale IP.
  func (i *iptablesRunner) DelLoopbackRule(addr netip.Addr) error {
-@@ -145,12 +284,48 @@
+@@ -145,12 +298,48 @@
  		return nil
  	}
  
@@ -209,7 +223,7 @@
  		}
  	}
  
-@@ -179,6 +354,8 @@
+@@ -179,6 +368,8 @@
  		return nil
  	}
  
@@ -218,7 +232,7 @@
  	for _, ipt := range i.getTables() {
  		if err := create(ipt, "filter", "ts-input"); err != nil {
  			return err
-@@ -186,6 +363,14 @@
+@@ -186,6 +377,14 @@
  		if err := create(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
@@ -233,7 +247,7 @@
  	}
  
  	for _, ipt := range i.getNATTables() {
-@@ -248,6 +433,13 @@
+@@ -248,6 +447,13 @@
  		return fmt.Errorf("adding %v in v4/filter/ts-forward: %w", args, err)
  	}
  
@@ -247,7 +261,7 @@
  	return nil
  }
  
-@@ -352,6 +544,13 @@
+@@ -352,6 +558,13 @@
  		return fmt.Errorf("adding %v in v6/filter/ts-forward: %w", args, err)
  	}
  
@@ -261,7 +275,7 @@
  	return nil
  }
  
-@@ -364,6 +563,12 @@
+@@ -364,6 +577,12 @@
  		if err := delChain(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
@@ -274,7 +288,7 @@
  	}
  
  	for _, ipt := range i.getNATTables() {
-@@ -397,6 +602,12 @@
+@@ -397,6 +616,12 @@
  		if err := del(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
@@ -287,7 +301,7 @@
  	}
  	for _, ipt := range i.getNATTables() {
  		if err := del(ipt, "nat", "ts-postrouting"); err != nil {
-@@ -414,9 +625,11 @@
+@@ -414,9 +639,11 @@
  		if err := delTSHook(ipt, "filter", "INPUT", logf); err != nil {
  			return err
  		}
@@ -299,7 +313,7 @@
  	}
  	for _, ipt := range i.getNATTables() {
  		if err := delTSHook(ipt, "nat", "POSTROUTING", logf); err != nil {
-@@ -691,17 +904,29 @@
+@@ -691,17 +918,29 @@
  	}
  }
  
@@ -334,7 +348,7 @@
  		}
  	}
  	return nil
-@@ -714,15 +939,16 @@
+@@ -714,15 +953,16 @@
  	if err != nil {
  		return fmt.Errorf("build cgnat mode rule: %v", err)
  	}
