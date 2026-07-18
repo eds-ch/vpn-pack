@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"unifi-tailscale/manager/config"
+	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/state"
 )
 
@@ -56,7 +57,7 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) er
 			} `json:"logtail"`
 		}
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
-			buf.Add(state.NewLogEntry("info", line, ""))
+			buf.Add(state.NewLogEntry("info", logredact.RedactString(line), ""))
 			continue
 		}
 
@@ -78,7 +79,7 @@ func tailLogs(ctx context.Context, ts TailscaleControl, buf *state.LogBuffer) er
 			level = "warn"
 		}
 
-		e := state.NewLogEntry(level, text, "tailscale")
+		e := state.NewLogEntry(level, logredact.RedactString(text), "tailscale")
 		e.Timestamp = clientTime
 		buf.Add(e)
 	}

@@ -60,3 +60,46 @@ func TestLoadPrivateKeyNotFound(t *testing.T) {
 	_, err := loadPrivateKey(dir, "nonexistent")
 	assert.Error(t, err)
 }
+
+// TestSaveKeyFilesAtomicTightensPerm proves saveKeyFiles writes through the
+// atomic state.WriteFile path (tmp+chmod+rename) rather than os.WriteFile.
+// os.WriteFile leaves a pre-existing destination's mode untouched, so a
+// private key file previously created 0666 would keep leaking on re-save.
+// The atomic path renames a fresh 0600 temp over it. This test fails if the
+// writes are reverted to os.WriteFile (the 0666 mode would survive).
+func TestSaveKeyFilesAtomicTightensPerm(t *testing.T) {
+	dir := t.TempDir()
+	const id = "perm-test"
+	keyPath := filepath.Join(dir, id+".key")
+	pubPath := filepath.Join(dir, id+".pub")
+
+	// Seed pre-existing files with a lax mode.
+	for _, p := range []string{keyPath, pubPath} {
+		if err := os.WriteFile(p, []byte("stale"), 0o666); err != nil { //nolint:gosec // G306: deliberately lax to prove the rewrite tightens it
+			t.Fatalf("seed %s: %v", p, err)
+		}
+	}
+
+	priv, err := generateKeypair(dir, id)
+	require.NoError(t, err)
+
+	for _, p := range []string{keyPath, pubPath} {
+		info, err := os.Stat(p)
+		require.NoError(t, err)
+		if mode := info.Mode().Perm(); mode != 0o600 {
+			t.Fatalf("%s mode after rewrite: got %o, want 0600", p, mode)
+		}
+	}
+
+	// Content must be the freshly generated key, not the stale seed.
+	loaded, err := loadPrivateKey(dir, id)
+	require.NoError(t, err)
+	assert.Equal(t, priv, loaded)
+
+	// No orphan temp files.
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.NotEqual(t, ".tmp", filepath.Ext(e.Name()), "orphan tmp: %s", e.Name())
+	}
+}

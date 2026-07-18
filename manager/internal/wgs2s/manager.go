@@ -526,6 +526,9 @@ func (m *TunnelManager) GetStatuses() []WgS2sStatus {
 }
 
 func (m *TunnelManager) GetPublicKey(id string) (string, error) {
+	if !validTunnelID(id) {
+		return "", fmt.Errorf("invalid tunnel ID: %q", id)
+	}
 	pubPath := filepath.Join(m.configDir, id+".pub")
 	data, err := os.ReadFile(pubPath)
 	if err != nil {

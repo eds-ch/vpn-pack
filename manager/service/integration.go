@@ -12,6 +12,7 @@ import (
 
 	"unifi-tailscale/manager/config"
 	"unifi-tailscale/manager/domain"
+	"unifi-tailscale/manager/state"
 )
 
 var ErrUnauthorized = errors.New("unauthorized")
@@ -269,7 +270,7 @@ func saveAPIKeyAt(path, key string) error {
 	if err := os.Chmod(parent, config.SecretDirPerm); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(key), config.SecretPerm)
+	return state.WriteFile(path, []byte(key), config.SecretPerm)
 }
 
 func DeleteAPIKey() error {
