@@ -7,6 +7,7 @@ const (
 	ManifestPath           = PersistentBase + "/config/manifest.json"
 	APIKeyPath             = PersistentBase + "/config/api-key"
 	NginxConfigSrc         = PersistentBase + "/config/nginx-vpnpack.conf"
+	NginxTokenPath         = PersistentBase + "/config/nginx-token"
 	WgS2sConfigDir         = PersistentBase + "/config/wg-s2s"
 	TailscaledDefaultsPath = PersistentBase + "/tailscaled.defaults"
 	VersionFilePath        = PersistentBase + "/VERSION"

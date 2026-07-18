@@ -36,6 +36,10 @@ type ServerOptions struct {
 	Nginx       *NginxManager
 	LogBuf      *LogBuffer
 	Updater     *updateChecker
+	// NginxToken is the per-install shared secret the trusted nginx
+	// front-end echoes as X-VpnPack-Token. Empty disables the token
+	// factor (fail-open) — see httpmw.Token.
+	NginxToken string
 }
 
 type Server struct {
@@ -67,6 +71,7 @@ type Server struct {
 	tailscaleSvc   *service.TailscaleService
 	wgS2sSvc       *service.WgS2sService
 	routingHealth  *service.RoutingHealthChecker
+	nginxToken     string
 }
 
 func NewServer(ctx context.Context, opts ServerOptions) *Server {
@@ -83,6 +88,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 		logBuf:     opts.LogBuf,
 		updater:    opts.Updater,
 		health:     NewHealthTracker(opts.Hub),
+		nginxToken: opts.NginxToken,
 	}
 	s.settings = service.NewSettingsService(
 		opts.Tailscale, opts.Firewall, opts.Integration,
@@ -164,15 +170,21 @@ func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	allowedUIDs := httpmw.LookupAllowedUIDs("nginx")
+	// token is constructed once and shared across chains so its
+	// "factor disabled" warning fires at most once per process.
+	token := httpmw.Token(s.nginxToken)
 	read := httpmw.Chain(
 		httpmw.Recover(),
 		httpmw.PeerUIDAuth(allowedUIDs...),
+		token,
 		httpmw.CSRF(),
 	)
 	mutate := httpmw.Chain(
 		httpmw.Recover(),
 		httpmw.PeerUIDAuth(allowedUIDs...),
+		token,
 		httpmw.CSRF(),
+		httpmw.SameOrigin(),
 		httpmw.RequireJSON(config.MaxRequestBodyBytes),
 	)
 	get := func(p string, h http.HandlerFunc) { mux.Handle("GET "+p, read(h)) }
@@ -223,7 +235,17 @@ func (s *Server) routes() *http.ServeMux {
 
 	get("/api/update-check", s.handleUpdateCheck)
 
-	mux.Handle("/", spaHandler())
+	// S2: the SPA route must run through Recover→PeerUIDAuth→Token, not
+	// be registered raw. CSRF is omitted (static GETs need no double-
+	// submit token) but Recover and the auth factors are mandatory —
+	// otherwise a panic in spaHandler escapes unrecovered and any uid
+	// able to connect(2) could fetch the SPA without the token factor.
+	static := httpmw.Chain(
+		httpmw.Recover(),
+		httpmw.PeerUIDAuth(allowedUIDs...),
+		token,
+	)
+	mux.Handle("/", static(spaHandler()))
 
 	return mux
 }

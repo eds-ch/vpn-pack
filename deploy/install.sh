@@ -14,6 +14,8 @@ MANAGER_UNIT="/etc/systemd/system/vpn-pack-manager.service"
 MANAGER_SOCKET_UNIT="/etc/systemd/system/vpn-pack-manager.socket"
 NGINX_SRC="${CONFIG_DIR}/nginx-vpnpack.conf"
 NGINX_DEST="/data/unifi-core/config/http/shared-runnable-vpnpack.conf"
+NGINX_TOKEN_FILE="${CONFIG_DIR}/nginx-token"
+NGINX_TOKEN_PLACEHOLDER="__VPNPACK_NGINX_TOKEN__"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Colors (if terminal supports them)
@@ -49,6 +51,33 @@ safe_install() {
     chmod "$mode" "$tmp"
     cp -f --no-dereference "$src" "$tmp"
     mv -f "$tmp" "$dst"
+}
+
+# ensure_nginx_token provisions the per-install shared secret used for the
+# X-VpnPack-Token app-layer factor (M1). Idempotent: an existing non-empty
+# token file is preserved across upgrades so the running nginx config and
+# the manager stay in agreement. The token is hex (sed-safe for later
+# substitution) with 256 bits of entropy. Perms are 0640 root:nginx so the
+# nginx worker can read it to inject the header while other local uids
+# cannot. Writes atomically via a temp file in the same dir.
+ensure_nginx_token() {
+    if [ -f "${NGINX_TOKEN_FILE}" ] && [ -s "${NGINX_TOKEN_FILE}" ]; then
+        info "Reusing existing nginx token (upgrade)"
+        return
+    fi
+    info "Generating per-install nginx token..."
+    local tok tmp
+    if command -v openssl >/dev/null 2>&1; then
+        tok="$(openssl rand -hex 32)"
+    else
+        tok="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    fi
+    [ -n "$tok" ] || die "failed to generate nginx token"
+    tmp="$(mktemp "${CONFIG_DIR}/.nginx-token.XXXXXX")"
+    printf '%s\n' "$tok" > "$tmp"
+    chmod 0640 "$tmp"
+    chown root:nginx "$tmp" 2>/dev/null || warn "could not chown token to root:nginx (nginx group missing?) — token factor may not reach nginx"
+    mv -f "$tmp" "${NGINX_TOKEN_FILE}"
 }
 
 check_network_version() {
@@ -195,8 +224,27 @@ else
     info "Keeping existing tailscaled.defaults (upgrade)"
 fi
 
+# Provision the token BEFORE the nginx config is rendered/reloaded and
+# BEFORE the manager starts, so nginx begins sending X-VpnPack-Token in
+# the same run that the manager begins enforcing it — no self-DoS window.
+ensure_nginx_token
+
 info "Installing nginx config for /vpn-pack/ path..."
-safe_install "${SCRIPT_DIR}/nginx-vpnpack.conf" "${NGINX_SRC}" 0644
+# Render the config template, substituting the real token for the
+# placeholder. The token is hex, so the sed '|' delimiter is safe. The
+# rendered (secret-bearing) copy is written to the persistent NGINX_SRC
+# and then to NGINX_DEST; the manager's self-heal copies NGINX_SRC -> DEST
+# verbatim, preserving the token.
+NGINX_TOKEN_VALUE="$(cat "${NGINX_TOKEN_FILE}")"
+NGINX_RENDERED="$(mktemp "${CONFIG_DIR}/.nginx-render.XXXXXX")"
+sed "s|${NGINX_TOKEN_PLACEHOLDER}|${NGINX_TOKEN_VALUE}|g" \
+    "${SCRIPT_DIR}/nginx-vpnpack.conf" > "${NGINX_RENDERED}"
+if grep -q "${NGINX_TOKEN_PLACEHOLDER}" "${NGINX_RENDERED}"; then
+    rm -f "${NGINX_RENDERED}"
+    die "nginx token placeholder was not substituted"
+fi
+safe_install "${NGINX_RENDERED}" "${NGINX_SRC}" 0644
+rm -f "${NGINX_RENDERED}"
 mkdir -p "$(dirname "${NGINX_DEST}")"
 safe_install "${NGINX_SRC}" "${NGINX_DEST}" 0644
 if ! nginx_test_output=$(nginx -t 2>&1); then
