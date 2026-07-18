@@ -2,7 +2,7 @@
 
 Patches applied to upstream Tailscale source before cross-compiling for UniFi devices.
 
-**Current target version: 1.96.4**
+**Current target version: 1.98.9**
 
 ## Patch Files
 
@@ -13,7 +13,7 @@ Patches applied to upstream Tailscale source before cross-compiling for UniFi de
 | `003-ubnt-distro-version.patch` | Report Distro="ubnt", Version=firmware version, CodeName from os-release |
 | `004-package-type-unifi.patch` | Set Package="unifi-tailscale" via build tag `ts_package_unifi` |
 | `005-ubnt-forward-chain-order.patch` | Fix ts-forward chain order on UBNT: insert after UBIOS_FORWARD_JUMP, add ts-mark chain |
-| `006-ubnt-exit-route-table.patch` | Route exit-node prefixes (bits ≤ 1) to table 53 on UBNT, keeping subnet routes in table 52. Duplicate throw routes into both tables to prevent LAN/WAN breakage with exit nodes |
+| `006-ubnt-exit-route-table.patch` | Route the exit-node catch-all prefix (only `Bits() == 0`, i.e. `/0`) to table 53 on UBNT, keeping subnet routes in table 52. Duplicate throw routes into both tables to prevent LAN/WAN breakage with exit nodes |
 
 ## Verifying Patches
 
