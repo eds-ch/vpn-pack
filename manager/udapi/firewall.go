@@ -102,13 +102,33 @@ func removeMarkerRules(ctx context.Context, c *UDAPIClient, chain, marker string
 	}
 
 	for _, r := range cr.Rules {
-		if strings.Contains(r.Description, marker) {
+		if markerFromDescription(r.Description) == marker {
 			if _, err := c.RequestCtx(ctx, "DELETE", firewallFilterPath(chain, "rule"), map[string]any{"id": r.ID}); err != nil {
 				return fmt.Errorf("delete %s rule %d: %w", chain, r.ID, err)
 			}
 		}
 	}
 	return nil
+}
+
+// markerFromDescription extracts the marker token AddRule embeds as the
+// parenthesised suffix of a rule description ("iface target (marker)").
+// Comparing this extracted token by equality — rather than scanning the whole
+// description with strings.Contains — prevents BUG-S1: marker
+// "wg-s2s-manager:wg-s2s1" is a substring of "wg-s2s-manager:wg-s2s10", so a
+// Contains match would delete the live wg-s2s10 rule when removing wg-s2s1,
+// tearing down the tenth tunnel's isolation. Markers carry no parentheses, so
+// the last '(' unambiguously opens the marker group.
+func markerFromDescription(desc string) string {
+	open := strings.LastIndexByte(desc, '(')
+	if open < 0 {
+		return ""
+	}
+	rel := strings.IndexByte(desc[open:], ')')
+	if rel < 0 {
+		return ""
+	}
+	return desc[open+1 : open+rel]
 }
 
 func HasMarkerRule(ctx context.Context, c *UDAPIClient, chain, marker string) (bool, error) {
@@ -127,7 +147,7 @@ func HasMarkerRule(ctx context.Context, c *UDAPIClient, chain, marker string) (b
 	}
 
 	for _, r := range cr.Rules {
-		if strings.Contains(r.Description, marker) {
+		if markerFromDescription(r.Description) == marker {
 			return true, nil
 		}
 	}

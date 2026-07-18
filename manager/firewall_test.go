@@ -340,3 +340,69 @@ func equalArgs(a, b []string) bool {
 	}
 	return true
 }
+
+// BUG-M2: hasChainRuleIn anchored the chain via HasPrefix but matched the
+// interface token with strings.Contains. When only wg-s2s10's rule is present,
+// probing for "-i wg-s2s1" must report ABSENT — a substring scan of the line
+// "-A ... -i wg-s2s10 ..." would falsely report wg-s2s1 present, masking a
+// failed restore and never retrying it. Fails on the pre-fix code (returns
+// true for wg-s2s1).
+func TestHasChainRuleIn_InterfaceTokenNotSubstring(t *testing.T) {
+	rules := "*filter\n" +
+		":UBIOS_FORWARD_IN_USER - [0:0]\n" +
+		"-A UBIOS_FORWARD_IN_USER -i wg-s2s10 -j UBIOS_ZONE_IN\n" +
+		"COMMIT\n"
+
+	if hasChainRuleIn(rules, config.ChainForwardInUser, "-i wg-s2s1") {
+		t.Fatal("BUG-M2: -i wg-s2s1 must NOT match a line carrying only -i wg-s2s10")
+	}
+	if !hasChainRuleIn(rules, config.ChainForwardInUser, "-i wg-s2s10") {
+		t.Fatal("-i wg-s2s10 must match its own rule")
+	}
+}
+
+// BUG-M2 end-to-end through the production probe (fm.hasChainRule via the
+// cachedFilterRules seam) as wired into CheckWgS2sRulesPresent. wg-s2s1 has no
+// rules of its own; only wg-s2s10 is installed. wg-s2s1 must be reported
+// missing so the watcher retries it. Fails on pre-fix code where wg-s2s1 is
+// falsely present via substring shadowing.
+func TestCheckWgS2sRulesPresent_ProdProbeNoInterfaceShadowing(t *testing.T) {
+	fm := &FirewallManager{}
+	fm.chainProbe = fm.hasChainRule
+	fm.ipsetProbe = fm.hasIPSetEntry
+	fm.filterCache = "*filter\n" +
+		"-A UBIOS_FORWARD_IN_USER -i wg-s2s10 -j X\n" +
+		"-A UBIOS_INPUT_USER_HOOK -i wg-s2s10 -j X\n" +
+		"-A UBIOS_OUTPUT_USER_HOOK -o wg-s2s10 -j X\n" +
+		"COMMIT\n"
+	fm.filterTime = time.Now()
+
+	got := fm.CheckWgS2sRulesPresent(context.Background(), []domain.WgS2sCheckSpec{
+		{InterfaceName: "wg-s2s1"},
+		{InterfaceName: "wg-s2s10"},
+	})
+	if got["wg-s2s1"] {
+		t.Fatal("BUG-M2: wg-s2s1 falsely present due to substring shadowing by wg-s2s10")
+	}
+	if !got["wg-s2s10"] {
+		t.Fatal("wg-s2s10 rules are present and must be detected")
+	}
+}
+
+// BUG-M2 (ipset variant): hasIPSetEntry did a strings.Contains over the whole
+// ipset dump, so member "10.0.0.0/8" matched a listed "110.0.0.0/8". Probing
+// the cached branch for 10.0.0.0/8 when only 110.0.0.0/8 is present must
+// report ABSENT. Fails on pre-fix code (returns true).
+func TestHasIPSetEntry_CIDRNotSubstring(t *testing.T) {
+	fm := &FirewallManager{}
+	fm.ipsetSet = "UBIOS4VPN_subnets"
+	fm.ipsetCache = "Name: UBIOS4VPN_subnets\nType: hash:net\nHeader: family inet\nMembers:\n110.0.0.0/8\n"
+	fm.ipsetTime = time.Now()
+
+	if fm.hasIPSetEntry("UBIOS4VPN_subnets", "10.0.0.0/8") {
+		t.Fatal("BUG-M2: 10.0.0.0/8 must NOT match listed member 110.0.0.0/8")
+	}
+	if !fm.hasIPSetEntry("UBIOS4VPN_subnets", "110.0.0.0/8") {
+		t.Fatal("110.0.0.0/8 must match its own member")
+	}
+}
