@@ -209,6 +209,13 @@ func (s *Server) restoreTailscaleRules(ctx context.Context) {
 		slog.Warn("ts-forward order audit failed", "err", err)
 	}
 
+	// M5: same regression risk for ts-input vs UBIOS_INPUT_JUMP. If ts-input
+	// drifts before the UBIOS jump, its terminal `-i tailscale0 -j ACCEPT`
+	// shadows the zone policies (Tailscale -> Gateway BLOCK becomes a no-op).
+	if err := s.fw.AuditAndFixTsInputOrder(ctx); err != nil {
+		slog.Warn("ts-input order audit failed", "err", err)
+	}
+
 	forward, input, output, ipset := s.fw.CheckTailscaleRulesPresent(ctx)
 
 	ts := s.manifest.GetTailscaleZone()

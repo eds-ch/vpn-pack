@@ -514,6 +514,7 @@ type mockFirewallService struct {
 	restoreRulesWithRetryFn         func(ctx context.Context, retries int, delay time.Duration)
 	checkTailscaleRulesPresentFn    func(ctx context.Context) (bool, bool, bool, bool)
 	auditAndFixTsForwardOrderFn     func(ctx context.Context) error
+	auditAndFixTsInputOrderFn       func(ctx context.Context) error
 	checkWgS2sRulesPresentFn        func(ctx context.Context, specs []domain.WgS2sCheckSpec) map[string]bool
 	discoverChainPrefixFn           func(ctx context.Context, zoneID string) string
 	ensureTailscaleRulesFn          func(ctx context.Context, chainPrefix string) error
@@ -582,6 +583,12 @@ func (m *mockFirewallService) CheckTailscaleRulesPresent(ctx context.Context) (b
 func (m *mockFirewallService) AuditAndFixTsForwardOrder(ctx context.Context) error {
 	if m.auditAndFixTsForwardOrderFn != nil {
 		return m.auditAndFixTsForwardOrderFn(ctx)
+	}
+	return nil
+}
+func (m *mockFirewallService) AuditAndFixTsInputOrder(ctx context.Context) error {
+	if m.auditAndFixTsInputOrderFn != nil {
+		return m.auditAndFixTsInputOrderFn(ctx)
 	}
 	return nil
 }

@@ -107,6 +107,7 @@ type FirewallService interface {
 	WaitBackground()
 	CheckTailscaleRulesPresent(ctx context.Context) (forward, input, output, ipset bool)
 	AuditAndFixTsForwardOrder(ctx context.Context) error
+	AuditAndFixTsInputOrder(ctx context.Context) error
 	CheckWgS2sRulesPresent(ctx context.Context, specs []WgS2sCheckSpec) map[string]bool
 	DiscoverChainPrefix(ctx context.Context, zoneID string) string
 	EnsureTailscaleRules(ctx context.Context, chainPrefix string) error

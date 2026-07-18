@@ -1,5 +1,5 @@
 # Tailscale-Version: 1.98.5
-# Description: Fix ts-forward chain order on UBNT: insert after UBIOS_FORWARD_JUMP, add ts-mark chain
+# Description: Fix ts-forward/ts-input chain order on UBNT: ts-forward after UBIOS_FORWARD_JUMP (ts-mark guard), ts-input after UBIOS_INPUT_JUMP (ts-input-guard anti-spoof)
 --- a/util/linuxfw/iptables_runner.go
 +++ b/util/linuxfw/iptables_runner.go
 @@ -16,6 +16,7 @@
@@ -10,7 +10,7 @@
  )
  
  // isNotExistError needs to be overridden in tests that rely on distinguishing
-@@ -94,6 +95,67 @@
+@@ -94,6 +95,144 @@
  	return "ts-" + strings.ToLower(chain)
  }
  
@@ -75,26 +75,119 @@
 +	return ubiosIdx >= 0 && tsIdx >= 0 && tsIdx < ubiosIdx
 +}
 +
++// ubntFindInputInsertPos returns the iptables position number at which the
++// -j ts-input hook should be inserted in the INPUT chain on UBNT devices —
++// immediately after UBIOS_INPUT_JUMP, so UniFi zone policies evaluate before
++// Tailscale's terminal ACCEPT rules. If UBIOS_INPUT_JUMP is not found we must
++// NOT fall back to position 1 (that would re-introduce the M5 fail-open where
++// ts-input shadows the zone chains); instead we append at the end and warn.
++func ubntFindInputInsertPos(ipt iptablesInterface) int {
++	rules, err := ipt.List("filter", "INPUT")
++	if err != nil {
++		log.Printf("[unexpected] ubnt: listing filter/INPUT failed (%v); appending ts-input at end", err)
++		return -1
++	}
++	for idx, rule := range rules {
++		if strings.Contains(rule, "-j UBIOS_INPUT_JUMP") {
++			return idx + 1
++		}
++	}
++	log.Printf("[unexpected] ubnt: UBIOS_INPUT_JUMP not found in filter/INPUT; appending ts-input at end to avoid fail-open")
++	// len(rules) counts the chain-policy line plus each rule, which equals
++	// (ruleCount + 1) — exactly the 1-based position that appends after the
++	// last rule via Insert.
++	return len(rules)
++}
++
++// ubntEnsureInputHook ensures -j ts-input is in INPUT after UBIOS_INPUT_JUMP.
++// Handles fresh install, upgrade (misplaced at position 1), and no-op.
++func ubntEnsureInputHook(ipt iptablesInterface) error {
++	args := []string{"-j", "ts-input"}
++
++	exists, err := ipt.Exists("filter", "INPUT", args...)
++	if err != nil {
++		return fmt.Errorf("checking ts-input in filter/INPUT: %w", err)
++	}
++
++	if exists {
++		if !ubntIsInputMisplaced(ipt) {
++			return nil
++		}
++		if err := ipt.Delete("filter", "INPUT", args...); err != nil {
++			return fmt.Errorf("removing misplaced ts-input: %w", err)
++		}
++	}
++
++	pos := ubntFindInputInsertPos(ipt)
++	if pos < 1 {
++		// List failed; fall back to a plain append so the hook still exists.
++		if err := ipt.Append("filter", "INPUT", args...); err != nil {
++			return fmt.Errorf("appending ts-input in filter/INPUT: %w", err)
++		}
++		return nil
++	}
++	if err := ipt.Insert("filter", "INPUT", pos, args...); err != nil {
++		return fmt.Errorf("adding ts-input in filter/INPUT: %w", err)
++	}
++	return nil
++}
++
++// ubntIsInputMisplaced reports whether ts-input appears before
++// UBIOS_INPUT_JUMP in the INPUT chain. The ts-input-guard hook (which shares
++// the "ts-input" prefix) is deliberately excluded via exact-token matching.
++func ubntIsInputMisplaced(ipt iptablesInterface) bool {
++	rules, err := ipt.List("filter", "INPUT")
++	if err != nil {
++		return false
++	}
++	ubiosIdx, tsIdx := -1, -1
++	for idx, rule := range rules {
++		if strings.Contains(rule, "-j UBIOS_INPUT_JUMP") {
++			ubiosIdx = idx
++		}
++		if strings.HasSuffix(rule, "-j ts-input") {
++			tsIdx = idx
++		}
++	}
++	return ubiosIdx >= 0 && tsIdx >= 0 && tsIdx < ubiosIdx
++}
++
  // DelLoopbackRule removes the iptables rule permitting loopback
  // traffic to a Tailscale IP.
  func (i *iptablesRunner) DelLoopbackRule(addr netip.Addr) error {
-@@ -145,12 +207,32 @@
+@@ -145,12 +284,48 @@
  		return nil
  	}
  
 +	isUBNT := distro.Get() == distro.UBNT
 +
  	for _, ipt := range i.getTables() {
- 		if err := divert(ipt, "filter", "INPUT"); err != nil {
- 			return err
- 		}
+-		if err := divert(ipt, "filter", "INPUT"); err != nil {
+-			return err
+-		}
 -		if err := divert(ipt, "filter", "FORWARD"); err != nil {
 -			return err
-+
 +		if isUBNT {
-+			// On UBNT: insert ts-mark at position 1 (mark-only, no ACCEPT/DROP),
-+			// then place ts-forward AFTER UBIOS_FORWARD_JUMP so zone policies
-+			// evaluate before Tailscale's fallback ACCEPT.
++			// On UBNT the ts-input/ts-forward chains must NOT sit at position 1
++			// of INPUT/FORWARD: their terminal `-i tailscale0 -j ACCEPT` (and the
++			// magicsock --dport 41641 ACCEPT) would then shadow UniFi's zone
++			// policies (M5). Instead:
++			//   INPUT:   ts-input-guard at position 1 (anti-spoof only, no
++			//            terminal ACCEPT), ts-input AFTER UBIOS_INPUT_JUMP.
++			//   FORWARD: ts-mark at position 1 (mark-only, no ACCEPT/DROP),
++			//            ts-forward AFTER UBIOS_FORWARD_JUMP.
++			guardArgs := []string{"-j", "ts-input-guard"}
++			if exists, err := ipt.Exists("filter", "INPUT", guardArgs...); err != nil {
++				return fmt.Errorf("checking for ts-input-guard in filter/INPUT: %w", err)
++			} else if !exists {
++				if err := ipt.Insert("filter", "INPUT", 1, guardArgs...); err != nil {
++					return fmt.Errorf("adding ts-input-guard in filter/INPUT: %w", err)
++				}
++			}
++			if err := ubntEnsureInputHook(ipt); err != nil {
++				return err
++			}
++
 +			tsMarkArgs := []string{"-j", "ts-mark"}
 +			if exists, err := ipt.Exists("filter", "FORWARD", tsMarkArgs...); err != nil {
 +				return fmt.Errorf("checking for ts-mark in filter/FORWARD: %w", err)
@@ -107,13 +200,16 @@
 +				return err
 +			}
 +		} else {
++			if err := divert(ipt, "filter", "INPUT"); err != nil {
++				return err
++			}
 +			if err := divert(ipt, "filter", "FORWARD"); err != nil {
 +				return err
 +			}
  		}
  	}
  
-@@ -179,6 +261,8 @@
+@@ -179,6 +354,8 @@
  		return nil
  	}
  
@@ -122,7 +218,7 @@
  	for _, ipt := range i.getTables() {
  		if err := create(ipt, "filter", "ts-input"); err != nil {
  			return err
-@@ -186,6 +270,11 @@
+@@ -186,6 +363,14 @@
  		if err := create(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
@@ -130,11 +226,14 @@
 +			if err := create(ipt, "filter", "ts-mark"); err != nil {
 +				return err
 +			}
++			if err := create(ipt, "filter", "ts-input-guard"); err != nil {
++				return err
++			}
 +		}
  	}
  
  	for _, ipt := range i.getNATTables() {
-@@ -248,6 +337,13 @@
+@@ -248,6 +433,13 @@
  		return fmt.Errorf("adding %v in v4/filter/ts-forward: %w", args, err)
  	}
  
@@ -148,7 +247,7 @@
  	return nil
  }
  
-@@ -352,6 +448,13 @@
+@@ -352,6 +544,13 @@
  		return fmt.Errorf("adding %v in v6/filter/ts-forward: %w", args, err)
  	}
  
@@ -162,27 +261,37 @@
  	return nil
  }
  
-@@ -364,6 +467,9 @@
+@@ -364,6 +563,12 @@
  		if err := delChain(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
 +		if err := delChain(ipt, "filter", "ts-mark"); err != nil {
 +			return err
 +		}
++		if err := delChain(ipt, "filter", "ts-input-guard"); err != nil {
++			return err
++		}
  	}
  
  	for _, ipt := range i.getNATTables() {
-@@ -397,6 +503,9 @@
+@@ -397,6 +602,12 @@
  		if err := del(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
 +		if err := del(ipt, "filter", "ts-mark"); err != nil {
 +			return err
 +		}
++		if err := del(ipt, "filter", "ts-input-guard"); err != nil {
++			return err
++		}
  	}
  	for _, ipt := range i.getNATTables() {
  		if err := del(ipt, "nat", "ts-postrouting"); err != nil {
-@@ -417,6 +526,7 @@
+@@ -414,9 +625,11 @@
+ 		if err := delTSHook(ipt, "filter", "INPUT", logf); err != nil {
+ 			return err
+ 		}
++		ipt.Delete("filter", "INPUT", "-j", "ts-input-guard")
  		if err := delTSHook(ipt, "filter", "FORWARD", logf); err != nil {
  			return err
  		}
@@ -190,21 +299,81 @@
  	}
  	for _, ipt := range i.getNATTables() {
  		if err := delTSHook(ipt, "nat", "POSTROUTING", logf); err != nil {
+@@ -691,17 +904,29 @@
+ 	}
+ }
+ 
+-// AddExternalCGNATRules adds rules to the ts-input chain to deal with
+-// traffic from the CGNAT range that arrives on non-Tailscale network
+-// interfaces.
++// externalCGNATChain returns the chain that must hold the anti-spoof
++// (external CGNAT) rules. On UBNT the ts-input hook runs AFTER the UniFi zone
++// chains, so anti-spoof rules placed in ts-input would evaluate too late (a
++// spoofed CGNAT source could be accepted by a UniFi zone policy first).
++// They therefore live in ts-input-guard, which stays at INPUT position 1.
++func externalCGNATChain() string {
++	if distro.Get() == distro.UBNT {
++		return "ts-input-guard"
++	}
++	return "ts-input"
++}
++
++// AddExternalCGNATRules adds rules to deal with traffic from the CGNAT range
++// that arrives on non-Tailscale network interfaces.
+ func (i *iptablesRunner) AddExternalCGNATRules(mode CGNATMode, tunname string) error {
+ 	rules, err := buildExternalCGNATRules(mode, tunname)
+ 	if err != nil {
+ 		return fmt.Errorf("build cgnat mode rule: %v", err)
+ 	}
++	chain := externalCGNATChain()
+ 	for _, rule := range rules {
+-		if err := i.ipt4.Append("filter", "ts-input", rule...); err != nil {
+-			return fmt.Errorf("adding %v in v4/filter/ts-input: %w", rule, err)
++		if err := i.ipt4.Append("filter", chain, rule...); err != nil {
++			return fmt.Errorf("adding %v in v4/filter/%s: %w", rule, chain, err)
+ 		}
+ 	}
+ 	return nil
+@@ -714,15 +939,16 @@
+ 	if err != nil {
+ 		return fmt.Errorf("build cgnat mode rule: %v", err)
+ 	}
++	chain := externalCGNATChain()
+ 	for _, rule := range rules {
+-		if found, err := i.ipt4.Exists("filter", "ts-input", rule...); err != nil {
+-			return fmt.Errorf("checking for %v in v4/filter/ts-input: %w", rule, err)
++		if found, err := i.ipt4.Exists("filter", chain, rule...); err != nil {
++			return fmt.Errorf("checking for %v in v4/filter/%s: %w", rule, chain, err)
+ 		} else if !found {
+ 			// Don't need to delete a rule that isn't there.
+ 			continue
+ 		}
+-		if err := i.ipt4.Delete("filter", "ts-input", rule...); err != nil {
+-			return fmt.Errorf("deleting %v in v4/filter/ts-input: %w", rule, err)
++		if err := i.ipt4.Delete("filter", chain, rule...); err != nil {
++			return fmt.Errorf("deleting %v in v4/filter/%s: %w", rule, chain, err)
+ 		}
+ 	}
+ 	return nil
 --- a/util/linuxfw/iptables.go
 +++ b/util/linuxfw/iptables.go
-@@ -217,6 +217,7 @@
+@@ -217,6 +217,8 @@
  	if err := delTSHook(ipt, "nat", "POSTROUTING", logf); err != nil {
  		errs = append(errs, err)
  	}
 +	ipt.Delete("filter", "FORWARD", "-j", "ts-mark")
++	ipt.Delete("filter", "INPUT", "-j", "ts-input-guard")
  
  	if err := delChain(ipt, "filter", "ts-input"); err != nil {
  		errs = append(errs, err)
-@@ -224,6 +225,9 @@
+@@ -224,6 +226,12 @@
  	if err := delChain(ipt, "filter", "ts-forward"); err != nil {
  		errs = append(errs, err)
  	}
 +	if err := delChain(ipt, "filter", "ts-mark"); err != nil {
++		errs = append(errs, err)
++	}
++	if err := delChain(ipt, "filter", "ts-input-guard"); err != nil {
 +		errs = append(errs, err)
 +	}
  
