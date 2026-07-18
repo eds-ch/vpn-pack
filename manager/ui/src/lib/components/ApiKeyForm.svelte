@@ -13,6 +13,7 @@
             bind:value
             onkeydown={(e) => { if (e.key === 'Enter') onEnter?.(); }}
             placeholder="Enter UniFi API key"
+            autocomplete="off"
             {disabled}
             class="w-full px-3 py-2 pr-10 text-body rounded-lg border border-border bg-input text-text placeholder-text-tertiary focus:outline-none focus:border-blue font-mono"
         />

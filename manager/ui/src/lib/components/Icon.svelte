@@ -3,7 +3,7 @@
     let { name, size = 20, class: className = '' } = $props();
 </script>
 
-{#if icons[name]}
+{#if Object.hasOwn(icons, name)}
     <svg
         width={size}
         height={size}
