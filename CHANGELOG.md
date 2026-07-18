@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4-beta.1] - 2026-07-18
+
+Security-hardening beta: closes the findings of the 2026-07-17 audit (the
+medium app-auth gap plus the Low/Info tail), bumps Tailscale to 1.98.9, and
+pins the build supply chain end-to-end. Verify on UDM-SE before promoting to
+stable.
+
+### Security
+- **INPUT zone-policy enforcement (M5).** Patch 005 now reorders the
+  `ts-input` hook to run after `UBIOS_INPUT_JUMP`, with a dedicated
+  `ts-input-guard` chain at position 1 for CGNAT anti-spoof. UniFi
+  "Tailscale → Gateway" zone policies now actually apply to traffic destined
+  for the router; previously `ts-input`'s terminal ACCEPT shadowed them, so a
+  BLOCK policy was unenforceable while health stayed green. Verified
+  end-to-end on UDM-SE; a runtime watcher audits the ordering (and now warns
+  instead of silently skipping when `iptables-save` is unavailable).
+- **App-layer auth factor (M1, S2).** The manager now requires a per-install
+  `X-VpnPack-Token` secret injected by the trusted nginx front-end
+  (constant-time compare, after PeerUIDAuth), so a compromised nginx worker
+  can no longer reach the manager socket unauthenticated. The raw SPA route
+  is now behind the same chain. Enforcement is fail-open until the secret is
+  provisioned, to avoid locking out the UI on upgrade.
+- **Anchored firewall matching (M2, S1).** Interface, CIDR, and marker checks
+  match whole tokens instead of substrings, so `wg-s2s1` no longer collides
+  with `wg-s2s10` (silent loss of tunnel isolation, or over-deletion of a
+  live tunnel's rules).
+- **WAN port hygiene (M3, M6).** Changing a WG S2S listen port re-syncs the
+  WAN policy (close-old-then-open-new); UDP port settings are validated
+  against a UniFi daemon denylist (DNS, DHCP, IPsec 500/4500, STUN, mDNS,
+  SSDP 1900, discovery) and a live-listener probe before any WAN ALLOW opens.
+- **Supply chain.** Tailscale source is pinned to a commit SHA with a
+  fail-closed post-fetch check (M4); all GitHub Actions are pinned by commit
+  SHA with `id-token` scoped to the release job; the build toolchain is
+  pinned via `go-version-file`; the nginx-symmetry gate now runs in CI.
+- **Defense-in-depth.** Wider `logredact` rules and redaction in log
+  collection; atomic writes for the API key and WG key files; a
+  path-traversal guard on `GetPublicKey`; a Content-Security-Policy header
+  from the manager; UDAPI fallback socket moved off `/tmp` to `/run/vpn-pack`;
+  absolute `ubnt-device-info` path in patches 002/003; `ln -sfn` in the
+  installer; the rendered nginx config (which embeds the token) installed 0640.
+
+### Changed
+- Tailscale bumped 1.98.5 → 1.98.9 (build toolchain Go 1.26.5).
+- WG S2S parameters are bounded (MTU 576–65535, PersistentKeepalive
+  0–86400 s, name ≤128 chars).
+- The exit-node enable/disable saga is serialized by a mutex; a concurrent
+  request returns HTTP 409 instead of interleaving.
+- Integration API list requests are paginated, preventing duplicate WAN-ALLOW
+  policies on sites with more than 200 objects.
+- Discovery-fallback cleanup skips DERIVED policies (Network 10.3).
+
+### Fixed
+- Dev dependency `undici` bumped to clear a header-injection advisory.
+
+### Frontend
+- `Icon` uses an own-property guard for `{@html}`; the API-key field disables
+  browser autocomplete.
+
 ## [1.5.3] - 2026-06-07
 
 Stable release of the cosign signing migration. See `[1.5.3-beta.1]`
@@ -497,7 +555,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4-beta.1...HEAD
+[1.5.4-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3...v1.5.4-beta.1
 [1.5.3]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3-beta.1...v1.5.3
 [1.5.3-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2...v1.5.3-beta.1
 [1.5.2]: https://github.com/eds-ch/vpn-pack/compare/v1.5.1...v1.5.2
