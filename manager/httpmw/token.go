@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-const TokenHeader = "X-VpnPack-Token"
+const TokenHeader = "X-VpnPack-Token" //nolint:gosec // G101: HTTP header name, not a credential
 
 // Token enforces a per-install shared secret that the trusted nginx
 // front-end injects via the X-VpnPack-Token header. It is a

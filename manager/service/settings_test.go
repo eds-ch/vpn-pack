@@ -1026,7 +1026,7 @@ func TestCheckWanUDPPortAvailable(t *testing.T) {
 	t.Run("occupied wildcard port rejected", func(t *testing.T) {
 		pc, err := net.ListenPacket("udp4", ":0")
 		require.NoError(t, err)
-		defer pc.Close()
+		defer func() { _ = pc.Close() }()
 		port := pc.LocalAddr().(*net.UDPAddr).Port
 
 		err = checkWanUDPPortAvailable(port)
@@ -1069,7 +1069,7 @@ func TestValidateUDPPortRejectsOccupied(t *testing.T) {
 	withTailscaledPort(t, 41641)
 	pc, err := net.ListenPacket("udp4", ":0")
 	require.NoError(t, err)
-	defer pc.Close()
+	defer func() { _ = pc.Close() }()
 	port := pc.LocalAddr().(*net.UDPAddr).Port
 
 	svc := newTestSettingsService()
@@ -1091,7 +1091,7 @@ func TestValidateUDPPortFreePasses(t *testing.T) {
 func TestValidateUDPPortUnchangedNotProbed(t *testing.T) {
 	pc, err := net.ListenPacket("udp4", ":0")
 	require.NoError(t, err)
-	defer pc.Close()
+	defer func() { _ = pc.Close() }()
 	port := pc.LocalAddr().(*net.UDPAddr).Port
 	// Pretend tailscaled already runs on this (occupied) port.
 	withTailscaledPort(t, port)
@@ -1119,7 +1119,7 @@ func TestValidateRelayPortRejectsReserved(t *testing.T) {
 func TestValidateRelayPortUnchangedNotProbed(t *testing.T) {
 	pc, err := net.ListenPacket("udp4", ":0")
 	require.NoError(t, err)
-	defer pc.Close()
+	defer func() { _ = pc.Close() }()
 	port := pc.LocalAddr().(*net.UDPAddr).Port
 
 	cur := uint16(port)

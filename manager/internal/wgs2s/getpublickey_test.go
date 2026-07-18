@@ -19,7 +19,7 @@ func TestGetPublicKeyRejectsPathTraversal(t *testing.T) {
 	mgr, _ := newTestManager(t)
 
 	parent := filepath.Dir(mgr.configDir)
-	const secret = "SECRET-PUBKEY-DO-NOT-LEAK"
+	const secret = "SECRET-PUBKEY-DO-NOT-LEAK" //nolint:gosec // G101: test fixture, not a real credential
 	if err := os.WriteFile(filepath.Join(parent, "leak.pub"), []byte(secret), 0o600); err != nil {
 		t.Fatalf("seed leak file: %v", err)
 	}
