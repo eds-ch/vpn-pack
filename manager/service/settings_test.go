@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -999,4 +1000,136 @@ func TestValidateAcceptRoutes_StatusErrorGraceful(t *testing.T) {
 	result, err := svc.SetSettings(context.Background(), req)
 	require.NoError(t, err)
 	assert.Empty(t, result.AcceptRoutesWarnings, "status error should not block accept-routes")
+}
+
+// --- M6: WAN UDP port conflict validation ---
+
+// freeUDPPort returns a currently-unused UDP port by binding to :0 and closing.
+func freeUDPPort(t *testing.T) int {
+	t.Helper()
+	pc, err := net.ListenPacket("udp4", ":0")
+	require.NoError(t, err)
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	require.NoError(t, pc.Close())
+	return port
+}
+
+// TestCheckWanUDPPortAvailable covers M6 core: reserved UniFi daemon ports and
+// ports held by a live wildcard listener must be rejected; a free port passes.
+func TestCheckWanUDPPortAvailable(t *testing.T) {
+	t.Run("reserved denylist port rejected", func(t *testing.T) {
+		err := checkWanUDPPortAvailable(10001)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reserved")
+	})
+
+	t.Run("occupied wildcard port rejected", func(t *testing.T) {
+		pc, err := net.ListenPacket("udp4", ":0")
+		require.NoError(t, err)
+		defer pc.Close()
+		port := pc.LocalAddr().(*net.UDPAddr).Port
+
+		err = checkWanUDPPortAvailable(port)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already in use")
+	})
+
+	t.Run("free port passes", func(t *testing.T) {
+		assert.NoError(t, checkWanUDPPortAvailable(freeUDPPort(t)))
+	})
+}
+
+// withTailscaledPort pins ReadTailscaledPort to a known value for the duration
+// of a test so change-detection in validate() is deterministic.
+func withTailscaledPort(t *testing.T, port int) {
+	t.Helper()
+	prev := cachedTailscaledPort.Load()
+	cachedTailscaledPort.Store(&port)
+	t.Cleanup(func() { cachedTailscaledPort.Store(prev) })
+}
+
+// TestValidateUDPPortRejectsReserved proves the udpPort path rejects a UniFi
+// daemon port. The bug it catches: validation previously only range-checked the
+// port, so 3478 (STUN) would be accepted and OpenWanPort would punch a WAN hole
+// to the UniFi STUN service that tailscaled never binds.
+func TestValidateUDPPortRejectsReserved(t *testing.T) {
+	withTailscaledPort(t, 41641)
+	svc := newTestSettingsService()
+	_, err := svc.validate(context.Background(), &SettingsRequest{UDPPort: ptr(3478)})
+	require.Error(t, err)
+	var se *Error
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, ErrValidation, se.Kind)
+	assert.Contains(t, err.Error(), "reserved")
+}
+
+// TestValidateUDPPortRejectsOccupied proves the udpPort path rejects a port held
+// by a live wildcard listener.
+func TestValidateUDPPortRejectsOccupied(t *testing.T) {
+	withTailscaledPort(t, 41641)
+	pc, err := net.ListenPacket("udp4", ":0")
+	require.NoError(t, err)
+	defer pc.Close()
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+
+	svc := newTestSettingsService()
+	_, err = svc.validate(context.Background(), &SettingsRequest{UDPPort: ptr(port)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already in use")
+}
+
+// TestValidateUDPPortFreePasses proves a free (changed) port passes validation.
+func TestValidateUDPPortFreePasses(t *testing.T) {
+	withTailscaledPort(t, 41641)
+	svc := newTestSettingsService()
+	_, err := svc.validate(context.Background(), &SettingsRequest{UDPPort: ptr(freeUDPPort(t))})
+	require.NoError(t, err)
+}
+
+// TestValidateUDPPortUnchangedNotProbed proves an unchanged port is not probed,
+// so resubmitting the port tailscaled currently holds does not falsely fail.
+func TestValidateUDPPortUnchangedNotProbed(t *testing.T) {
+	pc, err := net.ListenPacket("udp4", ":0")
+	require.NoError(t, err)
+	defer pc.Close()
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	// Pretend tailscaled already runs on this (occupied) port.
+	withTailscaledPort(t, port)
+
+	svc := newTestSettingsService()
+	_, err = svc.validate(context.Background(), &SettingsRequest{UDPPort: ptr(port)})
+	require.NoError(t, err, "unchanged port must not be probed")
+}
+
+// TestValidateRelayPortRejectsReserved proves the relayServerPort path rejects a
+// UniFi daemon port when the relay port changes.
+func TestValidateRelayPortRejectsReserved(t *testing.T) {
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.ts = &mockTailscalePrefs{
+			getPrefsFn: func(context.Context) (*ipn.Prefs, error) { return &ipn.Prefs{}, nil },
+		}
+	})
+	_, err := svc.validate(context.Background(), &SettingsRequest{RelayServerPort: ptr(3478)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reserved")
+}
+
+// TestValidateRelayPortUnchangedNotProbed proves an unchanged relay port is not
+// probed even if a listener currently holds it (the relay server itself).
+func TestValidateRelayPortUnchangedNotProbed(t *testing.T) {
+	pc, err := net.ListenPacket("udp4", ":0")
+	require.NoError(t, err)
+	defer pc.Close()
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+
+	cur := uint16(port)
+	svc := newTestSettingsService(func(s *SettingsService) {
+		s.ts = &mockTailscalePrefs{
+			getPrefsFn: func(context.Context) (*ipn.Prefs, error) {
+				return &ipn.Prefs{RelayServerPort: &cur}, nil
+			},
+		}
+	})
+	_, err = svc.validate(context.Background(), &SettingsRequest{RelayServerPort: ptr(port)})
+	require.NoError(t, err, "unchanged relay port must not be probed")
 }
