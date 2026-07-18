@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"unifi-tailscale/manager/client"
@@ -64,6 +65,14 @@ func main() {
 	apiKey := service.LoadAPIKey()
 	ic := buildIntegrationAPI(apiKey)
 
+	nginxToken := loadNginxToken()
+	if nginxToken == "" {
+		slog.Warn("token factor DISABLED: no per-install X-VpnPack-Token secret found (env VPNPACK_TOKEN unset and file absent) — API is gated only by peer-uid + nginx auth; expected in dev, but on-device it means the installer did not provision the secret",
+			"file", config.NginxTokenPath)
+	} else {
+		slog.Info("token factor enabled")
+	}
+
 	sweepStartupOrphanTmps([]string{
 		filepath.Dir(config.ManifestPath),
 		config.WgS2sConfigDir,
@@ -112,6 +121,7 @@ func main() {
 		Nginx:       NewNginxManager(),
 		LogBuf:      NewLogBuffer(config.LogBufferSize),
 		Updater:     newUpdateChecker(),
+		NginxToken:  nginxToken,
 	})
 
 	if err := srv.Run(ctx); err != nil {
@@ -120,6 +130,22 @@ func main() {
 	}
 
 	slog.Info("shutting down")
+}
+
+// loadNginxToken returns the per-install shared secret used for the
+// X-VpnPack-Token factor. The VPNPACK_TOKEN env var (if set by systemd or
+// a dev shell) wins; otherwise the secret is read from the installer-
+// provisioned file. A missing file or empty value returns "" and the
+// token factor is left disabled (fail-open) — see httpmw.Token.
+func loadNginxToken() string {
+	if v := strings.TrimSpace(os.Getenv("VPNPACK_TOKEN")); v != "" {
+		return v
+	}
+	b, err := os.ReadFile(config.NginxTokenPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // buildIntegrationAPI returns a real IntegrationClient when the UniFi

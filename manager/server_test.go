@@ -290,6 +290,51 @@ func TestRoutes_NoPeerCredentialsForbidden(t *testing.T) {
 		"a TCP request without peer credentials must be 403, even on a safe method")
 }
 
+// TestRoutes_SPAUnderChain is the S2 regression: mux.Handle("/") used to
+// be registered raw, bypassing PeerUIDAuth/Token. With the token factor
+// enforced, a GET "/" without the header must be 403 (proving the SPA
+// route now runs through the auth chain); with the header it serves the
+// SPA. Against the old raw registration this test fails because "/"
+// returned the SPA regardless of the token.
+func TestRoutes_SPAUnderChain(t *testing.T) {
+	s := newTestServer(func(s *Server) { s.nginxToken = "spa-route-secret" })
+	h := httptest.NewUnstartedServer(s.routes())
+	h.Config.ConnContext = httpmw.WithFakePeerUIDForTests(uint32(os.Geteuid()))
+	h.Start()
+	t.Cleanup(h.Close)
+
+	// No token header -> the SPA route rejects with 403.
+	resp, err := http.Get(h.URL + "/")
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"GET / without X-VpnPack-Token must be 403 — SPA route must be under the auth chain (S2)")
+
+	// Correct token header -> the SPA is served.
+	req, err := http.NewRequest(http.MethodGet, h.URL+"/", nil)
+	require.NoError(t, err)
+	req.Header.Set(httpmw.TokenHeader, "spa-route-secret")
+	resp2, err := (&http.Client{}).Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp2.Body.Close())
+	assert.Equal(t, http.StatusOK, resp2.StatusCode,
+		"GET / with the correct token must serve the SPA")
+}
+
+// TestRoutes_SPANoPeerCredentials proves the SPA route also enforces
+// PeerUIDAuth: a TCP request with no peer-uid must be 403, not served.
+func TestRoutes_SPANoPeerCredentials(t *testing.T) {
+	s := newTestServer()
+	h := httptest.NewServer(s.routes()) // no ConnContext => no peer-uid
+	t.Cleanup(h.Close)
+
+	resp, err := http.Get(h.URL + "/")
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"SPA route must reject a request with no peer credentials (S2)")
+}
+
 func TestHandleStatusWithMocks(t *testing.T) {
 	s := newTestServer()
 	s.state.Update(func(d *domain.StateData) {

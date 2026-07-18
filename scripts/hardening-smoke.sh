@@ -89,7 +89,10 @@ sock_stat=$(run_ssh "stat -c '%U:%G %a' /run/vpn-pack/manager.sock 2>/dev/null" 
 if [[ "$sock_stat" != "root:nginx 660" ]]; then
     red "socket owner/mode wrong: got '$sock_stat', want 'root:nginx 660'"
 else
-    nginx_connect=$(run_ssh "sudo -u nginx curl -sf --max-time 3 --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL" || echo FAIL)
+    # The X-VpnPack-Token factor (M1) now gates /api/*; nginx normally
+    # injects the header. Read the per-install secret so this probe still
+    # measures transport reachability rather than tripping the factor.
+    nginx_connect=$(run_ssh "tok=\$(cat /persistent/vpn-pack/config/nginx-token 2>/dev/null); sudo -u nginx curl -sf --max-time 3 -H \"X-VpnPack-Token: \$tok\" --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL" || echo FAIL)
     if [[ "$nginx_connect" == "ok" ]]; then
         green "socket owner+mode correct and nginx user can connect"
     else
@@ -203,7 +206,9 @@ elif [[ "$sock_before" != "$sock_after" ]]; then
     red "socket inode changed across service restart: before=$sock_before after=$sock_after (GAP-005 regression)"
 else
     # Confirm the path is actually reachable, not just present-but-stale.
-    nginx_reach=$(run_ssh "sudo -u nginx curl -sf --max-time 3 --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL" || echo FAIL)
+    # Pass the X-VpnPack-Token secret (M1) so the token factor does not
+    # mask a genuine transport failure as a 403.
+    nginx_reach=$(run_ssh "tok=\$(cat /persistent/vpn-pack/config/nginx-token 2>/dev/null); sudo -u nginx curl -sf --max-time 3 -H \"X-VpnPack-Token: \$tok\" --unix-socket /run/vpn-pack/manager.sock http://x/api/status >/dev/null 2>&1 && echo ok || echo FAIL" || echo FAIL)
     if [[ "$nginx_reach" == "ok" ]]; then
         green "socket file survived service restart (inode preserved: $sock_after) and remains nginx-reachable"
     else
