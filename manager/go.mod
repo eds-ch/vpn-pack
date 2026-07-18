@@ -1,8 +1,6 @@
 module unifi-tailscale/manager
 
-go 1.26.3
-
-toolchain go1.26.4
+go 1.26.5
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
@@ -37,7 +35,7 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/net v0.53.0 // indirect
-	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

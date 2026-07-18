@@ -11,7 +11,8 @@
 #   make fetch-tailscale    — clone/checkout Tailscale source
 
 VPNPACK_VERSION   := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
-TAILSCALE_VERSION := 1.98.5
+TAILSCALE_VERSION := 1.98.9
+TAILSCALE_EXPECTED_SHA := 6c167d40fa37aeb51afa7ff336730670ea4762bf
 
 TAILSCALE_SRC     := reference/tailscale
 BUILD_DIR         := build
@@ -117,6 +118,12 @@ fetch-tailscale:
 		git clone --branch v$(TAILSCALE_VERSION) --depth 1 \
 			https://github.com/tailscale/tailscale.git $(TAILSCALE_SRC); \
 	fi
+	@ACTUAL=$$(git -C $(TAILSCALE_SRC) rev-parse HEAD^{commit}); \
+	if [ "$$ACTUAL" != "$(TAILSCALE_EXPECTED_SHA)" ]; then \
+		echo "FATAL: tailscale HEAD $$ACTUAL != expected $(TAILSCALE_EXPECTED_SHA)"; \
+		exit 1; \
+	fi; \
+	echo "==> Tailscale HEAD SHA verified: $$ACTUAL"
 
 # ── Build ──────────────────────────────────────────────────────────
 
