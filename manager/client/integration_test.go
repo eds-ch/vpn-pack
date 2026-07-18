@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -179,6 +181,104 @@ func TestNoopIntegrationAPI_FailsClosed(t *testing.T) {
 			assert.ErrorIs(t, err, ErrIntegrationDisabled, "%s must return ErrIntegrationDisabled", c.name)
 		})
 	}
+}
+
+// paginatingHandler serves `total` synthetic policies across pages driven
+// by the offset/limit query params, mirroring the UniFi Integration v1
+// response shape: {"offset","limit","count","totalCount","data":[...]}.
+// includeTotalCount toggles whether totalCount is reported, so tests can
+// exercise both the len(page)<limit stop path and the totalCount stop path.
+// It records how many HTTP requests it received via *reqCount.
+func paginatingHandler(t *testing.T, total int, includeTotalCount bool, reqCount *int) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		*reqCount++
+		q := r.URL.Query()
+		offset, err := strconv.Atoi(q.Get("offset"))
+		require.NoError(t, err, "offset query param must be present and numeric")
+		limit, err := strconv.Atoi(q.Get("limit"))
+		require.NoError(t, err, "limit query param must be present and numeric")
+		require.Equal(t, config.PaginationLimit, limit, "client must request the configured page size")
+
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		var data []domain.Policy
+		for i := offset; i < end; i++ {
+			data = append(data, domain.Policy{
+				ID:   fmt.Sprintf("pol-%d", i),
+				Name: fmt.Sprintf("Policy %d", i),
+			})
+		}
+		resp := map[string]any{
+			"offset": offset,
+			"limit":  limit,
+			"count":  len(data),
+			"data":   data,
+		}
+		if includeTotalCount {
+			resp["totalCount"] = total
+		}
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+// TestListPolicies_PaginationCollectsAllPages is the regression test for
+// the silent truncation bug: with >PaginationLimit objects, the pre-fix
+// single-request doListRequest returned only the first page (200 items),
+// so EnsureWanPortPolicy could not find an existing policy on page 2+ and
+// created duplicates. This test fails on the old code (asserts 250 != 200).
+func TestListPolicies_PaginationCollectsAllPages(t *testing.T) {
+	const total = 250 // > PaginationLimit (200): spans two pages
+	var reqCount int
+	ic := newTestIntegrationClient(t, paginatingHandler(t, total, true, &reqCount))
+
+	got, err := ic.ListPolicies(context.Background(), "s1")
+	require.NoError(t, err)
+	require.Len(t, got, total, "must collect every policy across all pages")
+	assert.Equal(t, "pol-0", got[0].ID)
+	assert.Equal(t, "pol-249", got[total-1].ID, "last page must be included")
+	assert.Equal(t, 2, reqCount, "250 items at limit 200 needs exactly two requests")
+}
+
+// TestListPolicies_PaginationNoTotalCount verifies the primary stop
+// criterion works without relying on totalCount: the loop stops on the
+// first page shorter than limit.
+func TestListPolicies_PaginationNoTotalCount(t *testing.T) {
+	const total = 250
+	var reqCount int
+	ic := newTestIntegrationClient(t, paginatingHandler(t, total, false, &reqCount))
+
+	got, err := ic.ListPolicies(context.Background(), "s1")
+	require.NoError(t, err)
+	require.Len(t, got, total)
+	assert.Equal(t, 2, reqCount, "second (partial) page ends the loop")
+}
+
+// TestListPolicies_PaginationExactMultiple covers the boundary where the
+// item count is an exact multiple of limit. With totalCount reported the
+// loop must stop after the full final page WITHOUT an extra empty request;
+// without totalCount it needs one more request that returns zero items.
+func TestListPolicies_PaginationExactMultiple(t *testing.T) {
+	t.Run("with totalCount stops early", func(t *testing.T) {
+		var reqCount int
+		ic := newTestIntegrationClient(t, paginatingHandler(t, config.PaginationLimit, true, &reqCount))
+		got, err := ic.ListPolicies(context.Background(), "s1")
+		require.NoError(t, err)
+		require.Len(t, got, config.PaginationLimit)
+		assert.Equal(t, 1, reqCount, "totalCount lets an exactly-full page end the loop")
+	})
+
+	t.Run("without totalCount fetches trailing empty page", func(t *testing.T) {
+		var reqCount int
+		ic := newTestIntegrationClient(t, paginatingHandler(t, config.PaginationLimit, false, &reqCount))
+		got, err := ic.ListPolicies(context.Background(), "s1")
+		require.NoError(t, err)
+		require.Len(t, got, config.PaginationLimit)
+		assert.Equal(t, 2, reqCount, "an exactly-full page requires a follow-up request to confirm the end")
+	})
 }
 
 func TestIntegrationValidate(t *testing.T) {

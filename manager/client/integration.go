@@ -84,7 +84,11 @@ type IntegrationClient struct {
 }
 
 type paginatedResponse struct {
-	Data json.RawMessage `json:"data"`
+	Data       json.RawMessage `json:"data"`
+	Offset     int             `json:"offset"`
+	Limit      int             `json:"limit"`
+	Count      int             `json:"count"`
+	TotalCount int             `json:"totalCount"`
 }
 
 // NewIntegrationClient builds an IntegrationClient with SPKI-pinned TLS
@@ -220,22 +224,55 @@ func (c *IntegrationClient) Validate(ctx context.Context) (*domain.AppInfo, erro
 	return &info, nil
 }
 
+// maxListPages caps the offset-pagination loop so a misbehaving upstream
+// that keeps returning full pages (e.g. never signalling the last page and
+// omitting totalCount) cannot spin forever. At PaginationLimit=200 this
+// allows up to 200k items — far beyond any realistic zone/policy count.
+const maxListPages = 1000
+
+// doListRequest fetches a paginated Integration API collection in full.
+// path must NOT carry a query string: this function owns the limit/offset
+// parameters. It walks offset += limit until a page returns fewer than
+// limit items (the last, partial page). When the upstream reports
+// totalCount it is used as an additional stop condition. A hard page cap
+// (maxListPages) guards against an endless loop.
 func doListRequest[T any](c *IntegrationClient, ctx context.Context, path string) ([]T, error) {
-	body, status, err := c.doRequest(ctx, "GET", path, nil)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status >= 300 {
-		debugBody("GET "+path, status, body)
-		return nil, fmt.Errorf("%w: GET %s returned %d", domain.ErrIntegrationAPI, path, status)
-	}
-	var page paginatedResponse
-	if err := json.Unmarshal(body, &page); err != nil {
-		return nil, fmt.Errorf("parse response for %s: %w", path, err)
-	}
+	limit := config.PaginationLimit
 	var items []T
-	if err := json.Unmarshal(page.Data, &items); err != nil {
-		return nil, fmt.Errorf("parse data for %s: %w", path, err)
+	for offset, pages := 0, 0; ; offset, pages = offset+limit, pages+1 {
+		if pages >= maxListPages {
+			slog.Warn("integration list hit page cap; result may be truncated",
+				"path", path, "pages", pages, "collected", len(items))
+			break
+		}
+		reqPath := fmt.Sprintf("%s?limit=%d&offset=%d", path, limit, offset)
+		body, status, err := c.doRequest(ctx, "GET", reqPath, nil)
+		if err != nil {
+			return nil, err
+		}
+		if status < 200 || status >= 300 {
+			debugBody("GET "+path, status, body)
+			return nil, fmt.Errorf("%w: GET %s returned %d", domain.ErrIntegrationAPI, path, status)
+		}
+		var page paginatedResponse
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("parse response for %s: %w", path, err)
+		}
+		var pageItems []T
+		if err := json.Unmarshal(page.Data, &pageItems); err != nil {
+			return nil, fmt.Errorf("parse data for %s: %w", path, err)
+		}
+		items = append(items, pageItems...)
+
+		// Last (partial) page: fewer than a full limit of items.
+		if len(pageItems) < limit {
+			break
+		}
+		// totalCount, when reported, lets us stop without an extra empty
+		// request after an exactly-full final page.
+		if page.TotalCount > 0 && len(items) >= page.TotalCount {
+			break
+		}
 	}
 	return items, nil
 }
@@ -253,7 +290,7 @@ func (c *IntegrationClient) ListZones(ctx context.Context, siteID string) ([]dom
 	}
 	c.zonesMu.Unlock()
 
-	zones, err := doListRequest[domain.Zone](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/zones?limit=%d", siteID, config.PaginationLimit))
+	zones, err := doListRequest[domain.Zone](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/zones", siteID))
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +340,7 @@ func (c *IntegrationClient) findZoneByName(ctx context.Context, siteID, name str
 }
 
 func (c *IntegrationClient) ListPolicies(ctx context.Context, siteID string) ([]domain.Policy, error) {
-	return doListRequest[domain.Policy](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/policies?limit=%d", siteID, config.PaginationLimit))
+	return doListRequest[domain.Policy](c, ctx, fmt.Sprintf("/v1/sites/%s/firewall/policies", siteID))
 }
 
 type CreatePolicyRequest struct {
@@ -532,7 +569,7 @@ type createDNSPolicyRequest struct {
 }
 
 func (c *IntegrationClient) ListDNSPolicies(ctx context.Context, siteID string) ([]domain.DNSPolicy, error) {
-	return doListRequest[domain.DNSPolicy](c, ctx, fmt.Sprintf("/v1/sites/%s/dns/policies?limit=%d", siteID, config.PaginationLimit))
+	return doListRequest[domain.DNSPolicy](c, ctx, fmt.Sprintf("/v1/sites/%s/dns/policies", siteID))
 }
 
 func (c *IntegrationClient) CreateDNSPolicy(ctx context.Context, siteID string, req createDNSPolicyRequest) (*domain.DNSPolicy, error) {
