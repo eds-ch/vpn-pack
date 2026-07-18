@@ -11,6 +11,7 @@ const (
 	ErrPrecondition
 	ErrNotFound
 	ErrUnavailable
+	ErrConflict
 )
 
 type Error struct {
@@ -45,6 +46,10 @@ func preconditionError(msg string) *Error {
 
 func notFoundError(msg string) *Error {
 	return &Error{Kind: ErrNotFound, Message: msg}
+}
+
+func conflictError(msg string) *Error {
+	return &Error{Kind: ErrConflict, Message: msg}
 }
 
 const ErrMsgIntegrationKeyRequired = "Integration API key required before activating Tailscale"

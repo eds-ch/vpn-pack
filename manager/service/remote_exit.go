@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 
 	"tailscale.com/ipn"
@@ -32,8 +33,23 @@ type RemoteExitService struct {
 	ts       RoutingTailscale
 	exitSvc  *ExitNodeService
 	manifest RemoteExitManifest
+
+	// sagaMu serializes the Enable/Disable sagas end-to-end. It is a real
+	// lock, not a fast-fail CAS: concurrent callers do not interleave manifest
+	// writes, ip-rule changes, and prefs edits. A busy caller is rejected with
+	// a conflict error (HTTP 409) rather than blocking or corrupting state.
+	sagaMu sync.Mutex
+
+	// applying suppresses the background reconciler (SyncManifestFromTailscale)
+	// while a saga is in flight, so it does not observe a half-applied state.
+	// Distinct from sagaMu: the reconciler is a separate goroutine gated only
+	// by this flag, not by the saga lock.
 	applying atomic.Bool
 }
+
+// ErrExitNodeBusy is returned when an Enable/Disable saga is already running.
+// It maps to HTTP 409 via writeServiceError.
+var ErrExitNodeBusy = conflictError("another exit-node operation is in progress")
 
 func NewRemoteExitService(ts RoutingTailscale, exitSvc *ExitNodeService, manifest RemoteExitManifest) *RemoteExitService {
 	return &RemoteExitService{ts: ts, exitSvc: exitSvc, manifest: manifest}
@@ -86,6 +102,11 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 	if req.PeerID == "" {
 		return nil, validationError("peerId is required")
 	}
+
+	if !svc.sagaMu.TryLock() {
+		return nil, ErrExitNodeBusy
+	}
+	defer svc.sagaMu.Unlock()
 
 	st, err := svc.ts.Status(ctx)
 	if err != nil {
@@ -225,6 +246,14 @@ func (svc *RemoteExitService) Enable(ctx context.Context, req *EnableRemoteExitR
 }
 
 func (svc *RemoteExitService) Disable(ctx context.Context) error {
+	if !svc.sagaMu.TryLock() {
+		return ErrExitNodeBusy
+	}
+	defer svc.sagaMu.Unlock()
+
+	svc.applying.Store(true)
+	defer svc.applying.Store(false)
+
 	ectx, ecancel := config.WithTimeout(ctx, config.TailscaleLocalAPITimeout)
 	_, err := svc.ts.EditPrefs(ectx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{

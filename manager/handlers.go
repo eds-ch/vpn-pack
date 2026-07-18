@@ -94,6 +94,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 			writeError(w, http.StatusNotFound, se.Message)
 		case service.ErrUnavailable:
 			writeError(w, http.StatusServiceUnavailable, se.Message)
+		case service.ErrConflict:
+			writeError(w, http.StatusConflict, se.Message)
 		default:
 			writeError(w, http.StatusInternalServerError, se.Message)
 		}
