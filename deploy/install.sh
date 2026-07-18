@@ -245,10 +245,14 @@ if grep -q "${NGINX_TOKEN_PLACEHOLDER}" "${NGINX_RENDERED}"; then
     rm -f "${NGINX_RENDERED}"
     die "nginx token placeholder was not substituted"
 fi
-safe_install "${NGINX_RENDERED}" "${NGINX_SRC}" 0644
+# 0640, not 0644: the rendered config embeds the per-install token secret, so
+# it must not be world-readable (unlike UniFi's secret-free 0644 configs). The
+# nginx master reads it as root and the manager self-heal reads it as root, so
+# no non-root reader needs it — matches the 0640 on the token file itself.
+safe_install "${NGINX_RENDERED}" "${NGINX_SRC}" 0640
 rm -f "${NGINX_RENDERED}"
 mkdir -p "$(dirname "${NGINX_DEST}")"
-safe_install "${NGINX_SRC}" "${NGINX_DEST}" 0644
+safe_install "${NGINX_SRC}" "${NGINX_DEST}" 0640
 if ! nginx_test_output=$(nginx -t 2>&1); then
     error "nginx config test failed; refusing to reload"
     echo "$nginx_test_output" >&2
