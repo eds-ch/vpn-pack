@@ -150,7 +150,7 @@ func NewServer(ctx context.Context, opts ServerOptions) *Server {
 
 	// WriteTimeout omitted: SSE endpoint requires long-lived writes
 	s.httpServer = &http.Server{
-		Handler:           mux,
+		Handler:           httpmw.SecurityHeaders()(mux),
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		ReadTimeout:       config.ReadTimeout,
 		IdleTimeout:       config.IdleTimeout,

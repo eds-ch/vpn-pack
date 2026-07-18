@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -332,6 +333,31 @@ func TestUDAPIRequestSocketNotFound(t *testing.T) {
 	_, err := c.Request("GET", "/test", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "udapi: connect:")
+}
+
+// TestFallbackBindDirCreatedWith0700 verifies the fallback bind directory is
+// created with mode 0700 (not world-writable) on the degraded connect path.
+// It catches a regression to a world-writable location or a wider mode.
+func TestFallbackBindDirCreatedWith0700(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "run", "vpn-pack")
+
+	orig := bindDir
+	bindDir = dir
+	t.Cleanup(func() { bindDir = orig })
+
+	// Primary dial fails (socket absent) -> fallback path runs, which must
+	// MkdirAll(bindDir, 0700) before attempting the bound dial.
+	c := NewClient(filepath.Join(base, "nonexistent.sock"))
+	_, err := c.Request("GET", "/test", nil)
+	require.Error(t, err)
+
+	info, statErr := os.Stat(dir)
+	require.NoError(t, statErr, "fallback bind dir was not created")
+	require.True(t, info.IsDir())
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("bind dir perm = %o, want 0700", perm)
+	}
 }
 
 func TestUDAPIRequestSuccess(t *testing.T) {

@@ -7,7 +7,7 @@
  		meta.DistroVersion = getQnapQtsVersion(string(slurp))
  		return
 +	case distro.UBNT:
-+		if out, err := exec.Command("ubnt-device-info", "firmware").Output(); err == nil {
++		if out, err := exec.Command("/usr/bin/ubnt-device-info", "firmware").Output(); err == nil {
 +			meta.DistroVersion = strings.TrimSpace(string(out))
 +		}
 +		// Read codename from os-release but preserve DistroName as "ubnt"
