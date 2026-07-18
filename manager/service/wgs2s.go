@@ -268,6 +268,11 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 
 	existing := svc.findTunnelByID(id)
 
+	oldPort := 0
+	if existing != nil {
+		oldPort = existing.ListenPort
+	}
+
 	var warnings []SubnetConflict
 	if updates.AllowedIPs != nil && existing != nil && svc.validateSubnets != nil {
 		var blocks []SubnetConflict
@@ -293,6 +298,16 @@ func (svc *WgS2sService) UpdateTunnel(ctx context.Context, id string, updates wg
 		if fwErr != nil {
 			svc.logFirewallError(tunnel.InterfaceName, fwErr)
 		}
+	}
+
+	// M3: keep the WAN inbound policy in sync when the listen port changes.
+	// OpenWanPort is idempotent by marker (wg-s2s:<iface>), not by port, so a
+	// bare OpenWanPort(new) would no-op and leave the old port open forever.
+	// CloseWanPort(old) first clears the marker+manifest, then OpenWanPort(new)
+	// creates a fresh policy for the new port. Lives outside the AllowedIPs gate.
+	if tunnel.Enabled && oldPort != tunnel.ListenPort && svc.fw != nil {
+		svc.fw.CloseWanPort(ctx, oldPort, tunnel.InterfaceName)
+		svc.fw.OpenWanPort(ctx, tunnel.ListenPort, tunnel.InterfaceName)
 	}
 
 	info := TunnelInfo{TunnelConfig: *tunnel, Warnings: warnings}

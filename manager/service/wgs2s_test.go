@@ -561,6 +561,78 @@ func TestDeleteTunnel_WgFailureRestoresFirewall(t *testing.T) {
 	}
 }
 
+// TestUpdateTunnel_ListenPortChangeSyncsWanPort covers M3: changing an enabled
+// tunnel's listenPort must resync the WAN inbound policy. The bug it catches:
+// UpdateTunnel never touched the WAN port, so the old UDP port stayed open on
+// WAN forever and the new one was never opened. Because OpenWanPort is
+// idempotent by marker (not by port), the order must be CloseWanPort(old) then
+// OpenWanPort(new) — a bare OpenWanPort(new) would no-op.
+func TestUpdateTunnel_ListenPortChangeSyncsWanPort(t *testing.T) {
+	existing := wgs2s.TunnelConfig{
+		ID: "t1", InterfaceName: "wg-s2s0", Enabled: true,
+		ListenPort: 51820, TunnelAddress: "10.0.0.1/24",
+	}
+	updated := existing
+	updated.ListenPort = 51999
+
+	wg := &mockWgS2sWireGuard{
+		getTunnelsFn: func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{existing} },
+		updateTunnelFn: func(_ string, _ wgs2s.TunnelConfig) (*wgs2s.TunnelConfig, error) {
+			return &updated, nil
+		},
+	}
+
+	var order []string
+	var closedPort, openedPort int
+	fw := &mockWgS2sFirewall{
+		closeWanPortFn: func(_ context.Context, port int, _ string) {
+			order = append(order, "close")
+			closedPort = port
+		},
+		openWanPortFn: func(_ context.Context, port int, _ string) {
+			order = append(order, "open")
+			openedPort = port
+		},
+	}
+	svc := newTestWgS2sService(wg, func(s *WgS2sService) { s.fw = fw })
+
+	_, err := svc.UpdateTunnel(context.Background(), "t1", wgs2s.TunnelConfig{ListenPort: 51999})
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"close", "open"}, order, "must close old port before opening new")
+	assert.Equal(t, 51820, closedPort, "old port must be closed")
+	assert.Equal(t, 51999, openedPort, "new port must be opened")
+}
+
+// TestUpdateTunnel_NoPortChangeLeavesWanAlone locks the guard: an update that
+// does not change the listen port must not touch the WAN policy.
+func TestUpdateTunnel_NoPortChangeLeavesWanAlone(t *testing.T) {
+	existing := wgs2s.TunnelConfig{
+		ID: "t1", InterfaceName: "wg-s2s0", Enabled: true,
+		ListenPort: 51820, TunnelAddress: "10.0.0.1/24",
+	}
+	updated := existing
+	updated.TunnelAddress = "10.0.0.2/24"
+
+	wg := &mockWgS2sWireGuard{
+		getTunnelsFn: func() []wgs2s.TunnelConfig { return []wgs2s.TunnelConfig{existing} },
+		updateTunnelFn: func(_ string, _ wgs2s.TunnelConfig) (*wgs2s.TunnelConfig, error) {
+			return &updated, nil
+		},
+	}
+
+	var wanCalls int
+	fw := &mockWgS2sFirewall{
+		closeWanPortFn: func(_ context.Context, _ int, _ string) { wanCalls++ },
+		openWanPortFn:  func(_ context.Context, _ int, _ string) { wanCalls++ },
+	}
+	svc := newTestWgS2sService(wg, func(s *WgS2sService) { s.fw = fw })
+
+	_, err := svc.UpdateTunnel(context.Background(), "t1", wgs2s.TunnelConfig{TunnelAddress: "10.0.0.2/24"})
+	require.NoError(t, err)
+	assert.Zero(t, wanCalls, "WAN policy must not be touched when port is unchanged")
+}
+
 func TestEnableTunnelFirewallPartial(t *testing.T) {
 	tunnel := wgs2s.TunnelConfig{
 		ID: "t1", Name: "test", InterfaceName: "wg-s2s0", Enabled: true,

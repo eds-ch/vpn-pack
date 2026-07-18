@@ -244,12 +244,30 @@ func (svc *SettingsService) validate(ctx context.Context, req *SettingsRequest) 
 		if port < 1 || port > config.MaxPort {
 			return nil, validationError("UDP port must be between 1 and 65535")
 		}
+		// M6: only guard when the port actually changes — tailscaled already
+		// holds the current port, so probing it would falsely report a conflict.
+		if port != ReadTailscaledPort() {
+			if err := checkWanUDPPortAvailable(port); err != nil {
+				return nil, validationError(err.Error())
+			}
+		}
 	}
 
 	if req.RelayServerPort != nil {
 		port := *req.RelayServerPort
 		if port < -1 || port > config.MaxPort {
 			return nil, validationError("Relay server port must be between 0 and 65535, or -1 to disable")
+		}
+		if port > 0 {
+			changed, err := svc.relayPortChanged(ctx, port)
+			if err != nil {
+				return nil, err
+			}
+			if changed {
+				if err := checkWanUDPPortAvailable(port); err != nil {
+					return nil, validationError(err.Error())
+				}
+			}
 		}
 	}
 
@@ -320,6 +338,59 @@ func (svc *SettingsService) fetchPreEditPrefs(ctx context.Context, req *Settings
 		p.relayPort = prefs.RelayServerPort
 	}
 	return p, nil
+}
+
+// unifiReservedUDPPorts lists wildcard UDP ports bound by UniFi OS daemons on
+// 0.0.0.0. Opening a WAN ALLOW to one of these punches a persistent hole to a
+// third-party service that tailscaled never binds — and because OpenWanPort is
+// idempotent by marker, the hole reopens on every boot. Reject them outright.
+var unifiReservedUDPPorts = map[int]string{
+	53:    "DNS",
+	67:    "DHCP",
+	123:   "NTP",
+	161:   "SNMP",
+	2647:  "discovery",
+	3478:  "STUN",
+	5353:  "mDNS",
+	5514:  "syslog",
+	10001: "discovery",
+	10101: "discovery",
+}
+
+// checkWanUDPPortAvailable rejects ports that would create a dangling WAN hole:
+// UniFi daemon ports (denylist) and ports already held by a live wildcard
+// listener (probe on both v4 and v6, mirroring internal/wgs2s.checkPortAvailable
+// so an IPV6_V6ONLY listener is not missed).
+func checkWanUDPPortAvailable(port int) error {
+	if svc, reserved := unifiReservedUDPPorts[port]; reserved {
+		return fmt.Errorf("port %d is reserved by the UniFi %s service; choose a different port", port, svc)
+	}
+	v4, err := net.ListenPacket("udp4", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return fmt.Errorf("port %d is already in use by another service; choose a different port", port)
+	}
+	_ = v4.Close()
+	v6, err := net.ListenPacket("udp6", fmt.Sprintf("[::]:%d", port))
+	if err != nil {
+		return fmt.Errorf("port %d is already in use by another service; choose a different port", port)
+	}
+	_ = v6.Close()
+	return nil
+}
+
+// relayPortChanged reports whether newPort differs from the relay port currently
+// configured in prefs. Used to skip the WAN-port probe on unchanged resubmits
+// (the relay server already holds its current port).
+func (svc *SettingsService) relayPortChanged(ctx context.Context, newPort int) (bool, error) {
+	prefs, err := svc.ts.GetPrefs(ctx)
+	if err != nil {
+		return false, upstreamError(humanizeLocalAPIError(err), err)
+	}
+	cur := 0
+	if prefs.RelayServerPort != nil {
+		cur = int(*prefs.RelayServerPort)
+	}
+	return newPort != cur, nil
 }
 
 func (svc *SettingsService) applyUDPPortChange(newPort *int) (bool, error) {
