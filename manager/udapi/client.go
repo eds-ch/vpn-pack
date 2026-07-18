@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,10 +22,16 @@ var (
 	errBadResponse       = errors.New("udapi: invalid response from server")
 )
 
+// bindDir holds the local endpoint directory used only on the fallback
+// path (after a plain DialContext fails). It lives under /run — root-only,
+// created mode 0700 — instead of a world-writable /tmp with a predictable
+// name, which was a narrow DoS vector on the degraded path. It is a var so
+// tests can redirect it away from the real /run.
+var bindDir = "/run/vpn-pack"
+
 const (
 	defaultSocketPath = "/run/ubnt-udapi-server.sock"
 	requestTimeout    = 10 * time.Second
-	bindPathTemplate  = "/tmp/vpn-pack-manager-udapi-%d"
 	// maxUDAPIBodyBytes caps the size of a single UDAPI response we are
 	// willing to allocate. UDAPI replies are config snapshots; 8 MiB is
 	// well above any observed maximum and bounds a single malicious or
@@ -195,7 +202,14 @@ func (c *UDAPIClient) connect(ctx context.Context) (net.Conn, string, error) {
 		return conn, "", nil
 	}
 
-	bindPath := fmt.Sprintf(bindPathTemplate, os.Getpid())
+	if mkErr := os.MkdirAll(bindDir, 0o700); mkErr != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, "", cerr
+		}
+		return nil, "", fmt.Errorf("udapi: connect: %w (bind dir: %v)", err, mkErr)
+	}
+
+	bindPath := filepath.Join(bindDir, fmt.Sprintf("udapi-%d", os.Getpid()))
 	_ = os.Remove(bindPath)
 
 	local := &net.UnixAddr{Name: bindPath, Net: "unix"}

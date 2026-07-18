@@ -18,7 +18,7 @@
 +	// instead of generic SoC name from DeviceTree.
 +	// e.g., "UDM-SE" instead of "Annapurna Labs Alpine V2 UBNT"
 +	if distro.Get() == distro.UBNT {
-+		if out, err := exec.Command("ubnt-device-info", "model_short").Output(); err == nil {
++		if out, err := exec.Command("/usr/bin/ubnt-device-info", "model_short").Output(); err == nil {
 +			if s := strings.TrimSpace(string(out)); s != "" {
 +				return s
 +			}

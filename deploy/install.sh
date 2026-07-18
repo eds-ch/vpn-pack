@@ -184,8 +184,10 @@ chmod 755 "${BIN_DIR}/tailscale" "${BIN_DIR}/tailscaled" "${BIN_DIR}/vpn-pack-ma
 sha256sum "${BIN_DIR}/vpn-pack-manager" | awk '{print $1}' > "${BIN_DIR}/.expected-sha256"
 chmod 0644 "${BIN_DIR}/.expected-sha256"
 
-ln -sf "${BIN_DIR}/tailscale" /usr/local/bin/tailscale
-ln -sf "${BIN_DIR}/tailscaled" /usr/local/bin/tailscaled
+# -n: treat an existing symlink-to-directory as a normal file to replace,
+# instead of dereferencing it and creating the link *inside* that directory.
+ln -sfn "${BIN_DIR}/tailscale" /usr/local/bin/tailscale
+ln -sfn "${BIN_DIR}/tailscaled" /usr/local/bin/tailscaled
 
 # Install defaults only if not present (preserve user customization on upgrade)
 if [ ! -f "${INSTALL_DIR}/tailscaled.defaults" ]; then
