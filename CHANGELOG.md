@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-07-19
+
+Stable release of the 2026-07-17 security-hardening set. See `[1.5.4-beta.1]`
+below for the full change set (M1 token factor, M2–M6, M5 INPUT reorder,
+Tailscale 1.98.9, supply-chain pinning). Beta ran a **24 h soak on UDM-SE**
+with hourly snapshots: 25/25 clean — zero service restarts, zero manager
+errors, stable memory (~20 MB), stable `ts-input-guard → UBIOS_INPUT_JUMP →
+ts-input` ordering, token enforcement (403 without / 200 with) throughout.
+
 ## [1.5.4-beta.1] - 2026-07-18
 
 Security-hardening beta: closes the findings of the 2026-07-17 audit (the
@@ -555,7 +564,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4-beta.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4...HEAD
+[1.5.4]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4-beta.1...v1.5.4
 [1.5.4-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3...v1.5.4-beta.1
 [1.5.3]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3-beta.1...v1.5.3
 [1.5.3-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.2...v1.5.3-beta.1
