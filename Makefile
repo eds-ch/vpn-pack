@@ -11,8 +11,8 @@
 #   make fetch-tailscale    — clone/checkout Tailscale source
 
 VPNPACK_VERSION   := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
-TAILSCALE_VERSION := 1.98.9
-TAILSCALE_EXPECTED_SHA := 6c167d40fa37aeb51afa7ff336730670ea4762bf
+TAILSCALE_VERSION := 1.102.2
+TAILSCALE_EXPECTED_SHA := eb67e5dcbe145d63e1128b9b4b630f8a82da101f
 
 TAILSCALE_SRC     := reference/tailscale
 BUILD_DIR         := build

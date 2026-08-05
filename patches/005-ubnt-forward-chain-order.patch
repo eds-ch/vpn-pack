@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.98.9
+# Tailscale-Version: 1.102.2
 # Description: Fix ts-forward/ts-input chain order on UBNT: ts-forward after UBIOS_FORWARD_JUMP (ts-mark guard), ts-input after UBIOS_INPUT_JUMP (ts-input-guard anti-spoof)
 --- a/util/linuxfw/iptables_runner.go
 +++ b/util/linuxfw/iptables_runner.go
@@ -167,9 +167,9 @@
 +}
 +
  // DelLoopbackRule removes the iptables rule permitting loopback
- // traffic to a Tailscale IP.
- func (i *iptablesRunner) DelLoopbackRule(addr netip.Addr) error {
-@@ -145,12 +298,48 @@
+ // traffic to a Tailscale IP. A missing rule is not an error: an address
+ // left on the interface by a previous tailscaled instance never went
+@@ -157,12 +310,48 @@
  		return nil
  	}
  
@@ -223,7 +223,7 @@
  		}
  	}
  
-@@ -179,6 +368,8 @@
+@@ -191,6 +380,8 @@
  		return nil
  	}
  
@@ -232,7 +232,7 @@
  	for _, ipt := range i.getTables() {
  		if err := create(ipt, "filter", "ts-input"); err != nil {
  			return err
-@@ -186,6 +377,14 @@
+@@ -198,6 +389,14 @@
  		if err := create(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
@@ -247,7 +247,7 @@
  	}
  
  	for _, ipt := range i.getNATTables() {
-@@ -248,6 +447,13 @@
+@@ -260,6 +459,13 @@
  		return fmt.Errorf("adding %v in v4/filter/ts-forward: %w", args, err)
  	}
  
@@ -261,7 +261,7 @@
  	return nil
  }
  
-@@ -352,6 +558,13 @@
+@@ -373,6 +579,13 @@
  		return fmt.Errorf("adding %v in v6/filter/ts-forward: %w", args, err)
  	}
  
@@ -275,7 +275,7 @@
  	return nil
  }
  
-@@ -364,6 +577,12 @@
+@@ -385,6 +598,12 @@
  		if err := delChain(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
@@ -288,7 +288,7 @@
  	}
  
  	for _, ipt := range i.getNATTables() {
-@@ -397,6 +616,12 @@
+@@ -418,6 +637,12 @@
  		if err := del(ipt, "filter", "ts-forward"); err != nil {
  			return err
  		}
@@ -301,7 +301,7 @@
  	}
  	for _, ipt := range i.getNATTables() {
  		if err := del(ipt, "nat", "ts-postrouting"); err != nil {
-@@ -414,9 +639,11 @@
+@@ -435,9 +660,11 @@
  		if err := delTSHook(ipt, "filter", "INPUT", logf); err != nil {
  			return err
  		}
@@ -313,7 +313,7 @@
  	}
  	for _, ipt := range i.getNATTables() {
  		if err := delTSHook(ipt, "nat", "POSTROUTING", logf); err != nil {
-@@ -691,17 +918,29 @@
+@@ -718,17 +945,29 @@
  	}
  }
  
@@ -348,7 +348,7 @@
  		}
  	}
  	return nil
-@@ -714,15 +953,16 @@
+@@ -741,15 +980,16 @@
  	if err != nil {
  		return fmt.Errorf("build cgnat mode rule: %v", err)
  	}

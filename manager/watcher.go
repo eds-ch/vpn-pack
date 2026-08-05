@@ -18,7 +18,6 @@ import (
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
-	"tailscale.com/types/netmap"
 )
 
 func buildDERPInfo(latMap map[string]float64, regions map[int]*tailcfg.DERPRegion, preferred int) []DERPInfo {
@@ -164,6 +163,9 @@ func (s *Server) applyRefreshState(ctx context.Context, enrichment *statusEnrich
 }
 
 func (s *Server) watchLoop(ctx context.Context) error {
+	// NotifyInitialNetMap is what makes tailscaled put the current self node
+	// into the first notify's SelfChange; the legacy NetMap field it also
+	// sets is not read here.
 	mask := ipn.NotifyInitialState | ipn.NotifyInitialPrefs | ipn.NotifyInitialNetMap | ipn.NotifyInitialHealthState
 	watcher, err := s.ts.WatchIPNBus(ctx, mask)
 	if err != nil {
@@ -182,9 +184,53 @@ func (s *Server) watchLoop(ctx context.Context) error {
 }
 
 func (s *Server) processNotify(ctx context.Context, n *ipn.Notify) {
+	if n.SelfChange != nil {
+		s.ensureDERPMap(ctx, preferredDERPOf(n.SelfChange))
+	}
 	fetchStatus := s.updateStateFromNotify(n)
 	s.refreshExternalState(ctx, fetchStatus)
 	s.broadcastState()
+}
+
+// ensureDERPMap caches the daemon's DERP region catalogue. Since Tailscale
+// 1.100 the netmap — which used to carry it — only reaches non-Windows
+// watchers in the initial notify, so self state arriving later via
+// Notify.SelfChange has to source region names from the daemon instead.
+//
+// The catalogue is refetched while it is empty (the daemon serves a bare
+// `null` until it has a netmap) and whenever it does not know the region the
+// node currently prefers, so a node moved to a newly added region does not
+// silently drop out of the DERP table.
+func (s *Server) ensureDERPMap(ctx context.Context, preferred int) {
+	if regions := s.derpRegions(); len(regions) > 0 {
+		if _, known := regions[preferred]; known || preferred == 0 {
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	dm, err := s.ts.CurrentDERPMap(ctx)
+	if err != nil || dm == nil || len(dm.Regions) == 0 {
+		return
+	}
+	s.derpMap.Store(dm)
+}
+
+func preferredDERPOf(node *tailcfg.Node) int {
+	if node == nil || !node.Hostinfo.Valid() {
+		return 0
+	}
+	if ni := node.Hostinfo.NetInfo(); ni.Valid() {
+		return ni.PreferredDERP()
+	}
+	return 0
+}
+
+func (s *Server) derpRegions() map[int]*tailcfg.DERPRegion {
+	if dm := s.derpMap.Load(); dm != nil {
+		return dm.Regions
+	}
+	return nil
 }
 
 func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
@@ -211,12 +257,12 @@ func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
 			s.applyNotifyPrefs(d, *n.Prefs)
 		}
 
-		if n.NetMap != nil {
-			s.processNetMap(d, n.NetMap)
+		if n.SelfChange != nil {
+			s.processSelfNode(d, n.SelfChange.View(), s.derpRegions())
 			fetchStatus = true
 		}
 
-		if n.Prefs != nil || n.NetMap != nil {
+		if n.Prefs != nil || n.SelfChange != nil {
 			s.recomputeRoutes(d)
 			d.DPIFingerprinting = syncDPIFingerprint(d.ExitNode)
 		}
@@ -268,8 +314,7 @@ func (s *Server) refreshExternalState(ctx context.Context, fetchStatus bool) {
 	s.applyRefreshState(ctx, enrichment, integrationStatus)
 }
 
-func (s *Server) processNetMap(d *stateData, nm *netmap.NetworkMap) {
-	selfNode := nm.SelfNode
+func (s *Server) processSelfNode(d *stateData, selfNode tailcfg.NodeView, derpRegions map[int]*tailcfg.DERPRegion) {
 	if selfNode.Valid() {
 		addrs := selfNode.Addresses()
 		ips := make([]string, addrs.Len())
@@ -292,15 +337,13 @@ func (s *Server) processNetMap(d *stateData, nm *netmap.NetworkMap) {
 		s.state.SetAllowedIPs(aipSlice)
 
 		ni := selfNode.Hostinfo().NetInfo()
-		if ni.Valid() && nm.DERPMap != nil {
+		if ni.Valid() && derpRegions != nil {
 			latMap := ni.DERPLatency()
 			if latMap.Len() > 0 {
-				d.DERP = buildDERPInfo(latMap.AsMap(), nm.DERPMap.Regions, ni.PreferredDERP())
+				d.DERP = buildDERPInfo(latMap.AsMap(), derpRegions, ni.PreferredDERP())
 			}
 		}
 	}
-
-	d.TailnetName = nm.Domain
 }
 
 type statusEnrichment struct {
@@ -308,6 +351,7 @@ type statusEnrichment struct {
 	totalTx       int64
 	totalRx       int64
 	selfOnline    bool
+	tailnetName   string
 	usingExitNode *RemoteExitNodeStatus
 }
 
@@ -332,11 +376,17 @@ func (s *Server) fetchStatusEnrichment(ctx context.Context) *statusEnrichment {
 		selfOnline = st.Self.Online
 	}
 
+	tailnetName := ""
+	if st.CurrentTailnet != nil {
+		tailnetName = st.CurrentTailnet.Name
+	}
+
 	return &statusEnrichment{
 		peers:         peers,
 		totalTx:       totalTx,
 		totalRx:       totalRx,
 		selfOnline:    selfOnline,
+		tailnetName:   tailnetName,
 		usingExitNode: s.buildUsingExitNode(st),
 	}
 }
@@ -347,6 +397,9 @@ func (s *Server) applyEnrichment(d *stateData, e *statusEnrichment) {
 	}
 	d.Peers = e.peers
 	d.UsingExitNode = e.usingExitNode
+	if e.tailnetName != "" {
+		d.TailnetName = e.tailnetName
+	}
 	if d.Self != nil {
 		d.Self.TxBytes = e.totalTx
 		d.Self.RxBytes = e.totalRx

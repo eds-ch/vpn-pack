@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -438,4 +439,184 @@ func TestRestoreExitNodeRules_TsNoExitNode_ClearsManifest(t *testing.T) {
 	assert.False(t, editPrefsCalled.Load(), "should NOT call EditPrefs (reverse sync clears manifest, not Tailscale)")
 	assert.True(t, setRemoteCalled, "should call SetRemoteExitNode")
 	assert.Nil(t, setRemoteNode, "should clear manifest (SetRemoteExitNode(nil))")
+}
+
+// BUG-TS1102: tailscaled >= 1.100 gates Notify.NetMap behind
+// goosGetsLegacyNetmapNotify (Windows only). On Linux the netmap arrives once,
+// in the initial notify, and never again — self-node changes are delivered as
+// Notify.SelfChange instead. Without handling SelfChange, a login completed
+// after the manager started leaves TailscaleIPs / Self / AllowedIPs empty for
+// the lifetime of the IPN bus session, so the UI shows a Running node with no
+// address and every advertised route as unapproved.
+func TestUpdateStateFromNotify_SelfChangeUpdatesSelfState(t *testing.T) {
+	s := newTestServer()
+
+	running := ipn.Running
+	s.updateStateFromNotify(&ipn.Notify{State: &running})
+	require.Nil(t, s.state.Snapshot().Self, "precondition: no self state before any netmap/self notify")
+
+	hi := &tailcfg.Hostinfo{Hostname: "udm-se"}
+	s.updateStateFromNotify(&ipn.Notify{SelfChange: &tailcfg.Node{
+		Name:      "udm-se.tail1234.ts.net.",
+		Addresses: []netip.Prefix{netip.MustParsePrefix("100.64.0.5/32")},
+		AllowedIPs: []netip.Prefix{
+			netip.MustParsePrefix("100.64.0.5/32"),
+			netip.MustParsePrefix("192.168.1.0/24"),
+		},
+		Hostinfo: hi.View(),
+	}})
+
+	snap := s.state.Snapshot()
+	require.NotNil(t, snap.Self, "SelfChange must populate self state")
+	assert.Equal(t, "udm-se", snap.Self.HostName)
+	assert.Equal(t, "udm-se.tail1234.ts.net.", snap.Self.DNSName)
+	assert.True(t, snap.Self.Online, "self is online while backend state is Running")
+	assert.Equal(t, []string{"100.64.0.5"}, snap.TailscaleIPs)
+	assert.Len(t, s.state.AllowedIPs(), 2, "AllowedIPs feed recomputeRoutes; a stale empty set marks every advertised route unapproved")
+}
+
+// BUG-TS1102: the DERP latency table is built from the self node's NetInfo plus
+// the DERP region catalogue. The catalogue used to ride along on the netmap
+// notify; when self state now arrives via SelfChange the region names must be
+// fetched from the daemon, otherwise the DERP panel stays empty after a
+// login that happened after the manager started.
+func TestUpdateStateFromNotify_SelfChangePopulatesDERPFromDaemonMap(t *testing.T) {
+	derpCalls := 0
+	ts := &mockTailscaleControl{
+		currentDERPMapFn: func(ctx context.Context) (*tailcfg.DERPMap, error) {
+			derpCalls++
+			return &tailcfg.DERPMap{Regions: map[int]*tailcfg.DERPRegion{
+				10: {RegionID: 10, RegionCode: "fra", RegionName: "Frankfurt"},
+			}}, nil
+		},
+	}
+	s := newTestServer(func(s *Server) { s.ts = ts })
+
+	hi := &tailcfg.Hostinfo{
+		Hostname: "udm-se",
+		NetInfo:  &tailcfg.NetInfo{PreferredDERP: 10, DERPLatency: map[string]float64{"10-v4": 0.0231}},
+	}
+	s.processNotify(context.Background(), &ipn.Notify{SelfChange: &tailcfg.Node{
+		Name:      "udm-se.tail1234.ts.net.",
+		Addresses: []netip.Prefix{netip.MustParsePrefix("100.64.0.5/32")},
+		Hostinfo:  hi.View(),
+	}})
+
+	derp := s.state.Snapshot().DERP
+	require.Len(t, derp, 1, "DERP table must be built from the daemon's DERP map")
+	assert.Equal(t, "fra", derp[0].RegionCode)
+	assert.Equal(t, 10, derp[0].RegionID)
+	assert.True(t, derp[0].Preferred)
+
+	s.processNotify(context.Background(), &ipn.Notify{SelfChange: &tailcfg.Node{
+		Name:      "udm-se.tail1234.ts.net.",
+		Addresses: []netip.Prefix{netip.MustParsePrefix("100.64.0.5/32")},
+		Hostinfo:  hi.View(),
+	}})
+	assert.Equal(t, 1, derpCalls, "DERP map must be cached, not refetched on every SelfChange")
+}
+
+// BUG-TS1102: nm.Domain was the only source of the tailnet name. With the
+// netmap no longer arriving on Linux, the name must come from the status
+// refresh that already runs every few seconds.
+func TestApplyEnrichment_TakesTailnetNameFromStatus(t *testing.T) {
+	ts := &mockTailscaleControl{
+		statusFn: func(ctx context.Context) (*ipnstate.Status, error) {
+			return &ipnstate.Status{
+				BackendState:   "Running",
+				CurrentTailnet: &ipnstate.TailnetStatus{Name: "tail1234.ts.net"},
+			}, nil
+		},
+	}
+	s := newTestServer(func(s *Server) { s.ts = ts })
+
+	e := s.fetchStatusEnrichment(context.Background())
+	require.NotNil(t, e)
+	s.state.Update(func(d *stateData) { s.applyEnrichment(d, e) })
+
+	assert.Equal(t, "tail1234.ts.net", s.state.Snapshot().TailnetName)
+}
+
+// BUG-DERP-EMPTY: LocalClient.CurrentDERPMap never returns nil — when the
+// daemon has no netmap yet it encodes `null`, which unmarshals into an empty
+// DERPMap. Caching that empty value would pin derpRegions() to nil for the
+// process lifetime, so the DERP panel would stay empty forever after a logout
+// / re-login even though the daemon later has a perfectly good catalogue.
+func TestEnsureDERPMap_DoesNotCacheEmptyCatalogue(t *testing.T) {
+	var calls int
+	ts := &mockTailscaleControl{
+		currentDERPMapFn: func(ctx context.Context) (*tailcfg.DERPMap, error) {
+			calls++
+			if calls == 1 {
+				return &tailcfg.DERPMap{}, nil // daemon has no netmap yet
+			}
+			return &tailcfg.DERPMap{Regions: map[int]*tailcfg.DERPRegion{
+				10: {RegionID: 10, RegionCode: "fra", RegionName: "Frankfurt"},
+			}}, nil
+		},
+	}
+	s := newTestServer(func(s *Server) { s.ts = ts })
+
+	notify := func() *ipn.Notify {
+		hi := &tailcfg.Hostinfo{
+			Hostname: "udm-se",
+			NetInfo:  &tailcfg.NetInfo{PreferredDERP: 10, DERPLatency: map[string]float64{"10-v4": 0.0231}},
+		}
+		return &ipn.Notify{SelfChange: &tailcfg.Node{
+			Name:      "udm-se.tail1234.ts.net.",
+			Addresses: []netip.Prefix{netip.MustParsePrefix("100.64.0.5/32")},
+			Hostinfo:  hi.View(),
+		}}
+	}
+
+	s.processNotify(context.Background(), notify())
+	require.Empty(t, s.state.Snapshot().DERP, "precondition: empty catalogue yields no DERP rows")
+
+	s.processNotify(context.Background(), notify())
+	assert.Equal(t, 2, calls, "an empty catalogue must not be cached; the next SelfChange has to retry")
+	require.Len(t, s.state.Snapshot().DERP, 1, "DERP must populate once the daemon returns a catalogue")
+}
+
+// BUG-DERP-STALE: the catalogue used to be refreshed by every netmap notify.
+// Now that it is fetched once and cached, a region the node has since been
+// moved to would be missing from the cache, and buildDERPInfo silently drops
+// rows whose region is unknown — the node's own preferred relay would vanish
+// from the panel until a manager restart.
+func TestEnsureDERPMap_RefetchesWhenPreferredRegionIsUnknown(t *testing.T) {
+	var calls int
+	ts := &mockTailscaleControl{
+		currentDERPMapFn: func(ctx context.Context) (*tailcfg.DERPMap, error) {
+			calls++
+			regions := map[int]*tailcfg.DERPRegion{10: {RegionID: 10, RegionCode: "fra", RegionName: "Frankfurt"}}
+			if calls > 1 {
+				regions[20] = &tailcfg.DERPRegion{RegionID: 20, RegionCode: "waw", RegionName: "Warsaw"}
+			}
+			return &tailcfg.DERPMap{Regions: regions}, nil
+		},
+	}
+	s := newTestServer(func(s *Server) { s.ts = ts })
+
+	selfIn := func(region int) *ipn.Notify {
+		hi := &tailcfg.Hostinfo{
+			Hostname: "udm-se",
+			NetInfo: &tailcfg.NetInfo{
+				PreferredDERP: region,
+				DERPLatency:   map[string]float64{fmt.Sprintf("%d-v4", region): 0.0231},
+			},
+		}
+		return &ipn.Notify{SelfChange: &tailcfg.Node{
+			Name:      "udm-se.tail1234.ts.net.",
+			Addresses: []netip.Prefix{netip.MustParsePrefix("100.64.0.5/32")},
+			Hostinfo:  hi.View(),
+		}}
+	}
+
+	s.processNotify(context.Background(), selfIn(10))
+	require.Len(t, s.state.Snapshot().DERP, 1)
+
+	s.processNotify(context.Background(), selfIn(20))
+	assert.Equal(t, 2, calls, "a preferred region missing from the cache must trigger a refetch")
+	derp := s.state.Snapshot().DERP
+	require.Len(t, derp, 1, "the node's new preferred region must not be dropped")
+	assert.Equal(t, "waw", derp[0].RegionCode)
 }

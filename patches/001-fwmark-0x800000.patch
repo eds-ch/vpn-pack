@@ -1,4 +1,4 @@
-# Tailscale-Version: 1.98.5
+# Tailscale-Version: 1.102.2
 # Description: Change subnet route fwmark from 0x40000 to 0x800000 to avoid conflict with UniFi wgclt1
 --- a/tsconst/linuxfw.go
 +++ b/tsconst/linuxfw.go
@@ -13,14 +13,3 @@
  
  	// Packet was originated by tailscaled itself, and must not be
  	// routed over the Tailscale network.
---- a/util/linuxfw/linuxfw.go
-+++ b/util/linuxfw/linuxfw.go
-@@ -98,7 +98,7 @@
- 
- // getTailscaleSubnetRouteMark returns the TailscaleSubnetRouteMark in bytes.
- func getTailscaleSubnetRouteMark() []byte {
--	return []byte{0x00, 0x04, 0x00, 0x00}
-+	return []byte{0x00, 0x80, 0x00, 0x00}
- }
- 
- // checkIPv6ForTest can be set in tests.

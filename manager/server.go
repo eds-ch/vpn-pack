@@ -19,6 +19,8 @@ import (
 	"unifi-tailscale/manager/internal/wgs2s"
 	"unifi-tailscale/manager/logredact"
 	"unifi-tailscale/manager/service"
+
+	"tailscale.com/tailcfg"
 )
 
 //go:embed all:ui/dist
@@ -54,6 +56,7 @@ type Server struct {
 	manifest       ManifestStore
 	nginx          *NginxManager
 	watcherRunning atomic.Bool
+	derpMap        atomic.Pointer[tailcfg.DERPMap]
 	lastRestore    atomic.Pointer[time.Time]
 	restoring      atomic.Bool
 	health         *HealthTracker
