@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0-beta.1] - 2026-08-05
+
+Tailscale 1.98.9 → 1.102.2 (four upstream stable minors). Minor rather than
+patch level because upstream changed the IPN bus contract the manager depends
+on, which required a real code change on our side. Verify on UDM-SE, including
+a 24 h soak, before promoting to stable.
+
+### Changed
+- **Tailscale 1.102.2** (was 1.98.9), pinned to commit
+  `eb67e5dcbe145d63e1128b9b4b630f8a82da101f`. All six patches rebased and now
+  apply with zero offset and zero fuzz; the added/removed lines are byte-for-byte
+  identical to the 1.98.9 set, so the patch semantics are unchanged.
+- **Patch 001 simplified to a single hunk.** Upstream replaced the hardcoded
+  `getTailscaleSubnetRouteMark()` byte literal with a value derived from
+  `tsconst.LinuxSubnetRouteMarkNum`, so the mark override now propagates from
+  the one constant we already patch (and picks up upstream's byte-order fix on
+  the nftables path, which we do not use).
+- **Dependencies pulled in by the bump:** `x/crypto` 0.50→0.54, `x/net`
+  0.53→0.56, `x/sys` 0.45→0.47, `x/mod` 0.35→0.37, `x/sync` 0.20→0.22,
+  `rtnetlink` 1.4.0→1.4.1, `coder/websocket` 1.8.12→1.8.14, plus
+  `go-json-experiment`.
+
+### Fixed
+- **Self state no longer goes stale on the IPN bus.** Tailscale 1.100 gated
+  `Notify.NetMap` behind a Windows-only check: on Linux the netmap now arrives
+  only in the initial notify, and self-node changes are delivered as
+  `Notify.SelfChange`. The manager read the netmap exclusively, so a login
+  completed *after* the manager started would have left the tailnet address,
+  self node, tailnet name and AllowedIPs empty for the lifetime of the bus
+  session — the UI would show a Running node with no address and every
+  advertised route marked unapproved. The watcher now consumes `SelfChange`,
+  sources the DERP region catalogue from the daemon (`CurrentDERPMap`) instead
+  of the netmap, and takes the tailnet name from the status refresh. The
+  catalogue is cached, but refetched while the daemon still serves an empty one
+  and whenever it does not know the region the node currently prefers, so it
+  cannot pin itself to a stale or empty state. The deprecated `Notify.NetMap`
+  path is gone entirely.
+
 ## [1.5.4] - 2026-07-19
 
 Stable release of the 2026-07-17 security-hardening set. See `[1.5.4-beta.1]`
