@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0-beta.2] - 2026-08-06
+
+No change to anything that runs on the device: the payload is identical to
+`[1.6.0-beta.1]`, which passed a clean 24 h soak on UDM-SE (13/13 checkpoints,
+zero restarts, zero errors, zero IPN bus reconnects). This beta exists to
+exercise the release pipeline itself after the CI update below, since
+`release.yml` only ever runs on a tag push and its first execution should not
+be a stable release.
+
+### Changed
+- **GitHub Actions off the deprecated node20 runtime.** `actions/checkout`
+  v4→v7.0.1, `actions/setup-go` v5→v7.0.0, `actions/setup-node` v4→v7.0.0,
+  `golangci/golangci-lint-action` v7→v9.3.0, `sigstore/cosign-installer`
+  v3→v4.1.2, all still pinned by commit SHA. The majors are runtime bumps
+  apart from `golangci-lint-action` v8 requiring golangci-lint ≥ v2 (pinned
+  v2.10.1) and `cosign-installer` v3+ requiring `sign-blob --bundle` (already
+  passed).
+- **golangci-lint stays at v2.10.1 and `cosign-release` stays at v2.4.1.**
+  `get.sh` pins the same cosign v2.4.1 for verification with a sha256 check,
+  so signer and verifier have to move together; `cosign-installer` v4 defaults
+  to cosign v3.0.6, which the explicit pin holds back.
+- **CI Node 20 (EOL) → 22**, matching the dev host where `make check` and
+  release builds are run, and `setup-go`'s cache now points at
+  `manager/go.sum`.
+
 ## [1.6.0-beta.1] - 2026-08-05
 
 Tailscale 1.98.9 → 1.102.2 (four upstream stable minors). Minor rather than
