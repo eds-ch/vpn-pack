@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0-beta.3] - 2026-08-06
+
+Same device payload as `[1.6.0-beta.2]` apart from the update-notification
+fix below. Tailscale is still 1.102.2.
+
+### Fixed
+- **Update banner never reached the user.** The UI learned about a new
+  release only from the SSE `update-available` push, which the daemon emits
+  30 s after start and then once every 24 h. A freshly opened page missed it:
+  the initial SSE payload replays only the status snapshot, so named events
+  are not part of it, and `/api/update-check` had no caller in the UI. The
+  banner appeared only for a tab that happened to be open at the 24 h tick.
+  The UI now queries `/api/update-check` once on load (the answer is cached
+  server-side for 24 h, so GitHub is not polled more often) and keeps the SSE
+  push for long-lived tabs.
+- **Dismissing the banner is remembered per version.** It is stored in
+  `localStorage`, so hiding it survives a reload while a later release brings
+  it back. Previously every SSE event reset `dismissed`, un-dismissing the
+  same version once a day.
+- **A failed update check no longer hides a known update.** When the 24 h
+  cache expired and the GitHub request failed, the updater reported "no
+  update" instead of the last known result. It now keeps the previous answer.
+- **One client can no longer cancel the update check for everyone.** The
+  GitHub request is shared through `singleflight` but inherited the calling
+  request's context, so a browser aborting `/api/update-check` cancelled the
+  in-flight check for all other waiters. It now runs on a detached context
+  with the same 15 s timeout.
+- Background update checks no longer surface transient network failures as
+  error banners in the UI.
+
 ## [1.6.0-beta.2] - 2026-08-06
 
 No change to anything that runs on the device: the payload is identical to
@@ -627,7 +657,10 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.3...HEAD
+[1.6.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.2...v1.6.0-beta.3
+[1.6.0-beta.2]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.1...v1.6.0-beta.2
+[1.6.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4...v1.6.0-beta.1
 [1.5.4]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4-beta.1...v1.5.4
 [1.5.4-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3...v1.5.4-beta.1
 [1.5.3]: https://github.com/eds-ch/vpn-pack/compare/v1.5.3-beta.1...v1.5.3
