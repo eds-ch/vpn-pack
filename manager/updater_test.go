@@ -89,3 +89,72 @@ func TestUpdater_CachesFailedCheck(t *testing.T) {
 		"5 calls within UpdateFailCacheTTL should produce 1 upstream hit, got %d", hits)
 	_ = config.UpdateFailCacheTTL
 }
+
+// A failed refresh of an expired cache must not downgrade a known-available
+// update to "no update": the UI asks on every page load, and one GitHub
+// outage would otherwise make the banner disappear until the next success.
+func TestUpdater_KeepsLastKnownInfoWhenRefreshFails(t *testing.T) {
+	var fail atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail.Load() {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"tag_name":"v2.0.0","html_url":"https://example.test/rel"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	origURL := githubReleasesURLHook
+	t.Cleanup(func() { githubReleasesURLHook = origURL })
+	githubReleasesURLHook = func() string { return srv.URL }
+
+	uc := &updateChecker{
+		current:    "1.0.0",
+		httpClient: &http.Client{Timeout: 2 * time.Second},
+	}
+
+	info := uc.check(context.Background())
+	require.True(t, info.Available)
+	require.Equal(t, "2.0.0", info.Version)
+
+	// Expire both the success cache and the fail cache, then break upstream.
+	uc.mu.Lock()
+	uc.checkedAt = time.Now().Add(-config.UpdateCheckPeriod - time.Minute)
+	uc.mu.Unlock()
+	fail.Store(true)
+
+	stale := uc.check(context.Background())
+	require.True(t, stale.Available, "known update must survive a failed refresh")
+	assert.Equal(t, "2.0.0", stale.Version)
+
+	// The fail-cache path must report the same thing.
+	cached := uc.check(context.Background())
+	assert.True(t, cached.Available)
+	assert.Equal(t, "2.0.0", cached.Version)
+}
+
+// The fetch is shared through singleflight, so it must not inherit the
+// caller's context: one browser aborting /api/update-check would otherwise
+// cancel the check for everyone waiting on it.
+func TestUpdater_CheckIgnoresCallerCancellation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name":"v2.0.0","html_url":"https://example.test/rel"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	origURL := githubReleasesURLHook
+	t.Cleanup(func() { githubReleasesURLHook = origURL })
+	githubReleasesURLHook = func() string { return srv.URL }
+
+	uc := &updateChecker{
+		current:    "1.0.0",
+		httpClient: &http.Client{Timeout: 2 * time.Second},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	info := uc.check(ctx)
+	require.True(t, info.Available)
+	assert.Equal(t, "2.0.0", info.Version)
+}

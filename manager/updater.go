@@ -62,13 +62,20 @@ func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 	// BUG-L6: if the last attempt failed within the fail-cache TTL,
 	// short-circuit so a 5xx storm cannot stampede GitHub's rate limit.
 	if !uc.failedAt.IsZero() && time.Since(uc.failedAt) < config.UpdateFailCacheTTL {
+		info := uc.lastKnownLocked()
 		uc.mu.Unlock()
-		return &UpdateInfo{Available: false, CurrentVersion: uc.current}
+		return info
 	}
 	uc.mu.Unlock()
 
+	// Detach from the caller's context: this fetch is shared through
+	// singleflight, so an HTTP client hanging up must not cancel the
+	// in-flight check for every other waiter.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), config.GithubAPITimeout)
+	defer cancel()
+
 	v, _, _ := uc.sf.Do("check", func() (any, error) {
-		info := uc.fetchLatest(ctx)
+		info := uc.fetchLatest(fetchCtx)
 		uc.mu.Lock()
 		if info == nil {
 			uc.failedAt = time.Now()
@@ -83,9 +90,21 @@ func (uc *updateChecker) check(ctx context.Context) *UpdateInfo {
 
 	info, _ := v.(*UpdateInfo)
 	if info == nil {
-		return &UpdateInfo{Available: false, CurrentVersion: uc.current}
+		uc.mu.Lock()
+		defer uc.mu.Unlock()
+		return uc.lastKnownLocked()
 	}
 	return info
+}
+
+// lastKnownLocked returns the last successful result, so a failed refresh of an
+// expired cache does not report "no update" for something we already know about.
+// Caller holds uc.mu.
+func (uc *updateChecker) lastKnownLocked() *UpdateInfo {
+	if uc.info != nil {
+		return uc.info
+	}
+	return &UpdateInfo{Available: false, CurrentVersion: uc.current}
 }
 
 // compareVersions returns -1, 0, +1 for a<b, a==b, a>b. Sentinel inputs

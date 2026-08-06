@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { connect, disconnect, getStatus, getErrors, getUpdateInfo, dismissUpdate } from './lib/stores/tailscale.svelte.js';
+    import { connect, disconnect, getStatus, getErrors, getUpdateInfo, dismissUpdate, refreshUpdateInfo } from './lib/stores/tailscale.svelte.js';
     import { getDeviceInfo } from './lib/api.js';
     import TopBar from './lib/components/TopBar.svelte';
     import Sidebar from './lib/components/Sidebar.svelte';
@@ -52,6 +52,7 @@
         window.addEventListener('hashchange', onHashChange);
 
         connect();
+        refreshUpdateInfo();
         deviceInfo = await getDeviceInfo();
         return () => {
             window.removeEventListener('hashchange', onHashChange);

@@ -27,6 +27,12 @@ class MockEventSource {
 }
 globalThis.EventSource = MockEventSource;
 
+vi.mock('../api.js', () => ({
+    keepalive: vi.fn(),
+    getUpdateCheck: vi.fn(),
+}));
+
+import { getUpdateCheck } from '../api.js';
 import {
     getStatus,
     getErrors,
@@ -35,6 +41,9 @@ import {
     dismissError,
     connect,
     disconnect,
+    getUpdateInfo,
+    dismissUpdate,
+    refreshUpdateInfo,
 } from './tailscale.svelte.js';
 
 describe('tailscale store', () => {
@@ -77,6 +86,59 @@ describe('tailscale store', () => {
             expect(s.relayServerPort).toBe(null);
             expect(s.relayServerEndpoints).toBe('');
             expect(s.advertiseTags).toEqual([]);
+        });
+    });
+
+    describe('update info', () => {
+        const RELEASE = {
+            available: true,
+            version: '2.0.0',
+            currentVersion: '1.0.0',
+            changelogURL: 'https://example.test/rel',
+        };
+
+        beforeEach(() => {
+            localStorage.clear();
+            vi.mocked(getUpdateCheck).mockReset();
+        });
+
+        // The SSE push only reaches tabs open during the 24h check, so without
+        // this fetch the banner never appears on a freshly loaded page.
+        it('pulls update info on load', async () => {
+            getUpdateCheck.mockResolvedValue(RELEASE);
+            await refreshUpdateInfo();
+            expect(getUpdateInfo().available).toBe(true);
+            expect(getUpdateInfo().version).toBe('2.0.0');
+            expect(getUpdateInfo().dismissed).toBe(false);
+        });
+
+        it('keeps the banner dismissed across reloads of the same version', async () => {
+            getUpdateCheck.mockResolvedValue(RELEASE);
+            await refreshUpdateInfo();
+            dismissUpdate();
+
+            await refreshUpdateInfo();
+            expect(getUpdateInfo().dismissed).toBe(true);
+        });
+
+        it('shows the banner again for a newer version', async () => {
+            getUpdateCheck.mockResolvedValue(RELEASE);
+            await refreshUpdateInfo();
+            dismissUpdate();
+
+            getUpdateCheck.mockResolvedValue({ ...RELEASE, version: '2.1.0' });
+            await refreshUpdateInfo();
+            expect(getUpdateInfo().dismissed).toBe(false);
+        });
+
+        it('leaves known update info alone when the check fails', async () => {
+            getUpdateCheck.mockResolvedValue(RELEASE);
+            await refreshUpdateInfo();
+
+            getUpdateCheck.mockResolvedValue(null);
+            await refreshUpdateInfo();
+            expect(getUpdateInfo().available).toBe(true);
+            expect(getUpdateInfo().version).toBe('2.0.0');
         });
     });
 

@@ -22,6 +22,7 @@ import type {
     RemoteExitResponse,
     EnableRemoteExitRequest,
     EnableRemoteExitResult,
+    UpdateInfo,
 } from './types.js';
 
 const API_BASE = '/vpn-pack/api';
@@ -31,6 +32,9 @@ let lastRequestTime = 0;
 
 interface ApiFetchOpts {
     timeout?: number;
+    // Background polls set this so a transient failure does not raise a
+    // banner the user never asked for.
+    silent?: boolean;
     _isRetry?: boolean;
 }
 
@@ -46,7 +50,7 @@ function extractError(data: Record<string, unknown>, status: number): string {
     return `Request failed: ${status}`;
 }
 
-async function apiFetch<T>(method: string, path: string, body?: unknown, { timeout = DEFAULT_TIMEOUT_MS, _isRetry = false }: ApiFetchOpts = {}): Promise<T | null> {
+async function apiFetch<T>(method: string, path: string, body?: unknown, { timeout = DEFAULT_TIMEOUT_MS, silent = false, _isRetry = false }: ApiFetchOpts = {}): Promise<T | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
@@ -72,7 +76,7 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
                     // the Set-Cookie response will populate document.cookie.
                     const refreshRes = await fetch(`${API_BASE}/status`);
                     if (refreshRes.ok) {
-                        return apiFetch<T>(method, path, body, { timeout, _isRetry: true });
+                        return apiFetch<T>(method, path, body, { timeout, silent, _isRetry: true });
                     }
                 } catch (e) {
                     console.warn('CSRF refresh failed:', e);
@@ -94,7 +98,7 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
             const msg = data?.error
                 ? extractError(data, res.status)
                 : `HTTP ${res.status}: ${text.slice(0, 200)}`;
-            addError(msg);
+            if (!silent) addError(msg);
             return null;
         }
 
@@ -108,6 +112,7 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
         return data as T;
     } catch (e: unknown) {
         clearTimeout(timer);
+        if (silent) return null;
         if (e instanceof DOMException && e.name === 'AbortError') {
             addError(`Request timeout: ${method} ${path}`);
         } else {
@@ -135,6 +140,10 @@ export function tailscaleLogout(): Promise<OperationResponse | null> {
 
 export function getDeviceInfo(): Promise<DeviceInfo | null> {
     return apiFetch<DeviceInfo>('GET', `${API_BASE}/device`);
+}
+
+export function getUpdateCheck(): Promise<UpdateInfo | null> {
+    return apiFetch<UpdateInfo>('GET', `${API_BASE}/update-check`, undefined, { timeout: 20000, silent: true });
 }
 
 export function setRoutes(

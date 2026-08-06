@@ -1,5 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity';
-import { keepalive } from '../api.js';
+import { keepalive, getUpdateCheck } from '../api.js';
 import { AUTH_KEEPALIVE_MS } from '../constants.js';
 
 /** @type {import('../types.js').Status} */
@@ -66,8 +66,38 @@ export function getUpdateInfo() {
     return updateInfo;
 }
 
+const UPDATE_DISMISS_KEY = 'vp_update_dismissed';
+
+// Dismissal is stored per version, so hiding the banner survives a reload
+// but a later release brings it back.
+function isDismissed(version) {
+    if (!version) return false;
+    try {
+        return localStorage.getItem(UPDATE_DISMISS_KEY) === version;
+    } catch {
+        return false;
+    }
+}
+
+function applyUpdateInfo(data) {
+    Object.assign(updateInfo, data);
+    updateInfo.dismissed = isDismissed(data.version);
+}
+
 export function dismissUpdate() {
     updateInfo.dismissed = true;
+    try {
+        localStorage.setItem(UPDATE_DISMISS_KEY, updateInfo.version);
+    } catch {
+        // Storage unavailable (private mode): dismissal lasts this session only.
+    }
+}
+
+// The SSE push only reaches tabs open at the moment of the 24h check, so the
+// UI asks once on load; the answer is cached server-side.
+export async function refreshUpdateInfo() {
+    const data = await getUpdateCheck();
+    if (data) applyUpdateInfo(data);
 }
 
 export function addError(message, type = 'error') {
@@ -168,9 +198,7 @@ export function connect() {
 
     eventSource.addEventListener('update-available', (event) => {
         try {
-            const data = JSON.parse(event.data);
-            Object.assign(updateInfo, data);
-            updateInfo.dismissed = false;
+            applyUpdateInfo(JSON.parse(event.data));
         } catch (e) {
             addLog('error', `Failed to parse update event: ${e.message}`);
         }

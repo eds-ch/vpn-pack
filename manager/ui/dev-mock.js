@@ -390,6 +390,13 @@ const mockSubnets = {
     ],
 };
 
+const mockUpdate = {
+    available: true,
+    version: '9.9.9',
+    currentVersion: '1.6.0',
+    changelogURL: 'https://github.com/eds-ch/vpn-pack/releases/tag/v9.9.9',
+};
+
 let mockRemoteExitNode = null;
 
 const mockSettings = {
@@ -549,6 +556,7 @@ export default function mockApiPlugin() {
                 if (path === '/diagnostics') return json(res, mockDiagnostics);
                 if (path === '/logs') return json(res, mockLogs);
                 if (path === '/routes' && req.method === 'GET') return json(res, mockStatus.routes);
+                if (path === '/update-check') return json(res, mockUpdate);
 
                 // WG S2S reads
                 if (path === '/wg-s2s/zones') return json(res, mockWgS2sZones);
