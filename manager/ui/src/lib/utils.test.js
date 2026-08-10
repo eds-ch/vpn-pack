@@ -3,6 +3,7 @@ import {
     formatBytes, relativeTime, formatUptime, isValidCIDR,
     isValidBase64Key, isValidPort, isValidEndpoint,
     isValidMTU, isValidKeepalive, isValidRouteMetric, validateTunnelFields,
+    stateColors, stateLabels,
 } from './utils.js';
 
 describe('formatBytes', () => {
@@ -437,5 +438,38 @@ describe('validateTunnelFields', () => {
     it('skips routeMetric validation when null', () => {
         const errors = validateTunnelFields({ ...validData, routeMetric: null });
         expect(errors.routeMetric).toBeUndefined();
+    });
+});
+
+// The seven values of ipn.State, from reference/tailscale/ipn/backend.go:27-35.
+// Any state missing from either table renders in the header as its raw enum
+// name with a grey dot — which is exactly how 'NoState' looked for the two
+// minutes tailscaled spent waiting on the coordination server on 2026-08-10.
+// This list is deliberately hardcoded rather than derived from the tables
+// under test: a test that reads its expectations out of the thing it checks
+// cannot fail.
+const IPN_STATES = [
+    'NoState',
+    'InUseOtherUser',
+    'NeedsLogin',
+    'NeedsMachineAuth',
+    'Stopped',
+    'Starting',
+    'Running',
+];
+
+describe('backend state tables', () => {
+    it.each(IPN_STATES)('has a label for %s', (state) => {
+        expect(stateLabels[state], `stateLabels has no entry for ${state}`).toBeTruthy();
+    });
+
+    it.each(IPN_STATES)('has a dot colour for %s', (state) => {
+        expect(stateColors[state], `stateColors has no entry for ${state}`).toBeTruthy();
+    });
+
+    it('never labels a state with its raw enum name', () => {
+        expect(stateLabels.NeedsLogin).toBe('Needs Login');
+        expect(stateLabels.NeedsMachineAuth).toBe('Needs Machine Auth');
+        expect(stateLabels.NoState).toBe('Connecting');
     });
 });

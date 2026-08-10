@@ -170,16 +170,22 @@ export function validateTunnelFields(data) {
 
 export const stateColors = {
     Running: 'bg-success',
-    NeedsLogin: 'bg-warning',
-    Stopped: 'bg-error',
     Starting: 'bg-blue',
+    NoState: 'bg-blue',
+    NeedsLogin: 'bg-warning',
+    NeedsMachineAuth: 'bg-warning',
+    InUseOtherUser: 'bg-warning',
+    Stopped: 'bg-error',
 };
 
 export const stateLabels = {
     Running: 'Running',
-    NeedsLogin: 'Needs Login',
-    Stopped: 'Stopped',
     Starting: 'Starting',
+    NoState: 'Connecting',
+    NeedsLogin: 'Needs Login',
+    NeedsMachineAuth: 'Needs Machine Auth',
+    InUseOtherUser: 'In Use By Another User',
+    Stopped: 'Stopped',
     Unknown: 'Unknown',
     Unavailable: 'Unavailable',
 };
