@@ -10,7 +10,12 @@ import (
 
 const (
 	csrfCookie = "vp_csrf"
-	csrfHeader = "X-Csrf-Token"
+	// Deliberately not X-Csrf-Token: UniFi OS claims that header for its own
+	// session CSRF. Its nginx hands the client's value to the UniFi auth
+	// backend as X-Provided-Csrf-Token and answers 403 before proxying to us,
+	// and it strips our X-Csrf-Token response header on the way back. Sharing
+	// the name forces the UI to satisfy one layer and fail the other.
+	csrfHeader = "X-VpnPack-Csrf"
 )
 
 // csrfSecure controls the Secure attribute on the CSRF cookie. Production
