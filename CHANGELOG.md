@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Device model and firmware are populated again.** `ubnt-device-info` is a
+  symlink to `ubios-udapi-server`, which refuses to start unless `/etc` is
+  writable and throws `std::runtime_error` otherwise. Under the SEC-B2
+  hardening (`ProtectSystem=strict`) it therefore aborted before printing
+  anything, and `cmdOutput` turned that into an empty string: the UI showed the
+  devicetree fallback `Annapurna Labs Alpine V2 UBNT` as the model and no
+  firmware at all. Bisected to `ProtectSystem=strict` alone — the rest of the
+  sandbox is irrelevant. The manager now reads the same facts from the files
+  the tool fronts (`/proc/ubnthal/system.info`, `/usr/lib/version`), which are
+  readable under the sandbox, so no hardening is relaxed. `modelShort` stays
+  empty: `system.info` carries `shortname=UDMPROSE`, not the `UDM-SE` the tool
+  maps it to, and the UI already falls back to the full model name.
 - **The UniFi Network version gate no longer judges a device by a version that
   is still being replaced.** UniFi OS finishes applying package upgrades after
   the manager is already running, so the one-shot check at startup could read

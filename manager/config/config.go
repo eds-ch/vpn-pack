@@ -92,8 +92,12 @@ const (
 )
 
 const (
-	DeviceInfoCmd   = "ubnt-device-info"
 	VPNClientPrefix = "wgclt"
+
+	// ubnt-device-info is a symlink to ubios-udapi-server and cannot run under
+	// the manager's sandbox, so these are read directly — see detectDevice.
+	UbnthalSystemInfoPath = "/proc/ubnthal/system.info"
+	FirmwareVersionPath   = "/usr/lib/version"
 )
 
 const MaxPort = 65535

@@ -18,12 +18,18 @@ func detectDevice() DeviceInfo {
 	info := DeviceInfo{}
 
 	info.Hostname, _ = os.Hostname()
-	info.Model = cmdOutput(config.DeviceInfoCmd, "model")
+	// ubnt-device-info is a symlink to ubios-udapi-server, which refuses to
+	// start unless /etc is writable — under ProtectSystem=strict it throws
+	// before printing anything, so the manager reads the same facts from the
+	// files the tool itself is fronting. ModelShort has no such file: the tool
+	// maps shortname=UDMPROSE to "UDM-SE" from a table only it carries, and the
+	// UI already falls back to the full model name.
+	sysInfo := readFileTrimmed(config.UbnthalSystemInfoPath)
+	info.Model = ubnthalValue(sysInfo, "name")
 	if info.Model == "" {
 		info.Model = readFileTrimmed("/sys/firmware/devicetree/base/model")
 	}
-	info.ModelShort = cmdOutput(config.DeviceInfoCmd, "model_short")
-	info.Firmware = cmdOutput(config.DeviceInfoCmd, "firmware")
+	info.Firmware = firmwareFromVersionLine(readFileTrimmed(config.FirmwareVersionPath))
 	info.UniFiVersion = readUniFiVersion()
 	info.PackageVersion = config.Version
 	info.TailscaleVersion = config.TailscaleVersion
@@ -88,6 +94,55 @@ func readFileTrimmed(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(strings.TrimRight(string(data), "\x00"))
+}
+
+// ubnthalValue reads a key from /proc/ubnthal/system.info, whose lines are
+// plain key=value. The match is on the whole key: "shortname=UDMPROSE" comes
+// before "name=..." in the file and would win a suffix match.
+func ubnthalValue(content, key string) string {
+	for _, line := range strings.Split(content, "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// firmwareFromVersionLine pulls the firmware version out of /usr/lib/version,
+// e.g. "UDMPROSE.al324.v5.1.26.0bc0fe4.260715.2320" -> "5.1.26". The version
+// starts at the vN field and runs while the dot-separated fields stay short and
+// numeric; the build hash and date that follow are either non-numeric or longer
+// than a version component.
+func firmwareFromVersionLine(line string) string {
+	const maxComponentDigits = 4
+	fields := strings.Split(strings.TrimSpace(line), ".")
+	for i, f := range fields {
+		if len(f) < 2 || f[0] != 'v' || !isVersionComponent(f[1:], maxComponentDigits) {
+			continue
+		}
+		parts := []string{f[1:]}
+		for _, next := range fields[i+1:] {
+			if !isVersionComponent(next, maxComponentDigits) {
+				break
+			}
+			parts = append(parts, next)
+		}
+		return strings.Join(parts, ".")
+	}
+	return ""
+}
+
+func isVersionComponent(s string, maxDigits int) bool {
+	if s == "" || len(s) > maxDigits {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // UniFi OS applies package upgrades after the manager is already running, so

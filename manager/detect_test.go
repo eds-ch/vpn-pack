@@ -147,3 +147,58 @@ func TestAwaitSupportedUniFiVersionRetriesAnEmptyReadAfterBoot(t *testing.T) {
 	assert.Equal(t, "10.5.67-35187-1", got)
 	assert.Equal(t, 1, calls)
 }
+
+// /proc/ubnthal/system.info as it reads on a UDM-SE. Kept verbatim (trimmed to
+// the interesting head) so the prefix-collision case below stays realistic.
+const ubnthalFixture = `cpu=AL324V2
+cpuid=411ed073
+flashSize=16777216
+vendorid=0777
+systemid=ea2c
+shortname=UDMPROSE
+name=UniFi Dream Machine SE
+boardrevision=42
+serialno=f4e2c6c2eb0f
+`
+
+func TestUbnthalValueReadsTheDeviceName(t *testing.T) {
+	assert.Equal(t, "UniFi Dream Machine SE", ubnthalValue(ubnthalFixture, "name"))
+}
+
+// "shortname=" ends with "name=", so a substring match would return UDMPROSE
+// for the "name" key — and it appears first in the file.
+func TestUbnthalValueDoesNotMatchAKeySuffix(t *testing.T) {
+	assert.Equal(t, "UDMPROSE", ubnthalValue(ubnthalFixture, "shortname"))
+	assert.NotEqual(t, "UDMPROSE", ubnthalValue(ubnthalFixture, "name"))
+}
+
+func TestUbnthalValueReturnsEmptyForAnAbsentKey(t *testing.T) {
+	assert.Empty(t, ubnthalValue(ubnthalFixture, "firmware"))
+	assert.Empty(t, ubnthalValue("", "name"))
+}
+
+func TestFirmwareFromVersionLine(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{"UDM-SE 5.1.26", "UDMPROSE.al324.v5.1.26.0bc0fe4.260715.2320", "5.1.26"},
+		{"UCG-Ultra shape", "UCGULTRA.mt7622.v4.3.9.abc1234.250101.1200", "4.3.9"},
+		{"four-part version", "UDMPROSE.al324.v5.1.26.1.0bc0fe4.260715", "5.1.26.1"},
+		{"no version field", "UDMPROSE.al324.0bc0fe4", ""},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, firmwareFromVersionLine(tt.line))
+		})
+	}
+}
+
+// The build hash sits right after the version and is hex, so it is digits-only
+// often enough to matter (~4% for a 7-char hash). It must not be swallowed as
+// a version component.
+func TestFirmwareFromVersionLineStopsAtADigitsOnlyBuildHash(t *testing.T) {
+	assert.Equal(t, "5.1.26", firmwareFromVersionLine("UDMPROSE.al324.v5.1.26.1234567.260715.2320"))
+}
