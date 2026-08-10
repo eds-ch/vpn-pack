@@ -1,11 +1,17 @@
 <script>
-    import { stateColors } from '../utils.js';
+    import { stateColors, stateLabels } from '../utils.js';
+    import { pickPrimaryWarning, waitingReason } from '../helpers/tailscale-health.js';
 
     let { status } = $props();
     let open = $state(false);
     let root = $state(null);
 
     let dotColor = $derived(stateColors[status.backendState] || 'bg-text-secondary');
+    let stateLabel = $derived(stateLabels[status.backendState] ?? status.backendState);
+    let tsWaiting = $derived(waitingReason(status));
+    let showTsHealth = $derived(
+        status.connected === false || pickPrimaryWarning(status.health) !== null,
+    );
     let primaryIP = $derived(status.tailscaleIPs?.[0] ?? '');
     let health = $derived(status.firewallHealth);
 
@@ -48,7 +54,7 @@
     >
         <span class="w-2 h-2 rounded-full {dotColor} shrink-0"></span>
         <span class="text-text">
-            <span class="hidden sm:inline">Tailscale</span> {status.backendState}
+            <span class="hidden sm:inline">Tailscale</span> {stateLabel}
         </span>
         {#if primaryIP}
             <span class="text-text-tertiary hidden sm:inline">·</span>
@@ -69,7 +75,7 @@
                         <span class="text-caption text-text-secondary">State</span>
                         <div class="flex items-center gap-1.5">
                             <span class="w-1.5 h-1.5 rounded-full {dotColor}"></span>
-                            <span class="text-caption text-text">{status.backendState}</span>
+                            <span class="text-caption text-text">{stateLabel}</span>
                         </div>
                     </div>
                     {#if primaryIP}
@@ -123,6 +129,17 @@
                             </div>
                         {/each}
                     </div>
+                </div>
+            {/if}
+
+            {#if showTsHealth}
+                <div class="border-t border-border"></div>
+                <div class="px-4 pt-3 pb-4">
+                    <div class="eyebrow text-text-tertiary mb-3">Tailscale Health</div>
+                    <div class="text-body font-medium text-text">{tsWaiting.title}</div>
+                    {#if tsWaiting.text}
+                        <div class="mt-1 text-caption text-text-tertiary">{tsWaiting.text}</div>
+                    {/if}
                 </div>
             {/if}
         </div>

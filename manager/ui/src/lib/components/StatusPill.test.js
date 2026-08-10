@@ -9,6 +9,7 @@ function makeStatus(overrides = {}) {
         tailscaleIPs: ['100.64.0.1'],
         connected: true,
         firewallHealth: null,
+        health: [],
         ...overrides,
     };
 }
@@ -21,11 +22,20 @@ describe('StatusPill', () => {
         expect(screen.getByText(/Running/)).toBeInTheDocument();
     });
 
-    it('renders NeedsLogin state text', () => {
+    it('renders NeedsLogin as a human label', () => {
         render(StatusPill, {
             status: makeStatus({ backendState: 'NeedsLogin' }),
         });
-        expect(screen.getByText(/NeedsLogin/)).toBeInTheDocument();
+        expect(screen.getByText(/Needs Login/)).toBeInTheDocument();
+        expect(screen.queryByText(/NeedsLogin/)).not.toBeInTheDocument();
+    });
+
+    it('renders NoState as Connecting, never as the raw enum name', () => {
+        render(StatusPill, {
+            status: makeStatus({ backendState: 'NoState', tailscaleIPs: [] }),
+        });
+        expect(screen.getByText(/Connecting/)).toBeInTheDocument();
+        expect(screen.queryByText(/NoState/)).not.toBeInTheDocument();
     });
 
     it('shows IP from tailscaleIPs', () => {
@@ -147,5 +157,45 @@ describe('StatusPill', () => {
         await waitFor(() => {
             expect(screen.getByText('tailscale0 in zone CUSTOM1')).toBeInTheDocument();
         });
+    });
+});
+
+describe('StatusPill Tailscale Health section', () => {
+    const outOfSync = {
+        code: 'not-in-map-poll',
+        title: 'Out of sync',
+        text: 'Unable to connect to the Tailscale coordination server to synchronize the state of your tailnet.',
+        severity: 'medium',
+        impactsConnectivity: true,
+    };
+
+    it('shows the reason in the popover when a warning is active', async () => {
+        render(StatusPill, {
+            status: makeStatus({ backendState: 'NoState', health: [outOfSync] }),
+        });
+        await fireEvent.click(screen.getByRole('button'));
+        await waitFor(() => {
+            expect(screen.getByText('Tailscale Health')).toBeInTheDocument();
+            expect(screen.getByText('Out of sync')).toBeInTheDocument();
+        });
+    });
+
+    it('shows the waiting reason when the data stream is down', async () => {
+        render(StatusPill, {
+            status: makeStatus({ backendState: 'NoState', connected: false }),
+        });
+        await fireEvent.click(screen.getByRole('button'));
+        await waitFor(() => {
+            expect(screen.getByText('Waiting for tailscaled...')).toBeInTheDocument();
+        });
+    });
+
+    it('omits the section entirely when healthy and connected', async () => {
+        render(StatusPill, { status: makeStatus() });
+        await fireEvent.click(screen.getByRole('button'));
+        await waitFor(() => {
+            expect(screen.getByText('Tailnet IP')).toBeInTheDocument();
+        });
+        expect(screen.queryByText('Tailscale Health')).not.toBeInTheDocument();
     });
 });
