@@ -8,10 +8,12 @@
     import SetupRequired from './SetupRequired.svelte';
     import DeviceInfo from './DeviceInfo.svelte';
     import Icon from './Icon.svelte';
+    import { waitingReason } from '../helpers/tailscale-health.js';
 
     let { status, deviceInfo } = $props();
 
     let integrationConfigured = $derived(status.integrationStatus?.configured ?? false);
+    let waiting = $derived(waitingReason(status));
 
     const STORAGE_KEY = 'dashboard-split';
     const MIN = 0.2, MAX = 0.8;
@@ -131,7 +133,10 @@
     <div class="space-y-4">
         <DeviceInfo {deviceInfo} />
         <section class="bg-surface rounded-xl p-6 border border-border text-center">
-            <p class="text-body text-text-secondary animate-pulse">Waiting for tailscaled...</p>
+            <p class="text-body font-medium text-text">{waiting.title}</p>
+            {#if waiting.text}
+                <p class="mt-1 text-caption text-text-tertiary">{waiting.text}</p>
+            {/if}
         </section>
     </div>
 {/if}
