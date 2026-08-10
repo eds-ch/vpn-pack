@@ -37,7 +37,7 @@
             <rect x="16" y="16" width="40" height="40" rx="12" fill="#006FFF" />
             <rect x="72" y="72" width="40" height="40" rx="12" fill="#006FFF" />
         </svg>
-        <span class="text-body font-bold text-text-heading">VPN Pack</span>
+        <span class="text-body font-semibold text-text-heading">VPN Pack</span>
         {#if hostname}
             <span class="w-px h-4 bg-border self-center"></span>
             <span class="text-body text-text-secondary hidden md:inline truncate max-w-48">{hostname}</span>
@@ -70,7 +70,7 @@
             <Icon name="alert-triangle" size={14} class="text-warning shrink-0" />
             <span class="text-caption text-warning truncate">
                 {#if zbfDisabled}
-                    Zone-Based Firewall required. In UniFi Network go to Settings → Firewall & Security and click "Upgrade to the New Zone-Based Firewall".
+                    Zone-Based Firewall required. In UniFi Network open Settings, then Firewall & Security, and click "Upgrade to the New Zone-Based Firewall".
                 {:else if isNeedsLogin}
                     Integration API key required to activate Tailscale.
                 {:else}
@@ -82,7 +82,7 @@
             {#if onNavigateIntegration}
                 <button
                     onclick={onNavigateIntegration}
-                    class="text-caption font-bold text-warning hover:text-warning/80 underline underline-offset-2 whitespace-nowrap transition-colors"
+                    class="text-caption text-warning hover:text-warning/80 underline underline-offset-2 whitespace-nowrap transition-colors"
                 >
                     Configure in Settings
                 </button>
@@ -112,7 +112,7 @@
         <div class="flex items-center gap-2 shrink-0">
             {#if updateInfo.changelogURL}
                 <a href={safeHref(updateInfo.changelogURL)} target="_blank" rel="noopener"
-                   class="text-caption font-bold text-info hover:text-info/80 underline underline-offset-2 whitespace-nowrap transition-colors">
+                   class="text-caption text-info hover:text-info/80 underline underline-offset-2 whitespace-nowrap transition-colors">
                     Release notes
                 </a>
             {/if}

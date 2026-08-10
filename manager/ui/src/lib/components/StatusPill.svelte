@@ -11,7 +11,7 @@
 
     let healthChecks = $derived(health ? [
         { label: 'Firewall Zone', ok: health.zoneActive,
-          desc: health.zoneActive ? `tailscale0 → ${health.zoneName || health.chainPrefix || 'VPN'}` : 'Not in firewall zone' },
+          desc: health.zoneActive ? `tailscale0 in zone ${health.zoneName || health.chainPrefix || 'VPN'}` : 'Not in firewall zone' },
         { label: 'Watcher', ok: health.watcherRunning,
           desc: health.watcherRunning ? 'Monitoring config push events' : 'Rules won\'t auto-restore' },
         { label: 'UDAPI Socket', ok: health.udapiReachable,
@@ -40,7 +40,7 @@
 <div class="relative" bind:this={root}>
     <button
         onclick={() => open = !open}
-        class="flex items-center gap-1.5 py-1 text-caption cursor-pointer transition-colors
+        class="flex items-center gap-1.5 py-1 text-body cursor-pointer transition-colors
             hover:text-text-heading
             {open ? 'text-text-heading' : ''}"
         aria-expanded={open}
@@ -52,10 +52,10 @@
         </span>
         {#if primaryIP}
             <span class="text-text-tertiary hidden sm:inline">·</span>
-            <span class="text-text-secondary font-mono hidden sm:inline">{primaryIP}</span>
+            <span class="text-text-secondary hidden sm:inline">{primaryIP}</span>
         {/if}
         {#if totalIssues > 0}
-            <span class="ml-0.5 w-4 h-4 rounded-full bg-warning/20 text-warning text-micro font-bold flex items-center justify-center">{totalIssues}</span>
+            <span class="ml-0.5 w-4 h-4 rounded-full bg-warning/20 text-warning text-caption font-semibold flex items-center justify-center">{totalIssues}</span>
         {/if}
     </button>
 
@@ -63,7 +63,7 @@
         <div class="popover-enter fixed md:absolute inset-x-3 md:inset-x-auto bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px)+0.5rem)] md:bottom-auto md:right-0 md:top-full md:mt-2 z-50 bg-surface border border-border rounded-xl shadow-card md:w-72"
              role="dialog" aria-label="Tailscale status details">
             <div class="px-4 pt-4 pb-3">
-                <div class="text-micro font-bold text-text-tertiary uppercase tracking-wider mb-3">Tailscale</div>
+                <div class="eyebrow text-text-tertiary mb-3">Tailscale</div>
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
                         <span class="text-caption text-text-secondary">State</span>
@@ -75,7 +75,7 @@
                     {#if primaryIP}
                         <div class="flex items-center justify-between">
                             <span class="text-caption text-text-secondary">Tailnet IP</span>
-                            <span class="text-caption text-text font-mono">{primaryIP}</span>
+                            <span class="text-caption text-text">{primaryIP}</span>
                         </div>
                     {/if}
                     <div class="flex items-center justify-between">
@@ -91,7 +91,7 @@
             {#if health}
                 <div class="border-t border-border"></div>
                 <div class="px-4 pt-3 pb-4">
-                    <div class="text-micro font-bold text-text-tertiary uppercase tracking-wider mb-3">Integration Health</div>
+                    <div class="eyebrow text-text-tertiary mb-3">Integration Health</div>
                     <div class="space-y-3">
                         {#each healthChecks as check (check.label)}
                             <div class="flex items-start gap-2.5">
@@ -109,7 +109,7 @@
             {#if watcherEntries.length > 0}
                 <div class="border-t border-border"></div>
                 <div class="px-4 pt-3 pb-4">
-                    <div class="text-micro font-bold text-text-tertiary uppercase tracking-wider mb-3">Watcher Health</div>
+                    <div class="eyebrow text-text-tertiary mb-3">Watcher Health</div>
                     <div class="space-y-3">
                         {#each watcherEntries as [name, w] (name)}
                             <div class="flex items-start gap-2.5">

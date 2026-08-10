@@ -30,7 +30,7 @@
 </script>
 
 <div>
-    <h2 class="text-heading text-text-heading">Advanced</h2>
+    <h2 class="text-section text-text-heading">Advanced</h2>
     <p class="text-caption text-text-tertiary mt-1">Control server and network-level options</p>
 </div>
 

@@ -27,6 +27,6 @@
         </button>
     </div>
     <p class="text-caption text-text-tertiary">
-        Create at <span class="text-text-secondary">unifi.ui.com</span> &rarr; Settings &rarr; API
+        Create it at <span class="text-text-secondary">unifi.ui.com</span>, under Settings, API
     </p>
 </div>

@@ -125,7 +125,7 @@ describe('StatusPill', () => {
         await fireEvent.click(button);
 
         await waitFor(() => {
-            expect(screen.getByText('tailscale0 → VPN Pack: Tailscale')).toBeInTheDocument();
+            expect(screen.getByText('tailscale0 in zone VPN Pack: Tailscale')).toBeInTheDocument();
         });
     });
 
@@ -145,7 +145,7 @@ describe('StatusPill', () => {
         await fireEvent.click(button);
 
         await waitFor(() => {
-            expect(screen.getByText('tailscale0 → CUSTOM1')).toBeInTheDocument();
+            expect(screen.getByText('tailscale0 in zone CUSTOM1')).toBeInTheDocument();
         });
     });
 });

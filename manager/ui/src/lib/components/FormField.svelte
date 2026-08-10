@@ -18,7 +18,7 @@
 </script>
 
 <div>
-    <span class="text-caption text-text-secondary">{label}</span>
+    <span class="text-body text-text">{label}</span>
     <input {type} bind:value {placeholder} {oninput} {onpaste} class={inputCls} />
     {#if error}<p class="text-caption text-error mt-0.5">{error}</p>{/if}
 </div>

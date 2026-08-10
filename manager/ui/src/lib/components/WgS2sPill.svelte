@@ -12,7 +12,7 @@
 </script>
 
 {#if total > 0}
-    <div class="flex items-center gap-1.5 text-caption">
+    <div class="flex items-center gap-1.5 text-body">
         <span class="w-2 h-2 rounded-full {dotColor} shrink-0"></span>
         <span class="text-text">WG S2S</span>
         <span class="text-text-tertiary">·</span>

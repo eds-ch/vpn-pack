@@ -21,7 +21,7 @@
 <section class="bg-surface rounded-xl border border-warning/30 overflow-hidden">
     <div class="bg-warning/8 border-b border-warning/15 px-5 py-3 flex items-center gap-2.5">
         <Icon name="alert-triangle" size={16} class="text-warning shrink-0" />
-        <h3 class="text-body font-bold text-text-heading">Setup Required</h3>
+        <h3 class="text-body font-semibold text-text-heading">Setup Required</h3>
     </div>
 
     <div class="p-5 space-y-4">

@@ -80,7 +80,7 @@
         <div class="flex rounded-lg border border-border overflow-hidden">
             {#each sourceFilters as f (f.id)}
                 <button
-                    class="h-8 px-3 text-caption font-bold transition-colors
+                    class="h-8 px-3 text-body font-semibold transition-colors
                         {source === f.id
                             ? 'bg-blue text-white'
                             : 'text-text-secondary hover:text-text hover:bg-surface'}"
@@ -94,7 +94,7 @@
         <div class="flex rounded-lg border border-border overflow-hidden">
             {#each levelFilters as f (f.id)}
                 <button
-                    class="h-8 px-3 text-caption font-bold transition-colors
+                    class="h-8 px-3 text-body font-semibold transition-colors
                         {filter === f.id
                             ? 'bg-blue text-white'
                             : 'text-text-secondary hover:text-text hover:bg-surface'}"
@@ -110,7 +110,7 @@
                 type="text"
                 placeholder="Search logs..."
                 bind:value={search}
-                class="w-full h-8 px-3 text-caption rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue {search ? 'pr-7' : ''}"
+                class="w-full h-8 px-3 text-body rounded-lg border border-border bg-input text-text placeholder-text-secondary focus:outline-none focus:border-blue {search ? 'pr-7' : ''}"
             />
             {#if search}
                 <button
@@ -131,7 +131,7 @@
             {/if}
             <button
                 onclick={loadLogs}
-                class="h-8 px-3 text-caption font-bold rounded-lg border border-border text-text-secondary hover:text-text hover:bg-surface transition-colors"
+                class="h-8 px-3 text-body font-semibold rounded-lg border border-border text-text-secondary hover:text-text hover:bg-surface transition-colors"
             >
                 Refresh
             </button>
@@ -150,34 +150,34 @@
         {:else}
             {#each filtered as entry, i (entry.timestamp + '-' + i)}
                 <!-- Desktop: horizontal row -->
-                <div class="hidden md:flex items-start gap-3 px-3 py-1.5 border-b border-border/50 last:border-b-0 font-mono text-caption">
-                    <span class="text-text-secondary shrink-0 w-20">
+                <div class="hidden md:flex items-start gap-3 px-3 py-1.5 border-b border-border/50 last:border-b-0 text-caption">
+                    <span class="font-mono text-text-secondary shrink-0 w-20">
                         {new Date(entry.timestamp).toLocaleTimeString()}
                     </span>
-                    <span class="shrink-0 px-1.5 py-0.5 rounded text-micro uppercase font-bold
+                    <span class="shrink-0 px-1.5 py-0.5 rounded badge-label
                         {entry.source === 'wgs2s' ? 'bg-purple/20 text-purple' : 'bg-aqua/20 text-aqua'}">
                         {entry.source === 'wgs2s' ? 'S2S' : 'TS'}
                     </span>
-                    <span class="shrink-0 px-1.5 py-0.5 rounded text-micro uppercase font-bold {badgeColors[entry.level] ?? 'bg-border text-text-secondary'}">
+                    <span class="shrink-0 px-1.5 py-0.5 rounded badge-label {badgeColors[entry.level] ?? 'bg-border text-text-secondary'}">
                         {entry.level}
                     </span>
-                    <span class="text-text break-all">{entry.message}</span>
+                    <span class="font-mono text-text break-all">{entry.message}</span>
                 </div>
                 <!-- Mobile: compact stacked -->
-                <div class="md:hidden px-3 py-2 border-b border-border/50 last:border-b-0 font-mono text-caption">
+                <div class="md:hidden px-3 py-2 border-b border-border/50 last:border-b-0 text-caption">
                     <div class="flex items-center gap-2 mb-0.5">
-                        <span class="text-text-secondary">
+                        <span class="font-mono text-text-secondary">
                             {new Date(entry.timestamp).toLocaleTimeString()}
                         </span>
-                        <span class="px-1.5 py-0.5 rounded text-micro uppercase font-bold
+                        <span class="px-1.5 py-0.5 rounded badge-label
                             {entry.source === 'wgs2s' ? 'bg-purple/20 text-purple' : 'bg-aqua/20 text-aqua'}">
                             {entry.source === 'wgs2s' ? 'S2S' : 'TS'}
                         </span>
-                        <span class="px-1.5 py-0.5 rounded text-micro uppercase font-bold {badgeColors[entry.level] ?? 'bg-border text-text-secondary'}">
+                        <span class="px-1.5 py-0.5 rounded badge-label {badgeColors[entry.level] ?? 'bg-border text-text-secondary'}">
                             {entry.level}
                         </span>
                     </div>
-                    <span class="text-text break-all leading-relaxed">{entry.message}</span>
+                    <span class="font-mono text-text break-all">{entry.message}</span>
                 </div>
             {/each}
         {/if}

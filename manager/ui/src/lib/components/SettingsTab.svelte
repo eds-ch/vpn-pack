@@ -82,7 +82,7 @@
     <button
         class="text-left px-3 py-2 text-body rounded-lg transition-all duration-150
             {subTab === tab.id
-                ? 'text-blue font-bold bg-surface'
+                ? 'text-blue font-semibold bg-surface'
                 : 'text-text-secondary hover:text-text hover:bg-surface-hover'}"
         onclick={() => onSubTabChange(tab.id)}
     >{tab.label}</button>
@@ -92,7 +92,7 @@
     <button
         class="px-3 py-1.5 text-body rounded-lg whitespace-nowrap transition-all duration-150
             {subTab === tab.id
-                ? 'text-blue font-bold bg-surface'
+                ? 'text-blue font-semibold bg-surface'
                 : 'text-text-secondary'}"
         onclick={() => onSubTabChange(tab.id)}
     >{tab.label}</button>
@@ -101,9 +101,9 @@
 <div class="flex flex-col md:flex-row gap-4 md:gap-6">
     <!-- Desktop: sectioned sidebar -->
     <nav class="hidden md:flex flex-col w-44 shrink-0">
-        <h2 class="text-title text-text-heading px-3 mb-5">Settings</h2>
+        <h2 class="text-page text-text-heading px-3 mb-5">Settings</h2>
 
-        <span class="flex items-center gap-1.5 px-3 pb-1.5 text-caption font-bold text-text-tertiary uppercase tracking-wider">
+        <span class="flex items-center gap-1.5 px-3 pb-1.5 eyebrow text-text-tertiary">
             <Icon name="tailscale" size={14} class="shrink-0 text-text-secondary" /><span>Tailscale</span>
         </span>
         <div class="flex flex-col gap-0.5">
@@ -114,7 +114,7 @@
 
         <div class="my-3 mx-3 border-t border-border"></div>
 
-        <span class="flex items-center gap-1.5 px-3 pb-1.5 text-caption font-bold text-text-tertiary uppercase tracking-wider">
+        <span class="flex items-center gap-1.5 px-3 pb-1.5 eyebrow text-text-tertiary">
             <Icon name="wireguard" size={14} class="shrink-0 text-text-secondary" /><span>WireGuard</span>
         </span>
         <div class="flex flex-col gap-0.5">
@@ -125,7 +125,7 @@
 
         <div class="my-3 mx-3 border-t border-border"></div>
 
-        <span class="flex items-center gap-1.5 px-3 pb-1.5 text-caption font-bold text-text-tertiary uppercase tracking-wider">
+        <span class="flex items-center gap-1.5 px-3 pb-1.5 eyebrow text-text-tertiary">
             <Icon name="ubiquiti" size={14} class="shrink-0 text-text-secondary" /><span>UniFi</span>
         </span>
         <div class="flex flex-col gap-0.5">

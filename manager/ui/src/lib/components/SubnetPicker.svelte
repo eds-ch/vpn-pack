@@ -84,7 +84,7 @@
                             onchange={() => toggleRoute(subnet.cidr)}
                             class="w-4 h-4 rounded border-border text-blue accent-blue"
                         />
-                        <span class="text-text font-mono text-caption">{subnet.cidr}</span>
+                        <span class="text-body text-text">{subnet.cidr}</span>
                         <span class="text-text-secondary text-caption">{subnet.name}</span>
                         {#if approvalBadge(subnet.cidr) === 'approved'}
                             <span class="ml-auto text-caption text-success">Approved</span>
@@ -109,7 +109,7 @@
                             onchange={() => toggleRoute(cidr)}
                             class="w-4 h-4 rounded border-border text-blue accent-blue"
                         />
-                        <span class="text-text font-mono text-caption">{cidr}</span>
+                        <span class="text-body text-text">{cidr}</span>
                         {#if approvalBadge(cidr) === 'approved'}
                             <span class="text-caption text-success">Approved</span>
                         {:else if approvalBadge(cidr) === 'pending'}

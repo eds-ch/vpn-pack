@@ -179,7 +179,7 @@
 </script>
 
 <div class="mb-8">
-    <h2 class="text-heading text-text-heading">Routing</h2>
+    <h2 class="text-section text-text-heading">Routing</h2>
     <p class="text-caption text-text-tertiary mt-1">Subnet routes and exit node configuration</p>
 </div>
 
@@ -217,7 +217,7 @@
         />
         {#if advertiseConfirmPending}
             <div class="p-3 rounded-lg bg-warning/10 border border-warning/30 -mt-2 mb-2">
-                <p class="text-body text-warning font-bold mb-1">Disable remote exit node?</p>
+                <p class="text-body text-warning font-semibold mb-1">Disable remote exit node?</p>
                 <p class="text-caption text-text-secondary mb-3">
                     Remote exit node ({status.usingExitNode?.hostName}) will be disabled.
                     Traffic will no longer be routed through it.
@@ -252,7 +252,7 @@
 
     {#if awaitingConfirm}
         <div class="p-3 rounded-lg bg-warning/10 border border-warning/30 mt-4">
-            <p class="text-body text-warning font-bold mb-1">Confirm exit node change</p>
+            <p class="text-body text-warning font-semibold mb-1">Confirm exit node change</p>
             <p class="text-caption text-text-secondary">{confirmWarning}</p>
         </div>
     {/if}

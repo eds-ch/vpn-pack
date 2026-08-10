@@ -49,12 +49,12 @@
 <div class="space-y-8">
     <div class="flex justify-between items-start">
         <div>
-            <h2 class="text-heading text-text-heading">S2S Tunnels</h2>
+            <h2 class="text-section text-text-heading">S2S Tunnels</h2>
             <p class="text-caption text-text-tertiary mt-1">Direct encrypted connections between remote networks</p>
         </div>
         <button
             onclick={() => showForm = !showForm}
-            class="px-4 py-2 rounded-lg text-body font-bold bg-blue text-white hover:bg-blue-hover transition-colors"
+            class="px-4 py-2 rounded-lg text-body font-semibold bg-blue text-white hover:bg-blue-hover transition-colors"
         >
             {showForm ? 'Cancel' : 'Create Tunnel'}
         </button>

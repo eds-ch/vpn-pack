@@ -34,7 +34,7 @@
             >
                 <Icon name={tab.icon} size={18} />
             </button>
-            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                 {tab.label}
             </span>
         </div>
@@ -54,7 +54,7 @@
             >
                 <Icon name={tab.icon} size={18} />
             </button>
-            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                 {tab.label}
             </span>
         </div>
@@ -69,7 +69,7 @@
             >
                 <Icon name="ubiquiti" size={18} />
             </a>
-            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+            <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                 UniFi Network
             </span>
         </div>
@@ -85,11 +85,11 @@
                 >
                     <Icon name="github" size={18} />
                 </a>
-                <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption font-bold text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+                <span class="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 text-caption text-white bg-tooltip rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                     GitHub
                 </span>
             </div>
-            <span class="text-micro text-text-tertiary text-center leading-tight">
+            <span class="text-caption text-text-tertiary text-center">
                 v{versionBase}{#if versionSuffix}<br/><span class="opacity-60">{versionSuffix}</span>{/if}
             </span>
         </div>
@@ -109,7 +109,7 @@
                 aria-label={tab.label}
             >
                 <Icon name={tab.icon} size={20} />
-                <span class="text-micro">{tab.label}</span>
+                <span class="text-caption">{tab.label}</span>
             </button>
         {/each}
         <a
@@ -118,7 +118,7 @@
             aria-label="UniFi Network"
         >
             <Icon name="ubiquiti" size={20} />
-            <span class="text-micro">UniFi</span>
+            <span class="text-caption">UniFi</span>
         </a>
     </div>
 </nav>

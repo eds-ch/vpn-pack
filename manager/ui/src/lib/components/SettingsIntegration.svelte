@@ -58,7 +58,7 @@
 </script>
 
 <div>
-    <h2 class="text-heading text-text-heading">Integration</h2>
+    <h2 class="text-section text-text-heading">Integration</h2>
     <p class="text-caption text-text-tertiary mt-1">UniFi Network API for automatic firewall zone management</p>
 </div>
 
@@ -93,7 +93,7 @@
             {#if integrationStatus?.siteId}
                 <div class="flex justify-between text-body">
                     <span class="text-text-secondary">Site ID</span>
-                    <span class="text-text font-mono text-caption">{integrationStatus.siteId}</span>
+                    <span class="text-body text-text">{integrationStatus.siteId}</span>
                 </div>
             {/if}
             {#if integrationStatus?.appVersion}
@@ -105,7 +105,7 @@
             {#if integrationStatus?.zbfEnabled === false}
                 <div class="flex gap-2 items-start mt-2 p-2.5 rounded-lg bg-warning/8 border border-warning/20">
                     <Icon name="alert-triangle" size={14} class="text-warning shrink-0 mt-0.5" />
-                    <span class="text-caption text-warning">Zone-Based Firewall is required. In UniFi Network go to Settings → Firewall & Security and click "Upgrade to the New Zone-Based Firewall".</span>
+                    <span class="text-caption text-warning">Zone-Based Firewall is required. In UniFi Network open Settings, then Firewall & Security, and click "Upgrade to the New Zone-Based Firewall".</span>
                 </div>
             {/if}
             {#if integrationStatus?.error}
@@ -141,7 +141,7 @@
             <button
                 onclick={handleRemove}
                 disabled={loading}
-                class="px-4 py-1.5 rounded-lg text-body font-bold transition-colors
+                class="px-4 py-1.5 rounded-lg text-body font-semibold transition-colors
                     {confirmRemove
                         ? 'bg-error/15 text-error border border-error/30 hover:bg-error/25'
                         : 'border border-border text-text-secondary hover:text-error hover:border-error/30'}"
