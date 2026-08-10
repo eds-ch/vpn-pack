@@ -7,7 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2-beta.1] - 2026-08-10
+
+### Changed
+- **Typography rebuilt on IBM Plex Sans and IBM Plex Mono.** Lato has no
+  monospace sibling, so IP addresses, versions and keys were set in an
+  unbundled system monospace one step smaller — a compensation for the
+  mismatched x-height that was only correct on the machine where it was
+  picked, since that stack resolves to a different face on every OS. Plex Sans
+  and Plex Mono match on x-height, cap-height, ascent, descent and digit
+  advance (8.40px at 14px), so monospace now shares the text size tokens
+  instead of needing its own, and it is confined to logs, config blocks, CLI
+  snippets and keys. Size now encodes rank and nothing else — 20/16/14/12, one
+  tier each; the five ad-hoc section-label styles collapse into a single
+  `eyebrow` utility, 10px is gone, and buttons, field labels and log-page
+  controls share one size. Arrows and check marks were replaced in copy:
+  absent from both Lato and Plex, they rendered from a fallback font
+  mid-sentence. Fonts shrank from 367K of unsubsetted Lato to 92K of
+  latin-subset Plex, and the unreferenced `Lato-300.woff` no longer ships.
+
 ### Fixed
+- **Section headings render at their intended size again.** `--text-heading`
+  held a colour while Tailwind's `@theme` declared the same name a font size.
+  The unlayered colour won the cascade, `font-size` resolved to `#f9fafa`, and
+  the declaration was dropped — so every section heading in Settings silently
+  inherited body size, leaving no step between the page title and the text
+  under it. Colour variables moved out of Tailwind's `--text-*` namespace, and
+  a test now fails if a colour is ever declared there again.
+- **Every mutation from the UI worked again.** Create Tunnel, Test Connection
+  and Save all answered 403 and bounced the browser out to UniFi Network. Two
+  CSRF schemes shared one header name: UniFi's nginx forwards the client's
+  `X-Csrf-Token` to its own auth backend as `X-Provided-Csrf-Token` and answers
+  403 before proxying, and it strips our `X-Csrf-Token` response header on the
+  way back — so the browser could never learn our token from a header, which is
+  why the UI read it from the `vp_csrf` cookie and put it in the one header
+  UniFi had already claimed. The manager now reads its token from
+  `X-VpnPack-Csrf`; the UI sends that alongside UniFi's own `X-Csrf-Token`,
+  which it captures from any response and refreshes on the retry path.
+  **Anything scripting mutations against the API must send `X-VpnPack-Csrf`
+  instead of `X-Csrf-Token`.**
 - **Device model and firmware are populated again.** `ubnt-device-info` is a
   symlink to `ubios-udapi-server`, which refuses to start unless `/etc` is
   writable and throws `std::runtime_error` otherwise. Under the SEC-B2
@@ -734,7 +772,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2-beta.1...HEAD
+[1.6.2-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.1...v1.6.2-beta.1
 [1.6.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.3...v1.6.0
 [1.6.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.2...v1.6.0-beta.3
