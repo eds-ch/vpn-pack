@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-08-10
+
+Patch release for two defects that a UniFi OS 5.1.15 → 5.1.26 / Network
+10.4.57 → 10.5.67 upgrade surfaced on UDM-SE. No Tailscale change — still
+1.102.2. Upgrading from 1.6.0 also repairs the file mode described below.
+
 ### Fixed
 - **The rendered nginx snippet no longer loses its 0640 mode when the manager
   re-creates it.** The snippet embeds the per-install `X-VpnPack-Token` secret,
@@ -698,7 +704,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.3...v1.6.0
 [1.6.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.2...v1.6.0-beta.3
 [1.6.0-beta.2]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.1...v1.6.0-beta.2
