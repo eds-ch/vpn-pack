@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"tailscale.com/health"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
@@ -619,4 +620,56 @@ func TestEnsureDERPMap_RefetchesWhenPreferredRegionIsUnknown(t *testing.T) {
 	derp := s.state.Snapshot().DERP
 	require.Len(t, derp, 1, "the node's new preferred region must not be dropped")
 	assert.Equal(t, "waw", derp[0].RegionCode)
+}
+
+// The manager subscribed to the IPN bus already receives the full
+// health.UnhealthyState for every unhealthy warnable, but used to keep only
+// the map key. During the 2026-08-10 incident that discarded value was the
+// only thing that could have told the user the node was waiting on the
+// coordination server rather than failing to start.
+func TestUpdateStateFromNotify_KeepsHealthWarningDetail(t *testing.T) {
+	s := newTestServer()
+
+	s.updateStateFromNotify(&ipn.Notify{Health: &health.State{
+		Warnings: map[health.WarnableCode]health.UnhealthyState{
+			"not-in-map-poll": {
+				WarnableCode:        "not-in-map-poll",
+				Severity:            health.SeverityMedium,
+				Title:               "Out of sync",
+				Text:                "Unable to connect to the Tailscale coordination server to synchronize the state of your tailnet.",
+				ImpactsConnectivity: true,
+			},
+		},
+	}})
+
+	got := s.state.Snapshot().Health
+	require.Len(t, got, 1)
+	require.Equal(t, domain.HealthWarning{
+		Code:                "not-in-map-poll",
+		Title:               "Out of sync",
+		Text:                "Unable to connect to the Tailscale coordination server to synchronize the state of your tailnet.",
+		Severity:            "medium",
+		ImpactsConnectivity: true,
+	}, got[0])
+}
+
+// Go map iteration order is randomised per run. Emitting the warnings in that
+// order would make two identical health states serialise differently and push
+// meaningless diffs at every SSE broadcast, and would make any ordering
+// assertion downstream flaky.
+func TestUpdateStateFromNotify_HealthWarningsSortedByCode(t *testing.T) {
+	s := newTestServer()
+
+	s.updateStateFromNotify(&ipn.Notify{Health: &health.State{
+		Warnings: map[health.WarnableCode]health.UnhealthyState{
+			"warming-up":      {Severity: health.SeverityLow, Title: "Tailscale is starting"},
+			"no-derp-home":    {Severity: health.SeverityHigh, Title: "No home relay server"},
+			"not-in-map-poll": {Severity: health.SeverityMedium, Title: "Out of sync"},
+		},
+	}})
+
+	got := s.state.Snapshot().Health
+	require.Len(t, got, 3)
+	require.Equal(t, []string{"no-derp-home", "not-in-map-poll", "warming-up"},
+		[]string{got[0].Code, got[1].Code, got[2].Code})
 }

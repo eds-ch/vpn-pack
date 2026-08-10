@@ -197,6 +197,16 @@ type HealthSnapshot struct {
 	Watchers map[string]WatcherHealth `json:"watchers"`
 }
 
+// HealthWarning mirrors the parts of health.UnhealthyState the UI needs to
+// name what tailscaled is waiting on.
+type HealthWarning struct {
+	Code                string `json:"code"`
+	Title               string `json:"title"`
+	Text                string `json:"text"`
+	Severity            string `json:"severity"`
+	ImpactsConnectivity bool   `json:"impactsConnectivity"`
+}
+
 type StateData struct {
 	BackendState      string                `json:"backendState"`
 	TailscaleIPs      []string              `json:"tailscaleIPs"`
@@ -205,7 +215,7 @@ type StateData struct {
 	ControlURL        string                `json:"controlURL"`
 	Version           string                `json:"version"`
 	Self              *SelfNode             `json:"self,omitempty"`
-	Health            []string              `json:"health,omitempty"`
+	Health            []HealthWarning       `json:"health,omitempty"`
 	ExitNode          bool                  `json:"exitNode"`
 	ExitNodeMode      ExitNodeMode          `json:"exitNodeMode,omitempty"`
 	ExitNodeClients   []ExitNodeClient      `json:"exitNodeClients,omitempty"`

@@ -268,10 +268,19 @@ func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
 		}
 
 		if n.Health != nil {
-			warnings := make([]string, 0, len(n.Health.Warnings))
-			for code := range n.Health.Warnings {
-				warnings = append(warnings, string(code))
+			warnings := make([]HealthWarning, 0, len(n.Health.Warnings))
+			for code, w := range n.Health.Warnings {
+				warnings = append(warnings, HealthWarning{
+					Code:                string(code),
+					Title:               w.Title,
+					Text:                w.Text,
+					Severity:            string(w.Severity),
+					ImpactsConnectivity: w.ImpactsConnectivity,
+				})
 			}
+			sort.Slice(warnings, func(i, j int) bool {
+				return warnings[i].Code < warnings[j].Code
+			})
 			d.Health = warnings
 		}
 	})
