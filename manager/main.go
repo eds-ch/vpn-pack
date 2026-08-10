@@ -57,10 +57,12 @@ func main() {
 		"activeVPNClients", info.ActiveVPNClients,
 	)
 
-	if err := checkMinUniFiVersion(info.UniFiVersion); err != nil {
+	resolved, err := awaitSupportedUniFiVersion(info.UniFiVersion, defaultUniFiGateDeps())
+	if err != nil {
 		slog.Error("version requirement not met", "err", err)
 		os.Exit(78)
 	}
+	info.UniFiVersion = resolved
 
 	apiKey := service.LoadAPIKey()
 	ic := buildIntegrationAPI(apiKey)

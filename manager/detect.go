@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
+
 	"unifi-tailscale/manager/config"
 )
 
@@ -99,6 +102,67 @@ func readUniFiVersion() string {
 
 const minNetworkMajor = 10
 const minNetworkMinor = 1
+
+// UniFi OS finishes applying package upgrades after the manager is already
+// running, so the version read at startup can be the pre-upgrade one. Failing
+// the gate on it is not recoverable — the exit-78 verdict is made permanent by
+// RestartPreventExitStatus — so a failed check is re-read for a bounded window
+// while the system is still early in its boot. Past that window the answer
+// cannot change under us, and an unsupported device fails immediately instead
+// of stalling every socket activation.
+const (
+	unifiGateBootWindow = 10 * time.Minute
+	unifiGateInterval   = 10 * time.Second
+	unifiGateAttempts   = 18 // 3 minutes; the observed gap was ~2
+)
+
+type unifiGateDeps struct {
+	read   func() string
+	uptime func() time.Duration
+	sleep  func(time.Duration)
+}
+
+func defaultUniFiGateDeps() unifiGateDeps {
+	return unifiGateDeps{
+		read:   readUniFiVersion,
+		uptime: systemUptime,
+		sleep:  time.Sleep,
+	}
+}
+
+// awaitSupportedUniFiVersion returns the version that satisfied the gate.
+func awaitSupportedUniFiVersion(raw string, d unifiGateDeps) (string, error) {
+	err := checkMinUniFiVersion(raw)
+	if err == nil {
+		return raw, nil
+	}
+	if d.uptime() > unifiGateBootWindow {
+		return raw, err
+	}
+
+	slog.Warn("UniFi Network version not acceptable yet; the system is still early in its boot, re-reading before giving up",
+		"found", raw, "retryFor", time.Duration(unifiGateAttempts)*unifiGateInterval)
+
+	for range unifiGateAttempts {
+		d.sleep(unifiGateInterval)
+		raw = d.read()
+		if err = checkMinUniFiVersion(raw); err == nil {
+			slog.Info("UniFi Network version became acceptable", "version", raw)
+			return raw, nil
+		}
+	}
+	return raw, err
+}
+
+func systemUptime() time.Duration {
+	var si syscall.Sysinfo_t
+	if err := syscall.Sysinfo(&si); err != nil {
+		// Unknown uptime: assume we are past the boot window so an
+		// unsupported device still fails fast.
+		return unifiGateBootWindow + time.Second
+	}
+	return time.Duration(si.Uptime) * time.Second
+}
 
 type uniFiVersion struct {
 	Major int

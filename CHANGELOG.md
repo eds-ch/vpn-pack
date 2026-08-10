@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The UniFi Network version gate no longer judges a device by a version that
+  is still being replaced.** UniFi OS finishes applying package upgrades after
+  the manager is already running, so the one-shot check at startup could read
+  the pre-upgrade version, fail, and `os.Exit(78)` — which
+  `RestartPreventExitStatus=78` turns into a permanent verdict. A device coming
+  from Network < 10.1 would have stayed dead after the very upgrade that met
+  the requirement, showing up as a 502 on `/vpn-pack/` with no failed unit. The
+  check now re-reads for a bounded window (18 × 10 s) when it fails, but only
+  while system uptime is under 10 minutes: past that the answer cannot change
+  under us, so a genuinely unsupported device still fails immediately instead
+  of stalling every socket activation for minutes.
+
 ## [1.6.1] - 2026-08-10
 
 Patch release for two defects that a UniFi OS 5.1.15 → 5.1.26 / Network
