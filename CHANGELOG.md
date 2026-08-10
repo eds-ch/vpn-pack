@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3-beta.1] - 2026-08-10
+
+No soak: the Tailscale version is unchanged from 1.6.2 (1.102.2) and nothing
+here touches the data path. Verified on UDM-SE — the new payload was observed
+travelling the IPN bus with real data during a `tailscaled` restart:
+`{"code":"mapresponse-timeout","title":"Network map response timeout","text":
+"Tailscale hasn't received a network map from the coordination server in
+2m6s.","severity":"medium","impactsConnectivity":false}`, matching the
+daemon's own `health(warnable=mapresponse-timeout)` log line to the second.
+`backendState` was `Running` throughout that window, which is the case the
+header section exists for. The `NoState` path itself was exercised by unit
+test only: across four restarts the node went `Unavailable` to `Running` in
+under two seconds and never took the slow path.
+
 ### Changed
 - **`Status.health` now carries the warning, not just its name.** The manager
   subscribes to the IPN health bus and already received a full
@@ -814,7 +828,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.3-beta.1...HEAD
+[1.6.3-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2...v1.6.3-beta.1
 [1.6.2]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2-beta.1...v1.6.2
 [1.6.2-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.1...v1.6.2-beta.1
 [1.6.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0...v1.6.1
