@@ -64,7 +64,7 @@
     <button
         onclick={handleSubmit}
         disabled={loading || !authKey.trim()}
-        class="w-full px-4 py-2 rounded-lg text-body font-bold bg-blue text-white hover:bg-blue-hover disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+        class="w-full px-4 py-2 rounded-lg text-body font-semibold bg-blue text-white hover:bg-blue-hover disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
     >
         {#if loading}
             <span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>

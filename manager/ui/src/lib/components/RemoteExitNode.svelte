@@ -136,7 +136,7 @@
                                                 class="flex items-center px-1.5 self-stretch border-r border-blue/20 text-error/50 hover:text-error hover:bg-error/10 transition-colors"
                                                 aria-label="Remove {client.ip}"
                                             >&times;</button>
-                                            <span class="px-2 py-0.5 font-mono text-text bg-blue/10">{client.ip}</span>
+                                            <span class="px-2 py-0.5 text-text bg-blue/10">{client.ip}</span>
                                             {#if client.label}
                                                 <span class="px-2 py-0.5 text-text-tertiary border-l border-blue/20">{client.label}</span>
                                             {/if}

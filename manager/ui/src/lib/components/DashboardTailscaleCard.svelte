@@ -40,12 +40,12 @@
     <div class="flex flex-col flex-1 min-h-0">
         <div class="p-4 flex flex-col">
             <div class="flex items-center justify-between mb-3">
-                <h3 class="flex items-center gap-1.5 text-caption font-bold text-text-secondary uppercase tracking-wider">
-                    <Icon name="tailscale" size={14} class="shrink-0" /><span class="cap-center">Tailscale</span>
+                <h3 class="flex items-center gap-1.5 eyebrow text-text-secondary">
+                    <Icon name="tailscale" size={14} class="shrink-0" /><span>Tailscale</span>
                 </h3>
                 <span class="flex items-center gap-1.5">
                     <span class="w-2 h-2 rounded-full shrink-0 {dotColor}"></span>
-                    <span class="text-caption font-bold text-text-heading">{stateLabel}</span>
+                    <span class="text-body font-medium text-text">{stateLabel}</span>
                 </span>
             </div>
 
@@ -60,7 +60,7 @@
                 {#if status.tailscaleIPs?.[0]}
                     <div class="flex justify-between">
                         <span class="text-text-secondary shrink-0">Tailscale IP</span>
-                        <span class="text-text font-mono text-caption">{status.tailscaleIPs[0]}</span>
+                        <span class="text-text">{status.tailscaleIPs[0]}</span>
                     </div>
                 {/if}
 
@@ -74,7 +74,7 @@
                 {#if status.controlURL}
                     <div class="flex justify-between">
                         <span class="text-text-secondary shrink-0">Control Server</span>
-                        <span class="text-text truncate ml-4 text-caption font-mono">{controlHost}</span>
+                        <span class="text-text truncate ml-4">{controlHost}</span>
                     </div>
                 {/if}
 
@@ -88,7 +88,7 @@
                 <div class="flex justify-between">
                     <span class="text-text-secondary shrink-0">DERP</span>
                     {#if preferredRegion}
-                        <span class="text-text font-mono text-caption flex items-center gap-1.5">
+                        <span class="text-text flex items-center gap-1.5">
                             <span class="w-1.5 h-1.5 rounded-full bg-success shrink-0"></span>
                             {preferredRegion.regionCode}
                             <span class="text-success">{preferredRegion.latencyMs.toFixed(0)}ms</span>
@@ -100,7 +100,7 @@
                 {#if nearbyRegions.length > 0}
                     <div class="flex justify-end gap-2.5 -mt-0.5">
                         {#each nearbyRegions as r (r.regionID)}
-                            <span class="text-caption font-mono text-text-tertiary/70">
+                            <span class="text-caption text-text-tertiary/70">
                                 {r.regionCode}
                                 <span class={latencyClass(r.latencyMs)}>{r.latencyMs.toFixed(0)}ms</span>
                             </span>
@@ -112,7 +112,7 @@
 
             {#if selfPeer && (selfPeer.rxBytes != null || selfPeer.txBytes != null)}
                 <div class="mt-3 pt-3 border-t border-border">
-                    <h4 class="text-caption font-bold text-text-secondary uppercase tracking-wider mb-2.5">Traffic</h4>
+                    <h4 class="eyebrow text-text-secondary mb-2.5">Traffic</h4>
                     <div class="flex gap-6 text-body">
                         {#if selfPeer.rxBytes != null}
                             <div class="flex gap-2">
@@ -132,7 +132,7 @@
         </div>
 
         <div class="flex flex-col min-h-0 border-t border-border">
-            <h3 class="text-caption font-bold text-text-secondary uppercase tracking-wider px-4 pt-4 pb-2">
+            <h3 class="eyebrow text-text-secondary px-4 pt-4 pb-2">
                 Peers ({peers.length})
             </h3>
             {#if peers.length === 0}
@@ -159,7 +159,7 @@
                                     </span>
                                 </div>
                                 <div class="flex items-center gap-3 mt-0.5 text-caption text-text-secondary">
-                                    <span class="font-mono">{peer.tailscaleIP}</span>
+                                    <span>{peer.tailscaleIP}</span>
                                     <span>{peer.os}</span>
                                     {#if peer.online}
                                         <span class="text-success">Now</span>

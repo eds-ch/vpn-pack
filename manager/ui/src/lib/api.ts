@@ -43,6 +43,17 @@ function csrfToken(): string {
     return m ? decodeURIComponent(m[1]) : '';
 }
 
+// UniFi OS runs its own CSRF scheme on the X-Csrf-Token header and enforces it
+// in nginx, before the request reaches the manager. It hands the current token
+// back on every response through /vpn-pack/, so capture it there and echo it on
+// mutations. Our own token travels separately in X-VpnPack-Csrf.
+let unifiCsrfToken = '';
+
+function rememberUnifiCsrf(res: Response): void {
+    const tok = res.headers?.get?.('X-Csrf-Token');
+    if (tok) unifiCsrfToken = tok;
+}
+
 function extractError(data: Record<string, unknown>, status: number): string {
     const err = data?.error;
     if (typeof err === 'string') return err;
@@ -60,7 +71,8 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
         else if (isMutation) headers['Content-Type'] = 'application/json';
         if (isMutation) {
             const tok = csrfToken();
-            if (tok) headers['X-Csrf-Token'] = tok;
+            if (tok) headers['X-VpnPack-Csrf'] = tok;
+            if (unifiCsrfToken) headers['X-Csrf-Token'] = unifiCsrfToken;
         }
 
         const opts: RequestInit = { method, headers, signal: controller.signal };
@@ -68,13 +80,16 @@ async function apiFetch<T>(method: string, path: string, body?: unknown, { timeo
 
         const res = await fetch(path, opts);
         clearTimeout(timer);
+        rememberUnifiCsrf(res);
 
         if (res.status === 401 || res.status === 403) {
             if (!_isRetry) {
                 try {
-                    // Re-prime the vp_csrf cookie by hitting a safe endpoint;
-                    // the Set-Cookie response will populate document.cookie.
+                    // Re-prime both tokens from a safe endpoint: Set-Cookie
+                    // repopulates vp_csrf, and the response carries UniFi's
+                    // current X-Csrf-Token.
                     const refreshRes = await fetch(`${API_BASE}/status`);
+                    rememberUnifiCsrf(refreshRes);
                     if (refreshRes.ok) {
                         return apiFetch<T>(method, path, body, { timeout, silent, _isRetry: true });
                     }

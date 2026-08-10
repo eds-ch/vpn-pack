@@ -136,7 +136,7 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { r
 // process's euid (httptest uses TCP, which has no SO_PEERCRED); the
 // CSRF cookie's Secure flag is flipped off so the cookie jar will echo
 // it back over plain http. The returned client primes the CSRF cookie
-// and copies it as X-Csrf-Token on every non-GET request.
+// and copies it as X-VpnPack-Csrf on every non-GET request.
 func newAuthedTestClient(t *testing.T, srv *Server) (*httptest.Server, *http.Client) {
 	t.Helper()
 
@@ -166,7 +166,7 @@ func newAuthedTestClient(t *testing.T, srv *Server) (*httptest.Server, *http.Cli
 			u, _ := url.Parse(h.URL)
 			for _, c := range jar.Cookies(u) {
 				if c.Name == "vp_csrf" {
-					r.Header.Set("X-Csrf-Token", c.Value)
+					r.Header.Set("X-VpnPack-Csrf", c.Value)
 				}
 			}
 			if r.Header.Get("Content-Type") == "" {

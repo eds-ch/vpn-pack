@@ -8,11 +8,11 @@
 <section class="bg-surface rounded-xl border border-border overflow-hidden">
     <div class="p-4 flex flex-col">
         <div class="flex items-center justify-between mb-3">
-            <h3 class="flex items-center gap-1.5 text-caption font-bold text-text-secondary uppercase tracking-wider">
-                <Icon name="ubiquiti" size={14} class="shrink-0" /><span class="cap-center">UniFi</span>
+            <h3 class="flex items-center gap-1.5 eyebrow text-text-secondary">
+                <Icon name="ubiquiti" size={14} class="shrink-0" /><span>UniFi</span>
             </h3>
             {#if deviceInfo?.modelShort || deviceInfo?.model}
-                <span class="text-caption font-bold text-text-heading">{deviceInfo.modelShort || deviceInfo.model}</span>
+                <span class="text-body font-medium text-text">{deviceInfo.modelShort || deviceInfo.model}</span>
             {/if}
         </div>
 

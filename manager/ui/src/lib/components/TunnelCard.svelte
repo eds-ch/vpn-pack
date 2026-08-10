@@ -115,7 +115,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-body">
                     <div>
                         <span class="text-text-secondary">Interface</span>
-                        <span class="ml-2 text-text font-mono">{tunnel.interfaceName ?? ''}</span>
+                        <span class="ml-2 text-text">{tunnel.interfaceName ?? ''}</span>
                     </div>
                     {#if tunnel.zoneName}
                         <div>
@@ -139,7 +139,7 @@
                     </div>
                     <div>
                         <span class="text-text-secondary">Tunnel Address</span>
-                        <span class="ml-2 text-text font-mono">{tunnel.tunnelAddress ?? ''}</span>
+                        <span class="ml-2 text-text">{tunnel.tunnelAddress ?? ''}</span>
                     </div>
                     <div>
                         <span class="text-text-secondary">MTU</span>
@@ -152,17 +152,17 @@
                     {#if tunnel.publicKey}
                         <div class="md:col-span-2 flex items-baseline gap-2">
                             <span class="text-text-secondary">Public Key</span>
-                            <span class="font-mono text-caption text-text break-all">{tunnel.publicKey}</span>
+                            <span class="font-mono text-text break-all">{tunnel.publicKey}</span>
                             <Button variant="secondary" size="sm" onclick={() => clip.copy(tunnel.publicKey)}>{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy Key'}</Button>
                         </div>
                     {/if}
                     <div class="md:col-span-2">
                         <span class="text-text-secondary">Peer Public Key</span>
-                        <span class="ml-2 text-text font-mono text-caption break-all">{tunnel.peerPublicKey ?? ''}</span>
+                        <span class="ml-2 font-mono text-text break-all">{tunnel.peerPublicKey ?? ''}</span>
                     </div>
                     <div>
                         <span class="text-text-secondary">Peer Endpoint</span>
-                        <span class="ml-2 text-text font-mono">{tunnel.peerEndpoint ?? ''}</span>
+                        <span class="ml-2 text-text">{tunnel.peerEndpoint ?? ''}</span>
                     </div>
                     <div>
                         <span class="text-text-secondary">Keepalive</span>
@@ -171,7 +171,7 @@
                     {#if (tunnel.localSubnets ?? []).length > 0}
                         <div class="md:col-span-2">
                             <span class="text-text-secondary">Local Subnets</span>
-                            <span class="ml-2 text-text font-mono text-caption break-all">
+                            <span class="ml-2 text-text break-all">
                                 {tunnel.localSubnets.join(', ')}
                             </span>
                         </div>
@@ -179,7 +179,7 @@
                     {#if (tunnel.allowedIPs ?? []).length > 0}
                         <div class="md:col-span-2">
                             <span class="text-text-secondary">Remote Subnets</span>
-                            <span class="ml-2 text-text font-mono text-caption break-all">
+                            <span class="ml-2 text-text break-all">
                                 {tunnel.allowedIPs.join(', ')}
                             </span>
                         </div>
@@ -233,7 +233,7 @@
                             oninput={() => fieldErrors = clearFieldError(fieldErrors,'routeMetric')} />
                     </div>
                     <FormField label="Peer Public Key" bind:value={editData.peerPublicKey}
-                        error={fieldErrors.peerPublicKey} extraClass="font-mono text-caption"
+                        error={fieldErrors.peerPublicKey} extraClass="font-mono"
                         oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')} />
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <FormField label="Peer Endpoint" bind:value={editData.peerEndpoint}
@@ -244,10 +244,10 @@
                             oninput={() => fieldErrors = clearFieldError(fieldErrors,'persistentKeepalive')} />
                     </div>
                     <FormField label="Local Subnets (comma-separated)" bind:value={editData.localSubnets}
-                        error={fieldErrors.localSubnets} extraClass="font-mono text-caption"
+                        error={fieldErrors.localSubnets} extraClass="font-mono"
                         oninput={() => fieldErrors = clearFieldError(fieldErrors,'localSubnets')} />
                     <FormField label="Remote Subnets (comma-separated)" bind:value={editData.allowedIPs}
-                        error={fieldErrors.allowedIPs} extraClass="font-mono text-caption"
+                        error={fieldErrors.allowedIPs} extraClass="font-mono"
                         oninput={() => fieldErrors = clearFieldError(fieldErrors,'allowedIPs')} />
                     <div class="flex gap-2 pt-1">
                         <Button variant="primary" size="sm" disabled={actionLoading} onclick={applyEdit}>{actionLoading ? 'Applying...' : 'Apply'}</Button>

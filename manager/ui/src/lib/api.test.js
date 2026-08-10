@@ -164,38 +164,60 @@ describe('api', () => {
         expect(result).toEqual(mockResp);
     });
 
-    it('sends X-Csrf-Token header from vp_csrf cookie on POST', async () => {
+    it('sends X-VpnPack-Csrf header from vp_csrf cookie on POST', async () => {
         document.cookie = 'vp_csrf=tok-abc123; path=/';
         await tailscaleUp();
         const call = global.fetch.mock.calls[0];
         const headers = call[1]?.headers;
         expect(headers).toBeDefined();
-        expect(headers['X-Csrf-Token']).toBe('tok-abc123');
+        expect(headers['X-VpnPack-Csrf']).toBe('tok-abc123');
     });
 
-    it('does NOT send X-Csrf-Token on GET', async () => {
+    // X-Csrf-Token belongs to UniFi OS. Putting our token there makes UniFi's
+    // nginx reject the mutation with 403 before it reaches the manager, and
+    // the UI then bounces the user out to UniFi Network.
+    it('never puts the vp_csrf token into UniFi\'s X-Csrf-Token header', async () => {
+        document.cookie = 'vp_csrf=tok-abc123; path=/';
+        await tailscaleUp();
+        const headers = global.fetch.mock.calls[0][1]?.headers;
+        expect(headers['X-Csrf-Token']).not.toBe('tok-abc123');
+    });
+
+    it('echoes the UniFi X-Csrf-Token seen on an earlier response', async () => {
+        global.fetch = mockFetch({ headers: new Headers({ 'X-Csrf-Token': 'unifi-session-csrf' }) });
+        await getStatusOnce();
+
+        document.cookie = 'vp_csrf=tok-abc123; path=/';
+        await tailscaleUp();
+        const headers = global.fetch.mock.calls[1][1]?.headers;
+        expect(headers['X-Csrf-Token']).toBe('unifi-session-csrf');
+        expect(headers['X-VpnPack-Csrf']).toBe('tok-abc123');
+    });
+
+    it('does NOT send CSRF headers on GET', async () => {
         document.cookie = 'vp_csrf=tok-zzz; path=/';
         await getStatusOnce();
         const call = global.fetch.mock.calls[0];
         const headers = call[1]?.headers;
         expect(headers).toBeDefined();
+        expect(headers['X-VpnPack-Csrf']).toBeUndefined();
         expect(headers['X-Csrf-Token']).toBeUndefined();
     });
 
-    it('sends X-Csrf-Token on DELETE', async () => {
+    it('sends X-VpnPack-Csrf on DELETE', async () => {
         document.cookie = 'vp_csrf=del-tok; path=/';
         await disableRemoteExitNode();
         const call = global.fetch.mock.calls[0];
         const headers = call[1]?.headers;
-        expect(headers['X-Csrf-Token']).toBe('del-tok');
+        expect(headers['X-VpnPack-Csrf']).toBe('del-tok');
     });
 
-    it('does not set X-Csrf-Token if cookie missing', async () => {
+    it('does not set X-VpnPack-Csrf if cookie missing', async () => {
         clearCookies();
         await tailscaleUp();
         const call = global.fetch.mock.calls[0];
         const headers = call[1]?.headers;
-        expect(headers['X-Csrf-Token']).toBeUndefined();
+        expect(headers['X-VpnPack-Csrf']).toBeUndefined();
     });
 
     it('disableRemoteExitNode sends DELETE /exit-node', async () => {

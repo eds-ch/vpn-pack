@@ -144,17 +144,17 @@
 </script>
 
 <div class="bg-surface rounded-xl border border-border p-4 md:p-5 space-y-4">
-    <h3 class="text-body font-bold text-text-heading">New WireGuard Site-to-Site Tunnel</h3>
+    <h3 class="text-body font-semibold text-text-heading">New WireGuard Site-to-Site Tunnel</h3>
 
     {#if keypair?.publicKey}
         <div>
-            <span class="text-caption text-text-secondary">Your Public Key (share with remote side)</span>
+            <span class="text-body text-text">Your Public Key (share with remote side)</span>
             <div class="mt-1 flex gap-2">
                 <input
                     type="text"
                     readonly
                     value={keypair.publicKey}
-                    class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono text-caption"
+                    class="flex-1 px-3 py-1.5 text-body rounded-lg border border-border bg-input text-text font-mono"
                 />
                 <Button variant="secondary" size="sm" onclick={() => clip.copy(keypair?.publicKey)}>{clip.copied ? 'Copied!' : clip.copyFailed ? 'Copy failed' : 'Copy'}</Button>
             </div>
@@ -170,7 +170,7 @@
                 oninput={() => fieldErrors = clearFieldError(fieldErrors,'name')} />
         </div>
         <div>
-            <span class="text-caption text-text-secondary">Listen Port</span>
+            <span class="text-body text-text">Listen Port</span>
             <input type="number" bind:value={listenPort}
                 oninput={() => fieldErrors = clearFieldError(fieldErrors,'listenPort')}
                 class={getInputClass(fieldErrors,'listenPort')} />
@@ -184,7 +184,7 @@
     <FormField label="Remote Peer Public Key" bind:value={peerPublicKey}
         onpaste={handleSmartPaste}
         placeholder="Paste public key or full WireGuard config block"
-        error={fieldErrors.peerPublicKey} extraClass="font-mono text-caption"
+        error={fieldErrors.peerPublicKey} extraClass="font-mono"
         oninput={() => fieldErrors = clearFieldError(fieldErrors,'peerPublicKey')} />
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -207,7 +207,7 @@
 
     {#if integrationConfigured}
         <div>
-            <span class="text-caption text-text-secondary font-bold uppercase tracking-wider">Firewall Zone</span>
+            <span class="eyebrow text-text-secondary">Firewall Zone</span>
             <div class="space-y-1.5 mt-2">
                 {#each zones as zone (zone.zoneId)}
                     <label class="flex items-center gap-2 text-body cursor-pointer hover:bg-surface-hover rounded px-2 py-1.5 -mx-2 transition-colors">
@@ -249,7 +249,7 @@
 
     {#if localSubnets.length > 0}
         <div>
-            <span class="text-caption text-text-secondary font-bold uppercase tracking-wider">Local Subnets to Share</span>
+            <span class="eyebrow text-text-secondary">Local Subnets to Share</span>
             <div class="space-y-1 mt-2">
                 {#each localSubnets as subnet (subnet.cidr)}
                     <label class="flex items-center gap-2 text-body cursor-pointer hover:bg-surface-hover rounded px-2 py-1 -mx-2 transition-colors">
@@ -260,7 +260,7 @@
                             class="w-4 h-4 rounded border-border text-blue accent-blue"
                         />
                         <span class="text-text-secondary">{subnet.name}</span>
-                        <span class="text-text font-mono">{subnet.cidr}</span>
+                        <span class="text-text">{subnet.cidr}</span>
                     </label>
                 {/each}
             </div>
@@ -268,7 +268,7 @@
     {/if}
 
     <div>
-        <span class="text-caption text-text-secondary">Custom Remote Subnets (comma-separated CIDRs)</span>
+        <span class="text-body text-text">Custom Remote Subnets (comma-separated CIDRs)</span>
         <textarea bind:value={customCIDRs} rows="1" placeholder="10.20.0.0/24, 10.20.1.0/24"
             oninput={() => fieldErrors = clearFieldError(fieldErrors,'customCIDRs')}
             class="{getInputClass(fieldErrors,'customCIDRs')} font-mono resize-none"></textarea>

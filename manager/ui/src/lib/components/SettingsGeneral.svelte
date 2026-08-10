@@ -75,7 +75,7 @@
 </script>
 
 <div>
-    <h2 class="text-heading text-text-heading">General</h2>
+    <h2 class="text-section text-text-heading">General</h2>
     <p class="text-caption text-text-tertiary mt-1">Core Tailscale settings for this device</p>
 </div>
 

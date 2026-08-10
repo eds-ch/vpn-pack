@@ -3,7 +3,7 @@
 </script>
 
 <section class="bg-surface rounded-xl p-5 border border-border">
-    <h3 class="text-caption font-bold text-text-secondary uppercase tracking-wider mb-3">Device</h3>
+    <h3 class="eyebrow text-text-secondary mb-3">Device</h3>
 
     {#if deviceInfo}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-body">

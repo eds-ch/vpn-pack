@@ -63,13 +63,13 @@
 </script>
 
 <section class="bg-surface rounded-xl p-5 border border-border">
-    <h3 class="text-caption font-bold text-text-secondary uppercase tracking-wider mb-4">Connection</h3>
+    <h3 class="eyebrow text-text-secondary mb-4">Connection</h3>
 
     <div class="flex items-start gap-3 mb-4">
         {#each steps as step}
             {@const state = stepStatus(step.id)}
             <div class="flex flex-col items-center flex-1 min-w-0">
-                <div class="w-7 h-7 rounded-full flex items-center justify-center text-caption font-bold shrink-0
+                <div class="w-7 h-7 rounded-full flex items-center justify-center text-caption font-semibold shrink-0
                     {state === 'completed' ? 'bg-success text-white' : ''}
                     {state === 'active' ? 'bg-blue text-white' : ''}
                     {state === 'pending' ? 'bg-border text-text-secondary' : ''}
@@ -80,7 +80,7 @@
                         {step.id}
                     {/if}
                 </div>
-                <span class="text-micro text-center mt-1 leading-tight
+                <span class="text-caption text-center mt-1 leading-tight
                     {state === 'active' ? 'text-text' : 'text-text-secondary'}
                 ">{step.label}</span>
             </div>
@@ -96,7 +96,7 @@
         <div class="border-t border-border pt-4 mt-2">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="p-4 rounded-lg border border-border bg-panel">
-                    <h4 class="text-body font-bold text-text-heading mb-3">Login with browser</h4>
+                    <h4 class="text-body font-semibold text-text-heading mb-3">Login with browser</h4>
                     {#if status.authURL}
                         <p class="text-caption text-text-secondary mb-2">
                             Open this URL or scan the QR code:
@@ -116,7 +116,7 @@
                         {#if loginError}
                             <div class="flex items-center gap-2">
                                 <span class="text-caption text-red-400">Failed to start login</span>
-                                <button onclick={retryLogin} class="text-caption text-blue hover:text-blue-hover font-bold">Retry</button>
+                                <button onclick={retryLogin} class="text-caption text-blue hover:text-blue-hover font-semibold">Retry</button>
                             </div>
                         {:else}
                             <p class="text-caption text-text-secondary animate-pulse">Waiting for auth URL...</p>
@@ -125,7 +125,7 @@
                 </div>
 
                 <div class="p-4 rounded-lg border border-border bg-panel">
-                    <h4 class="text-body font-bold text-text-heading mb-3">Connect with auth key</h4>
+                    <h4 class="text-body font-semibold text-text-heading mb-3">Connect with auth key</h4>
                     <p class="text-caption text-text-secondary mb-3">
                         Use a pre-authentication key from the Tailscale admin console.
                     </p>

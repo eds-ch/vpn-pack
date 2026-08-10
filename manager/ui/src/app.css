@@ -1,19 +1,41 @@
 @import "tailwindcss";
 
+/* size-adjust 95% must stay identical on Sans and Mono: their metrics match
+   glyph for glyph, and that is what lets mono share the text size tokens. */
 @font-face {
-    font-family: 'Lato';
-    src: url('/vpn-pack/fonts/Lato-400.woff2') format('woff2');
+    font-family: 'IBM Plex Sans';
+    src: url('/vpn-pack/fonts/IBMPlexSans-400.woff2') format('woff2');
     font-weight: 400;
     font-style: normal;
     font-display: swap;
+    size-adjust: 95%;
 }
 
 @font-face {
-    font-family: 'Lato';
-    src: url('/vpn-pack/fonts/Lato-700.woff2') format('woff2');
-    font-weight: 700;
+    font-family: 'IBM Plex Sans';
+    src: url('/vpn-pack/fonts/IBMPlexSans-500.woff2') format('woff2');
+    font-weight: 500;
     font-style: normal;
     font-display: swap;
+    size-adjust: 95%;
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    src: url('/vpn-pack/fonts/IBMPlexSans-600.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+    size-adjust: 95%;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('/vpn-pack/fonts/IBMPlexMono-400.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+    size-adjust: 95%;
 }
 
 :root {
@@ -24,10 +46,10 @@
     --bg-input: #1c1e21;
     --border: #34383d;
     --border-light: #282b2f;
-    --text: #dee0e3;
-    --text-secondary: #b7bcc2;
-    --text-tertiary: #737c87;
-    --text-heading: #f9fafa;
+    --fg: #dee0e3;
+    --fg-muted: #b7bcc2;
+    --fg-subtle: #737c87;
+    --fg-heading: #f9fafa;
     --bg-tooltip: #1c1e21;
     --shadow: rgba(0,0,0,.5);
     --accent-blue: #4797ff;
@@ -52,10 +74,10 @@ html.light {
     --bg-input: #f7f8fa;
     --border: #d5d9de;
     --border-light: #e3e7eb;
-    --text: #3a3f47;
-    --text-secondary: #5f6672;
-    --text-tertiary: #6d747e;
-    --text-heading: #1a1d21;
+    --fg: #3a3f47;
+    --fg-muted: #5f6672;
+    --fg-subtle: #6d747e;
+    --fg-heading: #1a1d21;
     --bg-tooltip: #1c1e21;
     --shadow: rgba(33,35,39,.16);
     --accent-blue: #006fff;
@@ -80,10 +102,10 @@ html.light {
     --color-input: var(--bg-input);
     --color-border: var(--border);
     --color-border-light: var(--border-light);
-    --color-text: var(--text);
-    --color-text-secondary: var(--text-secondary);
-    --color-text-tertiary: var(--text-tertiary);
-    --color-text-heading: var(--text-heading);
+    --color-text: var(--fg);
+    --color-text-secondary: var(--fg-muted);
+    --color-text-tertiary: var(--fg-subtle);
+    --color-text-heading: var(--fg-heading);
     --color-blue: var(--accent-blue);
     --color-blue-hover: var(--accent-blue-hover);
     --color-blue-bg: var(--accent-blue-bg);
@@ -99,36 +121,51 @@ html.light {
     --color-tooltip: var(--bg-tooltip);
     --shadow-card: 0 5px 25px 0 var(--shadow);
 
-    --text-title: 1.125rem;
-    --text-title--line-height: 1.5rem;
-    --text-title--font-weight: 700;
+    --font-sans: 'IBM Plex Sans', 'Helvetica Neue', 'Arial', sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-    --text-heading: 1rem;
-    --text-heading--line-height: 1.5rem;
-    --text-heading--font-weight: 700;
+    /* Four sizes, one per tier. Size encodes rank and nothing else:
+       page > section > body > caption. Never reach outside this list. */
+    --text-page: 1.25rem;
+    --text-page--line-height: 1.75rem;
+    --text-page--font-weight: 600;
+
+    --text-section: 1rem;
+    --text-section--line-height: 1.5rem;
+    --text-section--font-weight: 600;
 
     --text-body: 0.875rem;
     --text-body--line-height: 1.25rem;
 
     --text-caption: 0.75rem;
     --text-caption--line-height: 1rem;
-
-    --text-micro: 0.625rem;
-    --text-micro--line-height: 0.875rem;
-
-    --font-cap-offset: 0.08em;
 }
 
-@utility cap-center {
-    transform: translateY(var(--font-cap-offset));
+/* Tier 5 lives at caption size and is set apart by case and weight, not size. */
+@utility eyebrow {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+/* font-family is explicit: badges sit inside mono log rows and would
+   otherwise inherit the monospace face. */
+@utility badge-label {
+    font-family: var(--font-sans);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 
 html, body {
-    font-family: 'Lato', 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+    font-family: var(--font-sans);
     font-synthesis: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: 'kern';
 }
 
 body {

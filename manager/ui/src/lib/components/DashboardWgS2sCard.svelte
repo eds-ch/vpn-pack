@@ -47,16 +47,16 @@
     <div class="flex flex-col flex-1 min-h-0">
         <div class="p-4 flex flex-col">
             <div class="flex items-center justify-between mb-3">
-                <h3 class="flex items-center gap-1.5 text-caption font-bold text-text-secondary uppercase tracking-wider">
-                    <Icon name="wireguard" size={14} class="shrink-0" /><span class="cap-center">WireGuard S2S</span>
+                <h3 class="flex items-center gap-1.5 eyebrow text-text-secondary">
+                    <Icon name="wireguard" size={14} class="shrink-0" /><span>WireGuard S2S</span>
                 </h3>
                 <span class="flex items-center gap-2.5">
                     <span class="flex items-center gap-1.5">
                         <span class="w-2 h-2 rounded-full shrink-0 {statusDot}"></span>
-                        <span class="text-caption font-bold text-text-heading">{statusLabel}</span>
+                        <span class="text-body font-medium text-text">{statusLabel}</span>
                     </span>
                     {#if wgDiag != null}
-                        <span class="flex items-center gap-1 text-micro text-text-tertiary" title="Kernel module wireguard.ko">
+                        <span class="flex items-center gap-1 text-caption text-text-tertiary" title="Kernel module wireguard.ko">
                             <Icon name={wgDiag.wireguardModule ? 'check' : 'x'} size={10}
                                 class={wgDiag.wireguardModule ? 'text-success' : 'text-error'} />
                             wg.ko
@@ -86,7 +86,7 @@
 
             {#if totalRx > 0 || totalTx > 0}
                 <div class="mt-3 pt-3 border-t border-border">
-                    <h4 class="text-caption font-bold text-text-secondary uppercase tracking-wider mb-2.5">Traffic</h4>
+                    <h4 class="eyebrow text-text-secondary mb-2.5">Traffic</h4>
                     <div class="flex gap-6 text-body">
                         <div class="flex gap-2">
                             <span class="text-text-secondary">RX</span>
@@ -102,7 +102,7 @@
         </div>
 
         <div class="flex flex-col min-h-0 border-t border-border">
-            <h3 class="text-caption font-bold text-text-secondary uppercase tracking-wider px-4 pt-4 pb-2">
+            <h3 class="eyebrow text-text-secondary px-4 pt-4 pb-2">
                 Tunnels ({tunnels.length})
             </h3>
 
@@ -120,7 +120,7 @@
                                     <div class="flex items-center gap-2">
                                         <span class="text-body text-text truncate">{tunnel.name}</span>
                                         {#if !tunnel.enabled}
-                                            <span class="text-micro text-text-tertiary uppercase tracking-wider">disabled</span>
+                                            <span class="eyebrow text-text-tertiary">disabled</span>
                                         {/if}
                                     </div>
                                     <div class="flex items-center gap-2 mt-0.5">
@@ -143,7 +143,7 @@
                                         {relativeTime(tunnel.lastHandshake)}
                                     </div>
                                     {#if tunnel.transferRx != null && tunnel.transferRx > 0}
-                                        <div class="text-micro text-text-tertiary mt-0.5">
+                                        <div class="text-caption text-text-tertiary mt-0.5">
                                             ↓{formatBytes(tunnel.transferRx)} ↑{formatBytes(tunnel.transferTx)}
                                         </div>
                                     {/if}
