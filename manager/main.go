@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -57,8 +58,14 @@ func main() {
 		"activeVPNClients", info.ActiveVPNClients,
 	)
 
-	resolved, err := awaitSupportedUniFiVersion(info.UniFiVersion, defaultUniFiGateDeps())
-	if err != nil {
+	resolved, err := awaitSupportedUniFiVersion(ctx, info.UniFiVersion, defaultUniFiGateDeps())
+	switch {
+	case errors.Is(err, context.Canceled):
+		// Shutdown asked for while we were waiting out a package upgrade. This
+		// is not a configuration error, so it must not become exit 78.
+		slog.Info("shutdown requested while waiting for the UniFi Network version")
+		return
+	case err != nil:
 		slog.Error("version requirement not met", "err", err)
 		os.Exit(78)
 	}

@@ -30,7 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check now re-reads for a bounded window (18 × 10 s) when it fails, but only
   while system uptime is under 10 minutes: past that the answer cannot change
   under us, so a genuinely unsupported device still fails immediately instead
-  of stalling every socket activation for minutes.
+  of stalling every socket activation for minutes. The wait is cancellable:
+  `signal.NotifyContext` has already taken SIGTERM away from the runtime by the
+  time the gate runs, so an uninterruptible sleep would have left `systemctl
+  stop` — and a reboot — waiting out the unit's 90 s `TimeoutStopSec` before
+  SIGKILL. A cancelled context exits 0, not 78: a shutdown is not a
+  configuration error.
 
 ## [1.6.1] - 2026-08-10
 

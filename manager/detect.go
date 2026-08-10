@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -174,19 +175,36 @@ const (
 type unifiGateDeps struct {
 	read   func() string
 	uptime func() time.Duration
-	sleep  func(time.Duration)
+	// wait blocks for d, or returns false if ctx is done first. The gate can
+	// hold the process for minutes, and signal.NotifyContext has already taken
+	// SIGTERM away from the runtime by then, so an uninterruptible sleep would
+	// leave systemd waiting out TimeoutStopSec before SIGKILL.
+	wait func(ctx context.Context, d time.Duration) bool
 }
 
 func defaultUniFiGateDeps() unifiGateDeps {
 	return unifiGateDeps{
 		read:   readUniFiVersion,
 		uptime: systemUptime,
-		sleep:  time.Sleep,
+		wait:   waitOrCancel,
 	}
 }
 
-// awaitSupportedUniFiVersion returns the version that satisfied the gate.
-func awaitSupportedUniFiVersion(raw string, d unifiGateDeps) (string, error) {
+func waitOrCancel(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// awaitSupportedUniFiVersion returns the version that satisfied the gate. A
+// cancelled context yields context.Canceled, which the caller must not confuse
+// with an unsupported device: one is a shutdown, the other is exit 78.
+func awaitSupportedUniFiVersion(ctx context.Context, raw string, d unifiGateDeps) (string, error) {
 	err := checkMinUniFiVersion(raw)
 	if err == nil {
 		return raw, nil
@@ -199,7 +217,9 @@ func awaitSupportedUniFiVersion(raw string, d unifiGateDeps) (string, error) {
 		"found", raw, "retryFor", time.Duration(unifiGateAttempts)*unifiGateInterval)
 
 	for range unifiGateAttempts {
-		d.sleep(unifiGateInterval)
+		if !d.wait(ctx, unifiGateInterval) {
+			return raw, ctx.Err()
+		}
 		raw = d.read()
 		if err = checkMinUniFiVersion(raw); err == nil {
 			slog.Info("UniFi Network version became acceptable", "version", raw)

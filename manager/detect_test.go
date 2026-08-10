@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -84,14 +85,14 @@ func TestAwaitSupportedUniFiVersionWaitsOutAPackageUpgradeAfterBoot(t *testing.T
 	reads := []string{"9.9.1-30000-1", "10.5.67-35187-1"}
 	calls, slept := 0, 0
 
-	got, err := awaitSupportedUniFiVersion("9.9.1-30000-1", unifiGateDeps{
+	got, err := awaitSupportedUniFiVersion(t.Context(), "9.9.1-30000-1", unifiGateDeps{
 		read: func() string {
 			v := reads[min(calls, len(reads)-1)]
 			calls++
 			return v
 		},
 		uptime: func() time.Duration { return time.Minute },
-		sleep:  func(time.Duration) { slept++ },
+		wait:   func(context.Context, time.Duration) bool { slept++; return true },
 	})
 
 	require.NoError(t, err)
@@ -104,10 +105,10 @@ func TestAwaitSupportedUniFiVersionWaitsOutAPackageUpgradeAfterBoot(t *testing.T
 func TestAwaitSupportedUniFiVersionFailsFastLongAfterBoot(t *testing.T) {
 	calls, slept := 0, 0
 
-	_, err := awaitSupportedUniFiVersion("9.9.1-30000-1", unifiGateDeps{
+	_, err := awaitSupportedUniFiVersion(t.Context(), "9.9.1-30000-1", unifiGateDeps{
 		read:   func() string { calls++; return "9.9.1-30000-1" },
 		uptime: func() time.Duration { return 2 * time.Hour },
-		sleep:  func(time.Duration) { slept++ },
+		wait:   func(context.Context, time.Duration) bool { slept++; return true },
 	})
 
 	require.Error(t, err)
@@ -120,10 +121,10 @@ func TestAwaitSupportedUniFiVersionFailsFastLongAfterBoot(t *testing.T) {
 func TestAwaitSupportedUniFiVersionGivesUpAfterTheBoundedWindow(t *testing.T) {
 	calls := 0
 
-	_, err := awaitSupportedUniFiVersion("9.9.1-30000-1", unifiGateDeps{
+	_, err := awaitSupportedUniFiVersion(t.Context(), "9.9.1-30000-1", unifiGateDeps{
 		read:   func() string { calls++; return "9.9.1-30000-1" },
 		uptime: func() time.Duration { return time.Minute },
-		sleep:  func(time.Duration) {},
+		wait:   func(context.Context, time.Duration) bool { return true },
 	})
 
 	require.Error(t, err)
@@ -134,13 +135,13 @@ func TestAwaitSupportedUniFiVersionGivesUpAfterTheBoundedWindow(t *testing.T) {
 func TestAwaitSupportedUniFiVersionRetriesAnEmptyReadAfterBoot(t *testing.T) {
 	calls := 0
 
-	got, err := awaitSupportedUniFiVersion("", unifiGateDeps{
+	got, err := awaitSupportedUniFiVersion(t.Context(), "", unifiGateDeps{
 		read: func() string {
 			calls++
 			return "10.5.67-35187-1"
 		},
 		uptime: func() time.Duration { return time.Minute },
-		sleep:  func(time.Duration) {},
+		wait:   func(context.Context, time.Duration) bool { return true },
 	})
 
 	require.NoError(t, err)
@@ -201,4 +202,40 @@ func TestFirmwareFromVersionLine(t *testing.T) {
 // a version component.
 func TestFirmwareFromVersionLineStopsAtADigitsOnlyBuildHash(t *testing.T) {
 	assert.Equal(t, "5.1.26", firmwareFromVersionLine("UDMPROSE.al324.v5.1.26.1234567.260715.2320"))
+}
+
+// systemd sends SIGTERM and waits TimeoutStopSec (90 s here) before SIGKILL.
+// signal.NotifyContext has already disabled the default terminate-on-SIGTERM
+// behaviour by the time the gate runs, so an uninterruptible sleep would make
+// `systemctl stop` — and a reboot — hang for the full 90 s.
+func TestAwaitSupportedUniFiVersionStopsWhenTheContextIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+
+	_, err := awaitSupportedUniFiVersion(ctx, "9.9.1-30000-1", unifiGateDeps{
+		read:   func() string { calls++; return "9.9.1-30000-1" },
+		uptime: func() time.Duration { return time.Minute },
+		wait: func(context.Context, time.Duration) bool {
+			cancel() // SIGTERM lands while we are waiting
+			return false
+		},
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, calls, "must not keep polling after cancellation")
+}
+
+// The seam above is only as good as the wait it stands in for.
+func TestWaitOrCancel(t *testing.T) {
+	t.Run("returns false as soon as the context is done", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		start := time.Now()
+		assert.False(t, waitOrCancel(ctx, time.Hour))
+		assert.Less(t, time.Since(start), time.Second)
+	})
+
+	t.Run("returns true when the interval elapses", func(t *testing.T) {
+		assert.True(t, waitOrCancel(t.Context(), time.Millisecond))
+	})
 }
