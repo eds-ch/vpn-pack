@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The rendered nginx snippet no longer loses its 0640 mode when the manager
+  re-creates it.** The snippet embeds the per-install `X-VpnPack-Token` secret,
+  so v1.5.4 (M1) made `install.sh` write it 0640 — but the manager's self-heal
+  path still used `config.ConfigPerm` (0644). `os.WriteFile` leaves the mode of
+  an existing file alone, so the gap only opened when the file was *absent*:
+  exactly what a unifi-core upgrade does to `/data/unifi-core/config/http/`.
+  Observed on a UDM-SE after the UniFi OS 5.1.26 update — the token became
+  world-readable. The write now uses a dedicated `NginxConfigPerm` (0640), and
+  the mode is enforced independently of the content comparison: a damaged
+  install carries the *correct bytes* at 0644, which short-circuits the rewrite,
+  so it is repaired at manager start instead of needing a reinstall. The nginx
+  watcher only calls into this path when the file is missing, so drift in
+  `/data` alone is still not a self-heal trigger — that is unchanged behaviour.
+- **`/api/device` reports the UniFi Network version that is installed now.**
+  `detectDevice()` runs once at process start, but UniFi OS applies package
+  upgrades *after* the manager is already running: on the 5.1.26 update the
+  manager started at 12:56:40 and `unifi-native` was upgraded to 10.5.67 at
+  12:57:34, so the UI kept showing the pre-upgrade 10.4.57 for the lifetime of
+  the process. The handler now re-reads the package version per request and
+  falls back to the cached value if the read fails.
+
 ## [1.6.0] - 2026-08-10
 
 Stable release of the Tailscale 1.102.2 bump. See `[1.6.0-beta.1]` below for

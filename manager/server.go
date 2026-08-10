@@ -48,6 +48,7 @@ type Server struct {
 	ts             TailscaleControl
 	hub            SSEHub
 	deviceInfo     DeviceInfo
+	unifiVersionFn func() string
 	httpServer     *http.Server
 	listener       net.Listener
 	state          *TailscaleState
@@ -79,19 +80,20 @@ type Server struct {
 
 func NewServer(ctx context.Context, opts ServerOptions) *Server {
 	s := &Server{
-		ts:         opts.Tailscale,
-		hub:        opts.Hub,
-		deviceInfo: opts.DeviceInfo,
-		listener:   opts.Listener,
-		state:      domain.NewTailscaleState(),
-		fw:         opts.Firewall,
-		ic:         opts.Integration,
-		manifest:   opts.Manifest,
-		nginx:      opts.Nginx,
-		logBuf:     opts.LogBuf,
-		updater:    opts.Updater,
-		health:     NewHealthTracker(opts.Hub),
-		nginxToken: opts.NginxToken,
+		ts:             opts.Tailscale,
+		hub:            opts.Hub,
+		deviceInfo:     opts.DeviceInfo,
+		unifiVersionFn: readUniFiVersion,
+		listener:       opts.Listener,
+		state:          domain.NewTailscaleState(),
+		fw:             opts.Firewall,
+		ic:             opts.Integration,
+		manifest:       opts.Manifest,
+		nginx:          opts.Nginx,
+		logBuf:         opts.LogBuf,
+		updater:        opts.Updater,
+		health:         NewHealthTracker(opts.Hub),
+		nginxToken:     opts.NginxToken,
 	}
 	s.settings = service.NewSettingsService(
 		opts.Tailscale, opts.Firewall, opts.Integration,

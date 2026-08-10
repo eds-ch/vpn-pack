@@ -384,6 +384,41 @@ func TestHandleDeviceWithMocks(t *testing.T) {
 	assert.Equal(t, "UDM-SE", body.Model)
 }
 
+// detectDevice() runs once at process start, but UniFi OS applies package
+// upgrades after the manager is already running: on the 5.1.26 firmware
+// update the manager started at 12:56:40 and unifi-native was upgraded to
+// 10.5.67 at 12:57:34, so the UI kept reporting the pre-upgrade 10.4.57 for
+// the lifetime of the process. /api/device must report what is installed now.
+func TestHandleDeviceReportsCurrentUniFiVersion(t *testing.T) {
+	s := newTestServer()
+	s.deviceInfo = DeviceInfo{Model: "UDM-SE", UniFiVersion: "10.4.57-34628-1"}
+	s.unifiVersionFn = func() string { return "10.5.67-35187-1" }
+
+	req := httptest.NewRequest(http.MethodGet, "/api/device", nil)
+	w := httptest.NewRecorder()
+	s.handleDevice(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body DeviceInfo
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "10.5.67-35187-1", body.UniFiVersion)
+}
+
+// A failed re-read must not blank the field the UI renders.
+func TestHandleDeviceKeepsCachedUniFiVersionWhenRereadFails(t *testing.T) {
+	s := newTestServer()
+	s.deviceInfo = DeviceInfo{Model: "UDM-SE", UniFiVersion: "10.4.57-34628-1"}
+	s.unifiVersionFn = func() string { return "" }
+
+	req := httptest.NewRequest(http.MethodGet, "/api/device", nil)
+	w := httptest.NewRecorder()
+	s.handleDevice(w, req)
+
+	var body DeviceInfo
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "10.4.57-34628-1", body.UniFiVersion)
+}
+
 func TestIntegrationReady(t *testing.T) {
 	t.Run("ready when fw returns true", func(t *testing.T) {
 		s := newTestServer(func(s *Server) {

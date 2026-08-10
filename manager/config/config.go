@@ -108,6 +108,10 @@ const (
 	SecretDirPerm = 0700
 	SecretPerm    = 0600
 	ConfigPerm    = 0644
+
+	// The rendered nginx snippet embeds the per-install token secret, so it
+	// is 0640 rather than ConfigPerm — matching deploy/install.sh.
+	NginxConfigPerm = 0640
 )
 
 // Set via -ldflags at build time.

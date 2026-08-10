@@ -21,10 +21,7 @@ func detectDevice() DeviceInfo {
 	}
 	info.ModelShort = cmdOutput(config.DeviceInfoCmd, "model_short")
 	info.Firmware = cmdOutput(config.DeviceInfoCmd, "firmware")
-	info.UniFiVersion = cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi")
-	if info.UniFiVersion == "" {
-		info.UniFiVersion = cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi-native")
-	}
+	info.UniFiVersion = readUniFiVersion()
 	info.PackageVersion = config.Version
 	info.TailscaleVersion = config.TailscaleVersion
 
@@ -88,6 +85,16 @@ func readFileTrimmed(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(strings.TrimRight(string(data), "\x00"))
+}
+
+// UniFi OS applies package upgrades after the manager is already running, so
+// the value read at startup goes stale on a firmware update. Callers that
+// render it re-read instead of trusting the boot-time snapshot.
+func readUniFiVersion() string {
+	if v := cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi"); v != "" {
+		return v
+	}
+	return cmdOutput("dpkg-query", "-W", "-f=${Version}", "unifi-native")
 }
 
 const minNetworkMajor = 10

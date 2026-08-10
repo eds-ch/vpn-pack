@@ -134,6 +134,11 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	s.vpnClientsMu.Lock()
 	info := s.deviceInfo
 	s.vpnClientsMu.Unlock()
+	if s.unifiVersionFn != nil {
+		if v := s.unifiVersionFn(); v != "" {
+			info.UniFiVersion = v
+		}
+	}
 	var si syscall.Sysinfo_t
 	if err := syscall.Sysinfo(&si); err == nil {
 		info.Uptime = si.Uptime
