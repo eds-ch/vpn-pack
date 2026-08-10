@@ -267,6 +267,11 @@ func (s *Server) updateStateFromNotify(n *ipn.Notify) bool {
 			d.DPIFingerprinting = syncDPIFingerprint(d.ExitNode)
 		}
 
+		// Not the same set as `tailscale status --json` .Health: that list is
+		// assembled per request and appends strings no warnable produces, e.g.
+		// WarnAcceptRoutesOff (ipnlocal/local.go). Those never reach the IPN
+		// bus, so a difference between the two is expected, not a dropped
+		// warning.
 		if n.Health != nil {
 			warnings := make([]HealthWarning, 0, len(n.Health.Warnings))
 			for code, w := range n.Health.Warnings {
