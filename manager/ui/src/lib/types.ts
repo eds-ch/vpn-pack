@@ -160,6 +160,14 @@ export interface HealthSnapshot {
     watchers: Record<string, WatcherHealth>;
 }
 
+export interface HealthWarning {
+    code: string;
+    title: string;
+    text: string;
+    severity: string;
+    impactsConnectivity: boolean;
+}
+
 export interface Status extends SettingsFields {
     backendState: string;
     tailscaleIPs: string[];
@@ -168,7 +176,7 @@ export interface Status extends SettingsFields {
     controlURL: string;
     version: string;
     self: SelfNode | null;
-    health: string[];
+    health: HealthWarning[];
     exitNode: boolean;
     usingExitNode: RemoteExitNodeStatus | null;
     routes: RouteStatus[];
