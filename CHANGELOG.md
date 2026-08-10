@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-10
+
+Stable release of the Tailscale 1.102.2 bump. See `[1.6.0-beta.1]` below for
+the full change set (Tailscale 1.98.9 → 1.102.2, six patches rebased, the
+`Notify.NetMap` → `Notify.SelfChange` migration on the IPN bus);
+`[1.6.0-beta.2]` and `[1.6.0-beta.3]` add no device-behaviour changes beyond
+the CI runtime bump and the update-notification fix.
+
+beta.1 ran a **24 h soak on UDM-SE**: 13/13 checkpoints clean — zero service
+restarts, zero warning+ journal entries, zero kernel messages, 39/39 `/api/health`
+probes healthy, and **26/26 watcher-reconnect probes at 0**, so self state was
+maintained from IPN bus deltas across one unbroken 24 h session — the exact
+path that would have gone stale under the old netmap reader. Firewall surface
+and chain order (`ts-input-guard` → `UBIOS_INPUT_JUMP` → `ts-input`) constant
+throughout; `tailscaled` RSS flat at +0.7%.
+
+beta.3 then ran **3.5 days** on the same device with `NRestarts` 0/0 and zero
+warning+ or error journal entries, covering the update-checker change.
+
 ## [1.6.0-beta.3] - 2026-08-06
 
 Same device payload as `[1.6.0-beta.2]` apart from the update-notification
@@ -657,7 +676,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.3...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.3...v1.6.0
 [1.6.0-beta.3]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.2...v1.6.0-beta.3
 [1.6.0-beta.2]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.1...v1.6.0-beta.2
 [1.6.0-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.5.4...v1.6.0-beta.1
