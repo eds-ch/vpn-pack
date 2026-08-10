@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-08-10
+
+Stable release of the beta.1 change set. See `[1.6.2-beta.1]` below for the
+full detail: typography rebuilt on IBM Plex, the `--text-heading` token
+collision that silently dropped every section heading to body size, and the
+CSRF header collision that made every mutation answer 403 behind UniFi's nginx.
+
+No soak: the Tailscale version is unchanged from 1.6.1 (1.102.2) and nothing
+here touches the data path. beta.1 was verified on UDM-SE — mutations that
+previously died at nginx (`u_rt=-`, never reaching the manager) now return 200
+and reach the upstream, with no 401/403/500/502 on `/vpn-pack` afterwards.
+
+**Upgrading anything that scripts the API:** mutations must now send
+`X-VpnPack-Csrf` instead of `X-Csrf-Token`.
+
 ## [1.6.2-beta.1] - 2026-08-10
 
 ### Changed
@@ -772,7 +787,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2-beta.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2...HEAD
+[1.6.2]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2-beta.1...v1.6.2
 [1.6.2-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.1...v1.6.2-beta.1
 [1.6.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/eds-ch/vpn-pack/compare/v1.6.0-beta.3...v1.6.0
