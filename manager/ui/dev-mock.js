@@ -22,6 +22,14 @@ const mockStatus = {
         txBytes: 389000000,
     },
     health: [],
+    // Uncomment to exercise the waiting-reason UI under MOCK=1:
+    // health: [{
+    //     code: 'not-in-map-poll',
+    //     title: 'Out of sync',
+    //     text: 'Unable to connect to the Tailscale coordination server to synchronize the state of your tailnet.',
+    //     severity: 'medium',
+    //     impactsConnectivity: true,
+    // }],
     exitNode: false,
     usingExitNode: null,
     dpiFingerprinting: true,

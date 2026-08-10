@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`Status.health` now carries the warning, not just its name.** The manager
+  subscribes to the IPN health bus and already received a full
+  `health.UnhealthyState` for every unhealthy warnable — title, human-readable
+  text, severity, whether connectivity is affected — and kept only the map key.
+  The field changes shape from `["not-in-map-poll"]` to
+  `[{"code":"not-in-map-poll","title":"Out of sync","text":"Unable to connect
+  to the Tailscale coordination server...","severity":"medium",
+  "impactsConnectivity":true}]`, and entries are sorted by `code` so an
+  unchanged health state serialises identically every time.
+
+**Upgrading anything that scripts the API:** `health` is an array of objects
+now, not an array of strings. `.health[]` becomes `.health[].code`.
+
+### Fixed
+- **The UI names what it is waiting for.** During a slow start the header read
+  `Tailscale NoState` — a raw enum name with a grey dot, because the colour
+  table had four of the seven `ipn.State` values — while the dashboard pulsed
+  "Waiting for tailscaled...", which was untrue: the manager had been connected
+  to tailscaled from the first second and the node was waiting on the Tailscale
+  coordination server. Both tables now cover all seven states (`NoState` reads
+  "Connecting"), and the dashboard and the status popover show the active
+  health warning's title and text — "Out of sync", and the sentence explaining
+  it — falling back to a neutral coordination-server line when there is no
+  warning. "Waiting for tailscaled..." now appears only when the manager has
+  actually lost its connection to tailscaled.
+
 ## [1.6.2] - 2026-08-10
 
 Stable release of the beta.1 change set. See `[1.6.2-beta.1]` below for the
