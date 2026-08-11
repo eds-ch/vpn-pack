@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-08-11
+
+No soak: the Tailscale version is unchanged from 1.6.3 (1.102.2) and the only
+change is copy in the update banner. Reproduced and fixed against the failure
+seen on a UCG-Ultra running 1.6.2.
+
+### Fixed
+- **The update banner handed out a command that cannot run.** It told users to
+  pipe `get.sh` into `sh`, but `get.sh` is a bash script — `set -euo pipefail`
+  on line 12 — and `sh` on UniFi OS is dash, so the install aborted with
+  `sh: 12: set: Illegal option -o pipefail` before touching anything, with
+  curl reporting `(23) Failed writing body` as the pipe closed. `README` and
+  `get.sh`'s own usage header have always documented `| bash`; only the banner
+  disagreed. The mismatch was unreachable until `1.6.0-beta.3` made the
+  notification actually appear on a loaded page.
+
 ## [1.6.3] - 2026-08-11
 
 Stable release of the beta.1 change set, byte-identical to it — no commits
@@ -844,7 +860,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.4...HEAD
+[1.6.4]: https://github.com/eds-ch/vpn-pack/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/eds-ch/vpn-pack/compare/v1.6.3-beta.1...v1.6.3
 [1.6.3-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2...v1.6.3-beta.1
 [1.6.2]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2-beta.1...v1.6.2
