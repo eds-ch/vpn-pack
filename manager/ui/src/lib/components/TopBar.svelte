@@ -106,7 +106,7 @@
             <Icon name="download" size={14} class="text-info shrink-0" />
             <span class="text-caption text-info truncate">
                 Version {updateInfo.version} available.
-                Update via SSH: <code class="bg-info/10 px-1 rounded text-caption font-mono">curl -fsSL {REPO_INSTALL_URL} | sh</code>
+                Update via SSH: <code class="bg-info/10 px-1 rounded text-caption font-mono">curl -fsSL {REPO_INSTALL_URL} | bash</code>
             </span>
         </div>
         <div class="flex items-center gap-2 shrink-0">
