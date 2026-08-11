@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-08-11
+
+Stable release of the beta.1 change set, byte-identical to it — no commits
+landed in between. See `[1.6.3-beta.1]` below for the full detail: `Status.health`
+now carries each warning's title, text and severity instead of only its map key,
+and the UI names what it is waiting for instead of showing the raw `NoState`
+enum.
+
+No soak, for the reason given under beta.1: the Tailscale version is unchanged
+from 1.6.2 (1.102.2) and nothing here touches the data path. beta.1 ran on
+UDM-SE for ~13 h before this promotion — zero restarts of `tailscaled` and
+`vpn-pack-manager`, zero error-level journal entries.
+
+**Upgrading anything that scripts the API:** `health` is an array of objects
+now, not an array of strings. `.health[]` becomes `.health[].code`.
+
 ## [1.6.3-beta.1] - 2026-08-10
 
 No soak: the Tailscale version is unchanged from 1.6.2 (1.102.2) and nothing
@@ -828,7 +844,8 @@ below for full detail.
 - Custom fwmark patch to avoid conflict with UniFi VPN clients
 - Support for UDM-SE, UDM-Pro, UDM-Pro-Max, UDM, UCG-Ultra, UDR-SE
 
-[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.3-beta.1...HEAD
+[Unreleased]: https://github.com/eds-ch/vpn-pack/compare/v1.6.3...HEAD
+[1.6.3]: https://github.com/eds-ch/vpn-pack/compare/v1.6.3-beta.1...v1.6.3
 [1.6.3-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2...v1.6.3-beta.1
 [1.6.2]: https://github.com/eds-ch/vpn-pack/compare/v1.6.2-beta.1...v1.6.2
 [1.6.2-beta.1]: https://github.com/eds-ch/vpn-pack/compare/v1.6.1...v1.6.2-beta.1
